@@ -1,7 +1,7 @@
 import torch as th
 import numpy as np
 from collections import Counter
-
+import numpy
 
 def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
           random_init=True, weight_norm=True):
@@ -135,7 +135,7 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
         m2.in_channels = new_width
 
         if noise:
-            noise = np.random.normal(scale=5e-2 * nw1.std(),
+            noise = np.random.normal(scale=5e-2 * nw1.std().item(),
                                      size=list(nw1.size()))
             nw1 += th.FloatTensor(noise).type_as(nw1)
 
@@ -230,7 +230,7 @@ def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True):
                 m2.weight.data.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).narrow(4, c_wh, 1).fill_(1)
 
         if noise:
-            noise = np.random.normal(scale=5e-2 * m2.weight.data.std(),
+            noise = np.random.normal(scale=5e-2 * m2.weight.data.std().item(),
                                      size=list(m2.weight.size()))
             m2.weight.data += th.FloatTensor(noise).type_as(m2.weight.data)
 

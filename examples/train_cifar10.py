@@ -57,10 +57,10 @@ test_transform = transforms.Compose(
 
 kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
 train_loader = torch.utils.data.DataLoader(
-    datasets.CIFAR10('./data', train=True, download=True, transform=train_transform),
+    datasets.CIFAR10('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=True, download=True, transform=train_transform),
     batch_size=args.batch_size, shuffle=True, **kwargs)
 test_loader = torch.utils.data.DataLoader(
-    datasets.CIFAR10('./data', train=False, transform=test_transform),
+    datasets.CIFAR10('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=False, transform=test_transform),
     batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
 
@@ -190,11 +190,11 @@ def train(epoch):
         optimizer.step()
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         avg_accu += pred.eq(target.data.view_as(pred)).cpu().sum()
-        avg_loss += loss.data[0]
+        avg_loss += loss.item()
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.data[0]))
+                100. * batch_idx / len(train_loader), loss.item()))
     avg_loss /= batch_idx + 1
     avg_accu = avg_accu / len(train_loader.dataset)
     return avg_accu, avg_loss
@@ -209,7 +209,7 @@ def test():
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
         output = model(data)
-        test_loss += F.nll_loss(output, target, size_average=False).data[0]  # sum up batch loss
+        test_loss += F.nll_loss(output, target, size_average=False).item()  # sum up batch loss
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
@@ -244,7 +244,7 @@ if __name__ == "__main__":
     model = Net()
     model.cuda()
     criterion = nn.NLLLoss()
-    plot = run_training(model, 'Teacher_', (args.epochs + 1) // 3)
+    plot = run_training(model, 'Teacher_', args.epochs + 1)
 
     # wider student training
     print("\n\n > Wider Student training ... ")
@@ -254,7 +254,7 @@ if __name__ == "__main__":
     del model
     model = model_
     model.net2net_wider()
-    plot = run_training(model, 'Wider_student_', (args.epochs + 1) // 3, plot)
+    plot = run_training(model, 'Wider_student_', args.epochs + 1)
 
     # wider + deeper student training
     print("\n\n > Wider+Deeper Student training ... ")
@@ -265,8 +265,8 @@ if __name__ == "__main__":
     del model
     model = model_
     model.net2net_deeper_nononline()
-    run_training(model, 'WiderDeeper_student_', (args.epochs + 1) // 3, plot)
-    print(" >> Time tkaen by whole net2net training  {}".format(time.time() - start_t))
+    run_training(model, 'WiderDeeper_student_', args.epochs + 1)
+    print(" >> Time taken by whole net2net training  {}".format(time.time() - start_t))
 
     # wider teacher training
     start_t = time.time()
