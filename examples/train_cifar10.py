@@ -22,7 +22,7 @@ parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=5, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -48,11 +48,11 @@ if args.cuda:
 train_transform = transforms.Compose(
              [
               transforms.ToTensor(),
-              transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+              transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
 test_transform = transforms.Compose(
              [transforms.ToTensor(),
-              transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+              transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
 
 kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
@@ -65,8 +65,10 @@ test_loader = torch.utils.data.DataLoader(
 
 
 class Net(nn.Module):
-    def __init__(self):
+    def __init__(self, num_of_class=10):
         super(Net, self).__init__()
+        self.num_of_class = num_of_class
+
         self.conv1 = nn.Conv2d(3, 8, 3, padding=1)
         self.bn1 = nn.BatchNorm2d(8)
         self.pool1 = nn.MaxPool2d(3, 2)
@@ -76,7 +78,7 @@ class Net(nn.Module):
         self.conv3 = nn.Conv2d(16, 32, 3, padding=1)
         self.bn3 = nn.BatchNorm2d(32)
         self.pool3 = nn.AvgPool2d(5, 1)
-        self.fc1 = nn.Linear(32 * 3 * 3, 10)
+        self.fc1 = nn.Linear(32 * 3 * 3, self.num_of_class)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -123,6 +125,44 @@ class Net(nn.Module):
         self.conv3 = s
         print(self)
 
+    def define_deeper(self):
+        self.conv1 = nn.Sequential(nn.Conv2d(3, 8, kernel_size=3, padding=1),
+                                   nn.BatchNorm2d(8),
+                                   nn.ReLU(),
+                                   nn.Conv2d(8, 8, kernel_size=3, padding=1))
+        self.bn1 = nn.BatchNorm2d(8)
+        self.conv2 = nn.Sequential(nn.Conv2d(8, 16, kernel_size=3, padding=1),
+                                   nn.BatchNorm2d(16),
+                                   nn.ReLU(),
+                                   nn.Conv2d(16, 16, kernel_size=3, padding=1))
+        self.bn2 = nn.BatchNorm2d(16)
+        self.conv3 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=3, padding=1),
+                                   nn.BatchNorm2d(32),
+                                   nn.ReLU(),
+                                   nn.Conv2d(32, 32, kernel_size=3, padding=1))
+        self.bn3 = nn.BatchNorm2d(32)
+        self.fc1 = nn.Linear(32*3*3, self.num_of_class)
+        print(self)
+
+    def manual_deeper(self):
+        self.conv1 = nn.Sequential(self.conv1,
+                                   nn.BatchNorm2d(8),
+                                   nn.ReLU(),
+                                   nn.Conv2d(8, 8, kernel_size=3, padding=1))
+        #self.bn1 = nn.BatchNorm2d(8)
+        self.conv2 = nn.Sequential(self.conv2,
+                                   nn.BatchNorm2d(16),
+                                   nn.ReLU(),
+                                   nn.Conv2d(16, 16, kernel_size=3, padding=1))
+        #self.bn2 = nn.BatchNorm2d(16)
+        self.conv3 = nn.Sequential(self.conv3,
+                                   nn.BatchNorm2d(32),
+                                   nn.ReLU(),
+                                   nn.Conv2d(32, 32, kernel_size=3, padding=1))
+        #self.bn3 = nn.BatchNorm2d(32)
+        #self.fc1 = nn.Linear(32*3*3, 10)
+        print(self)
+
     def net2net_deeper_nononline(self):
         s = deeper(self.conv1, None, bnorm_flag=True, weight_norm=args.weight_norm, noise=args.noise)
         self.conv1 = s
@@ -139,7 +179,7 @@ class Net(nn.Module):
         self.bn2 = nn.BatchNorm2d(24)
         self.conv3 = nn.Conv2d(24, 48, kernel_size=3, padding=1)
         self.bn3 = nn.BatchNorm2d(48)
-        self.fc1 = nn.Linear(48*3*3, 10)
+        self.fc1 = nn.Linear(48*3*3, self.num_of_class)
 
     def define_wider_deeper(self):
         self.conv1 = nn.Sequential(nn.Conv2d(3, 12, kernel_size=3, padding=1),
@@ -157,7 +197,7 @@ class Net(nn.Module):
                                    nn.ReLU(),
                                    nn.Conv2d(48, 48, kernel_size=3, padding=1))
         self.bn3 = nn.BatchNorm2d(48)
-        self.fc1 = nn.Linear(48*3*3, 10)
+        self.fc1 = nn.Linear(48*3*3, self.num_of_class)
         print(self)
 
 
@@ -179,6 +219,7 @@ def train(epoch):
     model.train()
     avg_loss = 0
     avg_accu = 0
+    train_len = 1e-4
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
@@ -191,14 +232,23 @@ def train(epoch):
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         avg_accu += pred.eq(target.data.view_as(pred)).cpu().sum()
         avg_loss += loss.item()
-        if batch_idx % args.log_interval == 0:
+        if (batch_idx+1) % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
-    avg_loss /= batch_idx + 1
-    avg_accu = avg_accu / len(train_loader.dataset)
-    return avg_accu, avg_loss
+        train_len += len(data)
 
+        # we give a quick test of initial model
+        if epoch == 0 and batch_idx == 10: break 
+
+    avg_loss /= (batch_idx + 1)
+    avg_accu = avg_accu / float(train_len)
+
+    print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAcc: {}'.format(
+        epoch, batch_idx * len(data), len(train_loader.dataset),
+        100. * batch_idx / len(train_loader), loss.item(), avg_accu))
+
+    return avg_accu, avg_loss
 
 def test():
     model.eval()
@@ -214,7 +264,7 @@ def test():
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
     test_loss /= len(test_loader.dataset)
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.4f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
     return correct / len(test_loader.dataset), test_loss
@@ -226,7 +276,7 @@ def run_training(model, run_name, epochs, plot=None):
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
     if plot is None:
         plot = PlotLearning('./plots/cifar/', 10, prefix=run_name)
-    for epoch in range(1, epochs + 1):
+    for epoch in range(epochs + 1):
         accu_train, loss_train = train(epoch)
         accu_test, loss_test = test()
         logs = {}
@@ -238,7 +288,8 @@ def run_training(model, run_name, epochs, plot=None):
     return plot
 
 
-if __name__ == "__main__":
+def full_explore():
+# if __name__ == "__main__":
     start_t = time.time()
     print("\n\n > Teacher training ... ")
     model = Net()
@@ -290,3 +341,46 @@ if __name__ == "__main__":
     model.define_wider_deeper()
     run_training(model, 'Wider_Deeper_teacher_', args.epochs + 1)
     print(" >> Time taken  {}".format(time.time() - start_t))
+
+if __name__ == "__main__":
+    start_t = time.time()
+    print("\n\n > Teacher training ... ")
+    model = Net()
+    model.cuda()
+    criterion = nn.NLLLoss()
+    plot = run_training(model, 'Teacher_', args.epochs + 5)
+
+    # wider student training
+    print("\n\n > Deeper Student training ... ")
+    model_ = copy.deepcopy(model)
+    model_2 = copy.deepcopy(model)
+
+    del model
+    model = model_
+    model.net2net_deeper()
+    model.cuda()
+    plot = run_training(model, 'Deeper_student_', args.epochs + 1)
+
+    # wider teacher training
+    start_t = time.time()
+    print("\n\n > Deeper teacher training ... ")
+
+    del model
+    model = Net()
+    model.define_deeper()
+    model.cuda()
+    run_training(model, 'Deeper_teacher_', args.epochs + 1)
+    print(" >> Time taken  {}".format(time.time() - start_t))
+
+    # wider teacher training
+    start_t = time.time()
+    print("\n\n > Deeper manual teacher training ... ")
+    #model_ = Net()
+
+    del model
+    model = model_2
+    model.manual_deeper()
+    model.cuda()
+    run_training(model, 'Deeper_teacher_', args.epochs + 1)
+    print(" >> Time taken  {}".format(time.time() - start_t))
+
