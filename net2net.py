@@ -4,7 +4,7 @@ from collections import Counter
 import numpy
 
 def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
-          random_init=True, weight_norm=True):
+          random_init=False, weight_norm=True):
     """
     Convert m1 layer to its wider version by adapthing next weight layer and
     possible batch norm layer in btw.
@@ -72,6 +72,7 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
         w2 = w2.transpose(0, 1)
         nw2 = nw2.transpose(0, 1)
 
+        # [Fan comment] not sure why it need to copy again?
         nw1.narrow(0, 0, old_width).copy_(w1)
         nw2.narrow(0, 0, old_width).copy_(w2)
         nb1.narrow(0, 0, old_width).copy_(b1)
@@ -113,16 +114,19 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
             else:
                 nw1.select(0, i).copy_(w1.select(0, idx).clone())
                 nw2.select(0, i).copy_(w2.select(0, idx).clone())
+
             nb1[i] = b1[idx]
 
-        if bnorm is not None:
-            nrunning_mean[i] = bnorm.running_mean[idx]
-            nrunning_var[i] = bnorm.running_var[idx]
-            if bnorm.affine:
-                nweight[i] = bnorm.weight.data[idx]
-                nbias[i] = bnorm.bias.data[idx]
-            bnorm.num_features = new_width
+            # [Fan Comment] Move the following into the for loop
+            if bnorm is not None:
+                nrunning_mean[i] = bnorm.running_mean[idx]
+                nrunning_var[i] = bnorm.running_var[idx]
+                if bnorm.affine:
+                    nweight[i] = bnorm.weight.data[idx]
+                    nbias[i] = bnorm.bias.data[idx]
+        
 
+        # [Fan comment] if multiple downstream units?
         if not random_init:
             for idx, d in tracking.items():
                 for item in d:
@@ -159,6 +163,8 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
             if bnorm.affine:
                 bnorm.weight.data = nweight
                 bnorm.bias.data = nbias
+            bnorm.num_features = new_width
+
         return m1, m2, bnorm
 
 
@@ -264,3 +270,4 @@ def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True):
     s.add_module('conv_new', m2)
 
     return s
+

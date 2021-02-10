@@ -18,7 +18,7 @@ parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=5, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -117,7 +117,8 @@ def train(epoch):
         loss = F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
-        #if batch_idx % args.log_interval == 0:
+
+        if epoch==0 and batch_idx==10: break
 
     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
         epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -145,7 +146,7 @@ def test():
 
 print("\n\n > Teacher training ... ")
 # treacher training
-for epoch in range(1, args.epochs + 1):
+for epoch in range(2*(args.epochs) + 1):
     train(epoch)
     teacher_accu = test()
 
@@ -160,7 +161,7 @@ model = model_
 model.net2net_wider()
 model.cuda()
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-for epoch in range(1, args.epochs + 1):
+for epoch in range(args.epochs + 1):
     train(epoch)
     wider_accu = test()
 
@@ -175,7 +176,7 @@ model = model_
 model.net2net_deeper()
 model.cuda()
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-for epoch in range(1, args.epochs + 1):
+for epoch in range(args.epochs + 1):
     train(epoch)
     deeper_accu = test()
 
@@ -189,7 +190,7 @@ model = model_
 model.define_wider()
 model.cuda()
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-for epoch in range(1, 2*(args.epochs) + 1):
+for epoch in range(2*(args.epochs) + 1):
     train(epoch)
     wider_teacher_accu = test()
 
@@ -203,7 +204,7 @@ model = model_
 model.define_wider_deeper()
 model.cuda()
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-for epoch in range(1, 3*(args.epochs) + 1):
+for epoch in range(2*(args.epochs) + 1):
     train(epoch)
     wider_deeper_teacher_accu = test()
 

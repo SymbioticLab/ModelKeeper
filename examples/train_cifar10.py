@@ -14,6 +14,7 @@ import numpy as np
 
 from utils import NLL_loss_instance
 from utils import PlotLearning
+from torchsummary import summary
 
 
 # Training settings
@@ -22,7 +23,7 @@ parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=5, metavar='N',
+parser.add_argument('--epochs', type=int, default=1, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -32,11 +33,11 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
+parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging status')
 parser.add_argument('--noise', type=int, default=1,
                     help='noise or no noise 0-1')
-parser.add_argument('--weight_norm', type=int, default=1,
+parser.add_argument('--weight_norm', type=int, default=0,
                     help='norm or no weight norm 0-1')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -60,7 +61,7 @@ train_loader = torch.utils.data.DataLoader(
     datasets.CIFAR10('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=True, download=True, transform=train_transform),
     batch_size=args.batch_size, shuffle=True, **kwargs)
 test_loader = torch.utils.data.DataLoader(
-    datasets.CIFAR10('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=False, transform=test_transform),
+    datasets.CIFAR10('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=False, download=True, transform=test_transform),
     batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
 
@@ -108,11 +109,11 @@ class Net(nn.Module):
             print(x.size())
 
     def net2net_wider(self):
-        self.conv1, self.conv2, _ = wider(self.conv1, self.conv2, 12,
+        self.conv1, self.conv2, self.bn1 = wider(self.conv1, self.conv2, 12,
                                           self.bn1, noise=args.noise)
-        self.conv2, self.conv3, _ = wider(self.conv2, self.conv3, 24,
+        self.conv2, self.conv3, self.bn2 = wider(self.conv2, self.conv3, 24,
                                           self.bn2, noise=args.noise)
-        self.conv3, self.fc1, _ = wider(self.conv3, self.fc1, 48,
+        self.conv3, self.fc1, self.bn3 = wider(self.conv3, self.fc1, 48,
                                         self.bn3, noise=args.noise)
         print(self)
 
@@ -218,8 +219,8 @@ def net2net_deeper_recursive(model):
 def train(epoch):
     model.train()
     avg_loss = 0
-    avg_accu = 0
-    train_len = 1e-4
+    avg_accu = 0.
+
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
@@ -229,6 +230,7 @@ def train(epoch):
         loss = criterion(output, target)
         loss.backward()
         optimizer.step()
+
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         avg_accu += pred.eq(target.data.view_as(pred)).cpu().sum()
         avg_loss += loss.item()
@@ -236,17 +238,16 @@ def train(epoch):
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
-        train_len += len(data)
 
         # we give a quick test of initial model
         if epoch == 0 and batch_idx == 10: break 
 
     avg_loss /= (batch_idx + 1)
-    avg_accu = avg_accu / float(train_len)
+    avg_accu /= len(train_loader.dataset)
 
     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAcc: {}'.format(
         epoch, batch_idx * len(data), len(train_loader.dataset),
-        100. * batch_idx / len(train_loader), loss.item(), avg_accu))
+        100. * batch_idx / len(train_loader), loss.item(), avg_accu * 100.))
 
     return avg_accu, avg_loss
 
@@ -272,6 +273,8 @@ def test():
 
 def run_training(model, run_name, epochs, plot=None):
     global optimizer
+    #print(summary(model, (3, 32, 32)))
+
     model.cuda()
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
     if plot is None:
@@ -287,61 +290,6 @@ def run_training(model, run_name, epochs, plot=None):
         plot.plot(logs)
     return plot
 
-
-def full_explore():
-# if __name__ == "__main__":
-    start_t = time.time()
-    print("\n\n > Teacher training ... ")
-    model = Net()
-    model.cuda()
-    criterion = nn.NLLLoss()
-    plot = run_training(model, 'Teacher_', args.epochs + 1)
-
-    # wider student training
-    print("\n\n > Wider Student training ... ")
-    model_ = Net()
-    model_ = copy.deepcopy(model)
-
-    del model
-    model = model_
-    model.net2net_wider()
-    plot = run_training(model, 'Wider_student_', args.epochs + 1)
-
-    # wider + deeper student training
-    print("\n\n > Wider+Deeper Student training ... ")
-    model_ = Net()
-    model_.net2net_wider()
-    model_ = copy.deepcopy(model)
-
-    del model
-    model = model_
-    model.net2net_deeper_nononline()
-    run_training(model, 'WiderDeeper_student_', args.epochs + 1)
-    print(" >> Time taken by whole net2net training  {}".format(time.time() - start_t))
-
-    # wider teacher training
-    start_t = time.time()
-    print("\n\n > Wider teacher training ... ")
-    model_ = Net()
-
-    del model
-    model = model_
-    model.define_wider()
-    model.cuda()
-    run_training(model, 'Wider_teacher_', args.epochs + 1)
-    print(" >> Time taken  {}".format(time.time() - start_t))
-
-    # wider deeper teacher training
-    print("\n\n > Wider+Deeper teacher training ... ")
-    start_t = time.time()
-    model_ = Net()
-
-    del model
-    model = model_
-    model.define_wider_deeper()
-    run_training(model, 'Wider_Deeper_teacher_', args.epochs + 1)
-    print(" >> Time taken  {}".format(time.time() - start_t))
-
 if __name__ == "__main__":
     start_t = time.time()
     print("\n\n > Teacher training ... ")
@@ -350,37 +298,33 @@ if __name__ == "__main__":
     criterion = nn.NLLLoss()
     plot = run_training(model, 'Teacher_', args.epochs + 5)
 
-    # wider student training
-    print("\n\n > Deeper Student training ... ")
     model_ = copy.deepcopy(model)
-    model_2 = copy.deepcopy(model)
 
-    del model
-    model = model_
-    model.net2net_deeper()
-    model.cuda()
-    plot = run_training(model, 'Deeper_student_', args.epochs + 1)
+    # wider student training
+    print("\n\n > Wider Student training ... ")
 
-    # wider teacher training
-    start_t = time.time()
-    print("\n\n > Deeper teacher training ... ")
+    model = copy.deepcopy(model_)
+    model.net2net_wider()
+    plot = run_training(model, 'Wider_student_', args.epochs + 1)
 
-    del model
-    model = Net()
-    model.define_deeper()
-    model.cuda()
-    run_training(model, 'Deeper_teacher_', args.epochs + 1)
-    print(" >> Time taken  {}".format(time.time() - start_t))
+    # deeper student training
+    # print("\n\n > Deeper Student training ... ")
 
-    # wider teacher training
-    start_t = time.time()
-    print("\n\n > Deeper manual teacher training ... ")
-    #model_ = Net()
+    # model = copy.deepcopy(model_)
+    # model.net2net_deeper()
+    # model.cuda()
+    # plot = run_training(model, 'Deeper_student_', args.epochs + 1)
 
-    del model
-    model = model_2
-    model.manual_deeper()
-    model.cuda()
-    run_training(model, 'Deeper_teacher_', args.epochs + 1)
-    print(" >> Time taken  {}".format(time.time() - start_t))
+
+    # print("\n\n > Wider teacher training ... ")
+    # model = copy.deepcopy(model_)
+    # model.define_wider()
+    # model.cuda()
+    # plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
+
+    # print("\n\n > Deeper manual teacher training ... ")
+    # model = copy.deepcopy(model_)   
+    # model.manual_deeper()
+    # model.cuda()
+    # plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
 
