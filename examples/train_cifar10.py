@@ -23,7 +23,7 @@ parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=1, metavar='N',
+parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -35,7 +35,7 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging status')
-parser.add_argument('--noise', type=int, default=1,
+parser.add_argument('--noise', type=int, default=0,
                     help='noise or no noise 0-1')
 parser.add_argument('--weight_norm', type=int, default=0,
                     help='norm or no weight norm 0-1')
@@ -110,19 +110,19 @@ class Net(nn.Module):
 
     def net2net_wider(self):
         self.conv1, self.conv2, self.bn1 = wider(self.conv1, self.conv2, 12,
-                                          self.bn1, noise=args.noise)
+                                          self.bn1, noise_var=args.noise)
         self.conv2, self.conv3, self.bn2 = wider(self.conv2, self.conv3, 24,
-                                          self.bn2, noise=args.noise)
+                                          self.bn2, noise_var=args.noise)
         self.conv3, self.fc1, self.bn3 = wider(self.conv3, self.fc1, 48,
-                                        self.bn3, noise=args.noise)
+                                        self.bn3, noise_var=args.noise)
         print(self)
 
     def net2net_deeper(self):
-        s = deeper(self.conv1, nn.ReLU, bnorm_flag=True, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv1, nn.ReLU, bnorm_flag=False, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv1 = s
-        s = deeper(self.conv2, nn.ReLU, bnorm_flag=True, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv2, nn.ReLU, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv2 = s
-        s = deeper(self.conv3, nn.ReLU, bnorm_flag=True, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv3, nn.ReLU, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv3 = s
         print(self)
 
@@ -165,11 +165,11 @@ class Net(nn.Module):
         print(self)
 
     def net2net_deeper_nononline(self):
-        s = deeper(self.conv1, None, bnorm_flag=True, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv1, None, bnorm_flag=False, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv1 = s
-        s = deeper(self.conv2, None, bnorm_flag=True, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv2, None, bnorm_flag=False, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv2 = s
-        s = deeper(self.conv3, None, bnorm_flag=True, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv3, None, bnorm_flag=False, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv3 = s
         print(self)
 
@@ -301,11 +301,11 @@ if __name__ == "__main__":
     model_ = copy.deepcopy(model)
 
     # wider student training
-    # print("\n\n > Wider Student training ... ")
+    print("\n\n > Wider Student training ... ")
 
-    # model = copy.deepcopy(model_)
-    # model.net2net_wider()
-    # plot = run_training(model, 'Wider_student_', args.epochs + 1)
+    model = copy.deepcopy(model_)
+    model.net2net_wider()
+    plot = run_training(model, 'Wider_student_', args.epochs + 1)
 
     # deeper student training
     print("\n\n > Deeper Student training ... ")
@@ -316,15 +316,15 @@ if __name__ == "__main__":
     plot = run_training(model, 'Deeper_student_', args.epochs + 1)
 
 
-    # print("\n\n > Wider teacher training ... ")
-    # model = copy.deepcopy(model_)
-    # model.define_wider()
-    # model.cuda()
-    # plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
+    print("\n\n > Wider teacher training ... ")
+    model = copy.deepcopy(model_)
+    model.define_wider()
+    model.cuda()
+    plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
 
-    # print("\n\n > Deeper manual teacher training ... ")
-    # model = copy.deepcopy(model_)   
-    # model.manual_deeper()
-    # model.cuda()
-    # plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
+    print("\n\n > Deeper manual teacher training ... ")
+    model = copy.deepcopy(model_)   
+    model.manual_deeper()
+    model.cuda()
+    plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
 
