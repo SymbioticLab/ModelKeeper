@@ -301,19 +301,19 @@ if __name__ == "__main__":
     model_ = copy.deepcopy(model)
 
     # wider student training
-    print("\n\n > Wider Student training ... ")
-
-    model = copy.deepcopy(model_)
-    model.net2net_wider()
-    plot = run_training(model, 'Wider_student_', args.epochs + 1)
-
-    # deeper student training
-    # print("\n\n > Deeper Student training ... ")
+    # print("\n\n > Wider Student training ... ")
 
     # model = copy.deepcopy(model_)
-    # model.net2net_deeper()
-    # model.cuda()
-    # plot = run_training(model, 'Deeper_student_', args.epochs + 1)
+    # model.net2net_wider()
+    # plot = run_training(model, 'Wider_student_', args.epochs + 1)
+
+    # deeper student training
+    print("\n\n > Deeper Student training ... ")
+
+    model = copy.deepcopy(model_)
+    model.net2net_deeper()
+    model.cuda()
+    plot = run_training(model, 'Deeper_student_', args.epochs + 1)
 
 
     # print("\n\n > Wider teacher training ... ")

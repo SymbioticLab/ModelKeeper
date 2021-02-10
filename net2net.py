@@ -196,6 +196,7 @@ def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True):
     elif "Conv" in m.__class__.__name__:
         assert m.kernel_size[0] % 2 == 1, "Kernel size needs to be odd"
 
+        # [Fan comment] Do not understand what happens here
         if m.weight.dim() == 4:
             pad_h = int((m.kernel_size[0] - 1) / 2)
             # pad_w = pad_h
@@ -270,4 +271,5 @@ def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True):
     s.add_module('conv_new', m2)
 
     return s
+
 
