@@ -2,8 +2,7 @@ import torch as th
 import numpy as np
 import numpy
 
-def wider(m1, m2, new_width, bnorm=None, out_size=None, noise_var=5e-2,
-          random_init=False, weight_norm=True):
+def wider(m1, m2, new_width, bnorm=None, out_size=None, noise_var=5e-2, weight_norm=True):
     """
     Convert m1 layer to its wider version by adapthing next weight layer and
     possible batch norm layer in btw.
@@ -16,8 +15,6 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise_var=5e-2,
             is 3rd dim size of the output feature map of m1. Used to compute
             the matching Linear layer size
         noise (bool, True) - add a slight noise to break symmetry btw weights.
-        random_init (optional, True) - if True, new weights are initialized
-            randomly.
         weight_norm (optional, True) - If True, weights are normalized before
             transfering.
     """
@@ -80,6 +77,11 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise_var=5e-2,
 
                 nweight.narrow(0, 0, old_width).copy_(bnorm.weight.data)
                 nbias.narrow(0, 0, old_width).copy_(bnorm.bias.data)
+
+        if weight_norm:
+            for i in range(old_width):
+                norm = w1.select(0, i).norm()
+                w1.select(0, i).div_(norm)
 
         # replicate weights randomly, instead of padding zero simply, as the latter is too sparse
         tracking = dict()

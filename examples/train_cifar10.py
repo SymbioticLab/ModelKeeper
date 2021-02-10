@@ -35,9 +35,9 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging status')
-parser.add_argument('--noise', type=int, default=0,
+parser.add_argument('--noise', type=float, default=5e-2,
                     help='noise or no noise 0-1')
-parser.add_argument('--weight_norm', type=int, default=0,
+parser.add_argument('--weight_norm', type=int, default=1,
                     help='norm or no weight norm 0-1')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -118,7 +118,7 @@ class Net(nn.Module):
         print(self)
 
     def net2net_deeper(self):
-        s = deeper(self.conv1, nn.ReLU, bnorm_flag=False, weight_norm=args.weight_norm, noise_var=args.noise)
+        s = deeper(self.conv1, nn.ReLU, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv1 = s
         s = deeper(self.conv2, nn.ReLU, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv2 = s
@@ -165,11 +165,11 @@ class Net(nn.Module):
         print(self)
 
     def net2net_deeper_nononline(self):
-        s = deeper(self.conv1, None, bnorm_flag=False, weight_norm=args.weight_norm, noise_var=args.noise)
+        s = deeper(self.conv1, None, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv1 = s
-        s = deeper(self.conv2, None, bnorm_flag=False, weight_norm=args.weight_norm, noise_var=args.noise)
+        s = deeper(self.conv2, None, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv2 = s
-        s = deeper(self.conv3, None, bnorm_flag=False, weight_norm=args.weight_norm, noise_var=args.noise)
+        s = deeper(self.conv3, None, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
         self.conv3 = s
         print(self)
 
@@ -319,6 +319,12 @@ if __name__ == "__main__":
     print("\n\n > Wider teacher training ... ")
     model = copy.deepcopy(model_)
     model.define_wider()
+    model.cuda()
+    plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
+
+    print("\n\n > Deeper teacher training ... ")
+    model = copy.deepcopy(model_)   
+    model.define_deeper()
     model.cuda()
     plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
 
