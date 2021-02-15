@@ -65,9 +65,7 @@ class TestOperators(unittest.TestCase):
 
         conv1, conv2, _ = wider(net._modules['conv1'],
                                 net._modules['conv2'],
-                                20,
-                                noise=False,
-                                random_init=False,
+                                20, noise_var=0,
                                 weight_norm = False)
 
         net._modules['conv1'] = conv1
@@ -75,9 +73,7 @@ class TestOperators(unittest.TestCase):
 
         conv2, fc1, _ = wider(net._modules['conv2'],
                               net._modules['fc1'],
-                              60,
-                              noise=False,
-                              random_init=False,
+                              60, noise_var=0,
                               weight_norm=False)
         net._modules['conv2'] = conv2
         net._modules['fc1'] = fc1
@@ -98,9 +94,7 @@ class TestOperators(unittest.TestCase):
         conv1, conv2, _ = wider(net._modules['conv1'],
                                 net._modules['conv2'],
                                 20,
-                                noise=False,
-                                random_init=False,
-                                weight_norm=False)
+                                weight_norm=False, noise_var=0)
 
         net._modules['conv1'] = conv1
         net._modules['conv2'] = conv2
@@ -109,9 +103,7 @@ class TestOperators(unittest.TestCase):
                               net._modules['fc1'],
                               60,
                               out_size=[1, 4, 4],
-                              noise=False,
-                              random_init=False,
-                              weight_norm=False)
+                              weight_norm=False, noise_var=0)
         net._modules['conv2'] = conv2
         net._modules['fc1'] = fc1
 
@@ -131,7 +123,7 @@ class TestOperators(unittest.TestCase):
         conv1, conv2, _ = wider(net._modules['conv1'],
                                 net._modules['conv2'],
                                 20,
-                                noise=1)
+                                noise_var=0)
 
         net._modules['conv1'] = conv1
         net._modules['conv2'] = conv2
@@ -139,7 +131,7 @@ class TestOperators(unittest.TestCase):
         conv2, fc1, _ = wider(net._modules['conv2'],
                               net._modules['fc1'],
                               60,
-                              noise=1)
+                              noise_var=0)
         net._modules['conv2'] = conv2
         net._modules['fc1'] = fc1
 
@@ -157,13 +149,13 @@ class TestOperators(unittest.TestCase):
         net.eval()
         out = net(inp)
 
-        s = deeper(net._modules['conv1'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise=False)
+        s = deeper(net._modules['conv1'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise_var=0)
         net._modules['conv1'] = s
 
-        s2 = deeper(net._modules['conv2'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise=False)
+        s2 = deeper(net._modules['conv2'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise_var=0)
         net._modules['conv2'] = s2
 
-        s3 = deeper(net._modules['fc1'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise=False)
+        s3 = deeper(net._modules['fc1'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise_var=0)
         net._modules['fc1'] = s3
 
         net.eval()
@@ -179,7 +171,7 @@ class TestOperators(unittest.TestCase):
         net.eval()
         out = net(inp)
 
-        s = deeper(net._modules['conv1'], nn.ReLU, bnorm_flag=False, weight_norm=False, noise=False)
+        s = deeper(net._modules['conv1'], nn.ReLU, bnorm_flag=False, weight_norm=False, noise_var=0)
         net._modules['conv1'] = s
 
         # s2 = deeper(net._modules['conv2'], nn.ReLU, bnorm_flag=False, weight_norm=False, noise=False)
@@ -193,4 +185,3 @@ class TestOperators(unittest.TestCase):
 tester = TestOperators()
 tester.test_wider()
 tester.test_deeper()
-

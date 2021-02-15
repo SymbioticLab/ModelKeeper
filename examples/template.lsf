@@ -13,5 +13,4 @@ rm log.o
 #BSUB -J net2net
 #BSUB -e log.e
 #BSUB -o log.o
-
 python train_cifar10.py

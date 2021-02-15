@@ -33,11 +33,11 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-parser.add_argument('--log-interval', type=int, default=100, metavar='N',
+parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
                     help='how many batches to wait before logging status')
 parser.add_argument('--noise', type=float, default=5e-2,
                     help='noise or no noise 0-1')
-parser.add_argument('--weight_norm', type=int, default=1,
+parser.add_argument('--weight_norm', type=int, default=0,
                     help='norm or no weight norm 0-1')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -215,9 +215,15 @@ def net2net_deeper_recursive(model):
             model._modules[name] = module
     return model
 
+def adjust_learning_rate(optimizer, decay=0.92):
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = param_group['lr'] * decay
 
 def train(epoch):
+    global optimizer
+    adjust_learning_rate(optimizer)
     model.train()
+
     avg_loss = 0
     avg_accu = 0.
 
@@ -254,7 +260,7 @@ def train(epoch):
 def test():
     model.eval()
     test_loss = 0
-    correct = 0
+    correct = 0.
     for data, target in test_loader:
         if args.cuda:
             data, target = data.cuda(), target.cuda()
@@ -265,18 +271,19 @@ def test():
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
     test_loss /= len(test_loader.dataset)
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.4f}%)\n'.format(
+    print('Test set: Average loss: {}, Accuracy: {}/{} ({}%)'.format(
         test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
+        100. * float(correct) / float(len(test_loader.dataset))))
     return correct / len(test_loader.dataset), test_loss
 
 
 def run_training(model, run_name, epochs, plot=None):
     global optimizer
-    #print(summary(model, (3, 32, 32)))
 
     model.cuda()
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    accu_test, loss_test = test()
+
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=1e-4)
     if plot is None:
         plot = PlotLearning('./plots/cifar/', 10, prefix=run_name)
     for epoch in range(epochs + 1):
@@ -300,7 +307,7 @@ if __name__ == "__main__":
 
     model_ = copy.deepcopy(model)
 
-    # wider student training
+    # # wider student training
     print("\n\n > Wider Student training ... ")
 
     model = copy.deepcopy(model_)
@@ -316,21 +323,21 @@ if __name__ == "__main__":
     plot = run_training(model, 'Deeper_student_', args.epochs + 1)
 
 
-    print("\n\n > Wider teacher training ... ")
-    model = copy.deepcopy(model_)
-    model.define_wider()
-    model.cuda()
-    plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
+    # print("\n\n > Wider teacher training ... ")
+    # model = copy.deepcopy(model_)
+    # model.define_wider()
+    # model.cuda()
+    # plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
 
-    print("\n\n > Deeper teacher training ... ")
-    model = copy.deepcopy(model_)   
-    model.define_deeper()
-    model.cuda()
-    plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
+    # print("\n\n > Deeper teacher training ... ")
+    # model = copy.deepcopy(model_)   
+    # model.define_deeper()
+    # model.cuda()
+    # plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
 
-    print("\n\n > Deeper manual teacher training ... ")
-    model = copy.deepcopy(model_)   
-    model.manual_deeper()
-    model.cuda()
-    plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
+    # print("\n\n > Deeper manual teacher training ... ")
+    # model = copy.deepcopy(model_)   
+    # model.manual_deeper()
+    # model.cuda()
+    # plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
 

@@ -7,6 +7,7 @@ plot/
 # C extensions
 *.so
 *.png
+data/
 
 # Distribution / packaging
 .Python
