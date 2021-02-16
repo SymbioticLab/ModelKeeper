@@ -23,7 +23,7 @@ parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=200, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -37,8 +37,11 @@ parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
                     help='how many batches to wait before logging status')
 parser.add_argument('--noise', type=float, default=5e-2,
                     help='noise or no noise 0-1')
-parser.add_argument('--weight_norm', type=int, default=0,
+parser.add_argument('--weight_norm', type=int, default=1,
                     help='norm or no weight norm 0-1')
+parser.add_argument('--data', type=str, default='cifar100')
+
+
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -57,13 +60,24 @@ test_transform = transforms.Compose(
 
 
 kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
-train_loader = torch.utils.data.DataLoader(
-    datasets.CIFAR10('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=True, download=True, transform=train_transform),
-    batch_size=args.batch_size, shuffle=True, **kwargs)
-test_loader = torch.utils.data.DataLoader(
-    datasets.CIFAR10('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=False, download=True, transform=test_transform),
-    batch_size=args.test_batch_size, shuffle=True, **kwargs)
+num_of_class = 10
 
+if args.data == 'cifar10':
+    train_loader = torch.utils.data.DataLoader(
+        datasets.CIFAR10('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=True, download=True, transform=train_transform),
+        batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.CIFAR10('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=False, download=True, transform=test_transform),
+        batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+elif args.data == 'cifar100':
+    num_of_class = 100
+    train_loader = torch.utils.data.DataLoader(
+        datasets.CIFAR100('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=True, download=True, transform=train_transform),
+        batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.CIFAR100('/gpfs/gpfs0/groups/chowdhury/fanlai/dataset', train=False, download=True, transform=test_transform),
+        batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
 class Net(nn.Module):
     def __init__(self, num_of_class=10):
@@ -215,7 +229,7 @@ def net2net_deeper_recursive(model):
             model._modules[name] = module
     return model
 
-def adjust_learning_rate(optimizer, decay=0.92):
+def adjust_learning_rate(optimizer, decay=0.95):
     for param_group in optimizer.param_groups:
         param_group['lr'] = param_group['lr'] * decay
 
@@ -300,10 +314,10 @@ def run_training(model, run_name, epochs, plot=None):
 if __name__ == "__main__":
     start_t = time.time()
     print("\n\n > Teacher training ... ")
-    model = Net()
+    model = Net(num_of_class)
     model.cuda()
     criterion = nn.NLLLoss()
-    plot = run_training(model, 'Teacher_', args.epochs + 5)
+    plot = run_training(model, 'Teacher_', args.epochs+10)
 
     model_ = copy.deepcopy(model)
 
@@ -323,21 +337,21 @@ if __name__ == "__main__":
     plot = run_training(model, 'Deeper_student_', args.epochs + 1)
 
 
-    # print("\n\n > Wider teacher training ... ")
-    # model = copy.deepcopy(model_)
-    # model.define_wider()
-    # model.cuda()
-    # plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
+    print("\n\n > Wider teacher training ... ")
+    model = copy.deepcopy(model_)
+    model.define_wider()
+    model.cuda()
+    plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
 
-    # print("\n\n > Deeper teacher training ... ")
-    # model = copy.deepcopy(model_)   
-    # model.define_deeper()
-    # model.cuda()
-    # plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
+    print("\n\n > Deeper teacher training ... ")
+    model = copy.deepcopy(model_)   
+    model.define_deeper()
+    model.cuda()
+    plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
 
-    # print("\n\n > Deeper manual teacher training ... ")
-    # model = copy.deepcopy(model_)   
-    # model.manual_deeper()
-    # model.cuda()
-    # plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
+    print("\n\n > Deeper manual teacher training ... ")
+    model = copy.deepcopy(model_)   
+    model.manual_deeper()
+    model.cuda()
+    plot = run_training(model, 'Deeper_teacher_', args.epochs + 1)
 

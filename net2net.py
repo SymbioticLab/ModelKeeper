@@ -10,10 +10,13 @@ def get_mapping_index(layer, new_width, split_max=False):
 
     if split_max:
         replicate_unit = th.topk((th.dot(th.ones(old_width), layer.weight))+layer.bias, k=new_width-old_width)
+        return replicate_unit.tolist()
     else:
-        replicate_unit = th.randint(0, old_width, size=(new_width-old_width,))
+        replicate_unit = []
+        for i in range(old_width, new_width):
+            replicate_unit.append(np.random.randint(0, i))
 
-    return replicate_unit.tolist()
+        return replicate_unit
 
 def bn_identity(dim, width):
     if dim == 4:
@@ -51,12 +54,12 @@ def bn_wider(bnorm, split_index, new_width):
     """Handle new units"""
     for i in range(old_width, new_width):
         idx = split_index[i-old_width]
-        nrunning_mean[i] = bnorm.running_mean[idx]
-        nrunning_var[i] = bnorm.running_var[idx]
+        nrunning_mean[i] = nrunning_mean[idx].clone()
+        nrunning_var[i] = nrunning_var[idx].clone()
 
         if bnorm.affine:
-            nweight[i] = bnorm.weight.data[idx]
-            nbias[i] = bnorm.bias.data[idx]
+            nweight[i] = nweight[idx].clone()
+            nbias[i] = nbias[idx].clone()
 
     bnorm.running_var = nrunning_var
     bnorm.running_mean = nrunning_mean
@@ -119,42 +122,39 @@ def wider(parent, child, new_width, bnorm=None, out_size=None, mapping_index=Non
 
         w2 = w2.transpose(0, 1)
         nw2 = nw2.transpose(0, 1)
-
         old_width = w1.size(0)
+
         nw1.narrow(0, 0, old_width).copy_(w1)
         nw2.narrow(0, 0, old_width).copy_(w2)
         nb1.narrow(0, 0, old_width).copy_(b1)
 
         # replicate weights randomly, instead of padding zero simply, as the latter is too sparse
-        split_index = mapping_index if mapping_index else get_mapping_index(m1, new_width)
-        tracking = dict()
+        split_index = mapping_index
+        if split_index is None:
+            split_index = get_mapping_index(m1, new_width)
+
+        # add noise to break symmetry if we did not modify the parent layer before
         for i in range(old_width, new_width):
             idx = split_index[i-old_width]
-            try:
-                tracking[idx].append(i)
-            except:
-                tracking[idx] = [idx] # since we already have this weight before
-                tracking[idx].append(i)
+            nw1[i] = nw1[idx].clone()
 
-            nw1.select(0, i).copy_(w1.select(0, idx).clone())
-            nw2.select(0, i).copy_(w2.select(0, idx).clone())
-            nb1[i] = b1[idx]
+            # halve and then add noise
+            split_weight = nw2[idx].clone() * 0.5
+            noise_w = np.random.normal(scale=noise_var * nw2[idx].std().item(), size=list(nw2[idx].size()))
+            nw2[i] = split_weight + th.FloatTensor(noise_w)
+            nw2[idx] = split_weight - th.FloatTensor(noise_w)
 
-        # as copy units multiple times
-        for idx, d in tracking.items():
-            for item in d:
-                nw2[item].div_(len(d))
-
+            # bias layer
+            noise_bn = np.random.normal(scale=abs(noise_var * nb1[idx].item()))
+            nb1[i] = nb1[idx].clone()
+            nb1[idx] -= noise_bn
+            nb1[i] += noise_bn
+            
         w2.transpose_(0, 1)
         nw2.transpose_(0, 1)
 
         m1.out_channels = new_width
         m2.in_channels = new_width
-
-        # add noise to break symmetry if we did not modify the parent layer before
-        if noise_var and mapping_index is None:
-            noise = np.random.normal(scale=noise_var * nw1.std().item(), size=list(nw1.size()))
-            nw1 += th.FloatTensor(noise).type_as(nw1)
 
         m1.weight.data = nw1
         m1.bias.data = nb1
@@ -198,18 +198,21 @@ def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise_var=5e-2):
         assert m.kernel_size[0] % 2 == 1, "Kernel size needs to be odd"
 
         if m.weight.dim() == 4:
-            pad_h = int((m.kernel_size[0] - 1) / 2)
+            pad_h = m.kernel_size[0] // 2
             # pad_w = pad_h
             m2 = th.nn.Conv2d(m.out_channels, m.out_channels, kernel_size=m.kernel_size, padding=pad_h)
-            m2.weight.data.zero_()
             c = m.kernel_size[0] // 2 # center location of the kernel
 
         elif m.weight.dim() == 5:
-            pad_hw = int((m.kernel_size[1] - 1) / 2)  # pad height and width
-            pad_d = int((m.kernel_size[0] - 1) / 2)  # pad depth
+            pad_hw = m.kernel_size[1] // 2  # pad height and width
+            pad_d = m.kernel_size[0] // 2  # pad depth
             m2 = th.nn.Conv3d(m.out_channels, m.out_channels, kernel_size=m.kernel_size, padding=(pad_d, pad_hw, pad_hw))
+
             c_wh = m.kernel_size[1] // 2
             c_d = m.kernel_size[0] // 2
+
+        m2.weight.data.zero_()
+        m2.bias.data.zero_()
 
         restore = False
         if m2.weight.dim() == 2:
@@ -223,14 +226,16 @@ def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise_var=5e-2):
                 m2.weight.data.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).narrow(4, c_wh, 1).fill_(1)
 
         if noise_var:
-            noise = np.random.normal(scale=noise_var * m2.weight.data.std().item(),
-                                     size=list(m2.weight.size()))
-            m2.weight.data += th.FloatTensor(noise).type_as(m2.weight.data)
+            # no need std here since it is eye
+            w_noise = np.random.normal(scale=noise_var, size=list(m2.weight.size()))
+            m2.weight.data += th.FloatTensor(w_noise).type_as(m2.weight.data)
+
+            bn_noise = np.random.normal(scale=noise_var, size=list(m2.bias.size()))
+            m2.bias.data += th.FloatTensor(bn_noise).type_as(m2.bias.data)
 
         if restore:
             m2.weight.data = m2.weight.data.view(m2.weight.size(0), m2.in_channels, m2.kernel_size[0], m2.kernel_size[0])
 
-        m2.bias.data.zero_()
     else:
         raise RuntimeError("{} Module not supported".format(m.__class__.__name__))
 

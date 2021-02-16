@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from net2net import wider, deeper
 
+noise_var=5
 
 class Net(nn.Module):
 
@@ -94,7 +95,7 @@ class TestOperators(unittest.TestCase):
         conv1, conv2, _ = wider(net._modules['conv1'],
                                 net._modules['conv2'],
                                 20,
-                                weight_norm=False, noise_var=0)
+                                weight_norm=False, noise_var=noise_var)
 
         net._modules['conv1'] = conv1
         net._modules['conv2'] = conv2
@@ -103,7 +104,7 @@ class TestOperators(unittest.TestCase):
                               net._modules['fc1'],
                               60,
                               out_size=[1, 4, 4],
-                              weight_norm=False, noise_var=0)
+                              weight_norm=False, noise_var=noise_var)
         net._modules['conv2'] = conv2
         net._modules['fc1'] = fc1
 
@@ -149,13 +150,13 @@ class TestOperators(unittest.TestCase):
         net.eval()
         out = net(inp)
 
-        s = deeper(net._modules['conv1'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise_var=0)
+        s = deeper(net._modules['conv1'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise_var=noise_var)
         net._modules['conv1'] = s
 
-        s2 = deeper(net._modules['conv2'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise_var=0)
+        s2 = deeper(net._modules['conv2'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise_var=noise_var)
         net._modules['conv2'] = s2
 
-        s3 = deeper(net._modules['fc1'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise_var=0)
+        s3 = deeper(net._modules['fc1'], nn.ReLU, bnorm_flag=True, weight_norm=False, noise_var=noise_var)
         net._modules['fc1'] = s3
 
         net.eval()
@@ -171,7 +172,7 @@ class TestOperators(unittest.TestCase):
         net.eval()
         out = net(inp)
 
-        s = deeper(net._modules['conv1'], nn.ReLU, bnorm_flag=False, weight_norm=False, noise_var=0)
+        s = deeper(net._modules['conv1'], nn.ReLU, bnorm_flag=False, weight_norm=False, noise_var=noise_var)
         net._modules['conv1'] = s
 
         # s2 = deeper(net._modules['conv2'], nn.ReLU, bnorm_flag=False, weight_norm=False, noise=False)
