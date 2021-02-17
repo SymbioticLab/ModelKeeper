@@ -23,7 +23,7 @@ parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=200, metavar='N',
+parser.add_argument('--epochs', type=int, default=2, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -37,8 +37,6 @@ parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
                     help='how many batches to wait before logging status')
 parser.add_argument('--noise', type=float, default=5e-2,
                     help='noise or no noise 0-1')
-parser.add_argument('--weight_norm', type=int, default=1,
-                    help='norm or no weight norm 0-1')
 parser.add_argument('--data', type=str, default='cifar100')
 
 
@@ -132,11 +130,11 @@ class Net(nn.Module):
         print(self)
 
     def net2net_deeper(self):
-        s = deeper(self.conv1, nn.ReLU, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
+        s = deeper(self.conv1, nn.ReLU, bnorm_flag=True, noise_var=args.noise)
         self.conv1 = s
-        s = deeper(self.conv2, nn.ReLU, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
+        s = deeper(self.conv2, nn.ReLU, bnorm_flag=True, noise_var=args.noise)
         self.conv2 = s
-        s = deeper(self.conv3, nn.ReLU, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
+        s = deeper(self.conv3, nn.ReLU, bnorm_flag=True, noise_var=args.noise)
         self.conv3 = s
         print(self)
 
@@ -179,11 +177,11 @@ class Net(nn.Module):
         print(self)
 
     def net2net_deeper_nononline(self):
-        s = deeper(self.conv1, None, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
+        s = deeper(self.conv1, None, bnorm_flag=True, noise_var=args.noise)
         self.conv1 = s
-        s = deeper(self.conv2, None, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
+        s = deeper(self.conv2, None, bnorm_flag=True, noise_var=args.noise)
         self.conv2 = s
-        s = deeper(self.conv3, None, bnorm_flag=True, weight_norm=args.weight_norm, noise_var=args.noise)
+        s = deeper(self.conv3, None, bnorm_flag=True, noise_var=args.noise)
         self.conv3 = s
         print(self)
 
