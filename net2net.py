@@ -13,9 +13,11 @@ def get_mapping_index(layer, new_width, split_max=False):
         replicate_unit = th.topk((th.dot(th.ones(old_width), layer.weight))+layer.bias, k=new_width-old_width)
         return replicate_unit.tolist()
     else:
-        replicate_unit = []
-        for i in range(old_width, new_width):
-            replicate_unit.append(np.random.randint(0, i))
+        # replicate_unit = []
+        # for i in range(old_width, new_width):
+        #     replicate_unit.append(np.random.randint(0, i))
+
+        replicate_unit = np.random.randint(0, old_width, size=new_width-old_width).tolist()
 
         return replicate_unit
 
@@ -42,8 +44,10 @@ def bn_wider(bnorm, split_index, new_width):
     bnorm.running_var.resize_(new_width)
 
     if bnorm.affine:
-        bnorm.weight.data.resize_(new_width)
-        bnorm.bias.data.resize_(new_width)
+        nweight = bnorm.weight.data.clone().resize_(new_width)
+        nbias = bnorm.bias.data.clone().resize_(new_width)
+        nweight.narrow(0, 0, old_width).copy_(bnorm.weight.data)
+        nbias.narrow(0, 0, old_width).copy_(bnorm.bias.data)
 
     """Handle new units"""
     for i in range(old_width, new_width):
@@ -52,9 +56,13 @@ def bn_wider(bnorm, split_index, new_width):
         bnorm.running_var[i] = bnorm.running_var[idx].clone()
 
         if bnorm.affine:
-            bnorm.weight[i] = bnorm.weight[idx].clone()
-            bnorm.bias[i] = bnorm.bias[idx].clone()
-            
+            nweight[i] = nweight[idx].clone()
+            nbias[i] = nbias[idx].clone()
+    
+    if bnorm.affine:
+        bnorm.weight.data = nweight
+        bnorm.bias.data = nbias
+
     bnorm.num_features = new_width
 
     return bnorm
@@ -86,6 +94,8 @@ def wider(parent, child, new_width, bnorm=None, template_layer=None, out_size=No
 
     if template_layer is None: 
         template_layer = m1
+    else:
+        new_width = template_layer.weight.size(0)
 
     w1 = m1.weight.data
     w2 = m2.weight.data
@@ -108,11 +118,10 @@ def wider(parent, child, new_width, bnorm=None, template_layer=None, out_size=No
                              out_size[1], out_size[2])
         else:
             assert w1.size(0) == w2.size(1), "Module weights are not compatible"
-        assert new_width > w1.size(0), "New size should be larger"
+        assert new_width >= w1.size(0), "New size should be larger"
 
-        new_width = template_layer.weight.size(0)
-
-        nw1 = th.zeros_like(template_layer.weight)
+        
+        nw1 = th.zeros([new_width] + list(template_layer.weight.size())[1:])
         nw2 = th.zeros([w2.size(0), new_width] + list(w2.size())[2:])
         nb1 = th.zeros(new_width)
 
@@ -129,26 +138,44 @@ def wider(parent, child, new_width, bnorm=None, template_layer=None, out_size=No
         if split_index is None:
             split_index = get_mapping_index(m1, new_width)
 
-        # add noise to break symmetry if we did not modify the parent layer before
+        tracking = dict()
         for i in range(old_width, new_width):
             idx = split_index[i-old_width]
-            nw1[i] = nw1[idx].clone()
 
-            # halve and then add noise
-            split_weight = nw2[idx].clone() * 0.5
-            noise_w = np.random.normal(scale=noise_var * nw2[idx].std().item(), size=list(nw2[idx].size()))
-            nw2[i] = split_weight + th.FloatTensor(noise_w)
-            nw2[idx] = split_weight - th.FloatTensor(noise_w)
+            if idx not in tracking:
+                tracking[idx] = [idx]
+            tracking[idx].append(i)
 
-            # bias layer
-            noise_bn = np.random.normal(scale=abs(noise_var * nb1[idx].item()))
-            nb1[i] = nb1[idx].clone()
-            nb1[idx] -= noise_bn
-            nb1[i] += noise_bn
+            nw1.select(0, i).copy_(w1.select(0, idx).clone())
+            nw2.select(0, i).copy_(w2.select(0, idx).clone())
+
+            nb1[i] = b1[idx].clone()
+
+        for idx, d in tracking.items():
+            for item in d:
+                nw2[item].div_(len(d))
+
+        # add noise to break symmetry if we did not modify the parent layer before
+        # for i in range(old_width, new_width):
+        #     idx = split_index[i-old_width]
+
+        #     nw1.select(0, i).copy_(nw1.select(0, idx).clone())
+        #     # bias layer
+        #     nb1[i] = nb1[idx].clone()
             
+        #     # halve
+        #     nw2.select(0, i).copy_(nw2.select(0, idx).clone().mul_(.5))
+        #     nw2.select(0, idx).mul_(.5)
+
         w2.transpose_(0, 1)
         nw2.transpose_(0, 1)
 
+        # add noise to break symmetry if we did not modify the parent layer before
+        if noise_var and mapping_index is None:
+            noise = np.random.normal(scale=noise_var * nw1.std().item(), size=list(nw1.size()))
+            nw1 += th.FloatTensor(noise).type_as(nw1)
+
+        template_layer.out_channels = new_width
         m2.in_channels = new_width
 
         template_layer.weight.data = nw1
