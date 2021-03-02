@@ -4,8 +4,12 @@ import numpy
 import networkx as nx
 import time, sys
 import functools, collections
+from mappingopt import MappingOperator
+import logging
+from onnx import numpy_helper
 
 sys.setrecursionlimit(10000)
+#logging.basicConfig(filename='logging', level=logging.INFO)
 
 def split_inputs(in_list):
     # input list may contain trainable weights
@@ -102,6 +106,11 @@ class MatchingOperator(object):
         return ("\t".join([self.parent.nodes[j]['attr']['name'] if j is not None else "-" for j in self.parentidx_order]),
                 "\t".join([self.child.nodes[i]['attr']['name'] if i is not None else "-" for i in self.childidx_order])
                 )
+
+    def get_mappings(self, child):
+        self.align_child(child)
+        return [(self.parentidxs[i], self.matchidxs[i]) for i in range(len(self.parentidxs)) \
+                if self.parentidxs[i] is not None and self.matchidxs[i] is not None]
 
     def matchscore(self, parent_opt, child_opt):
         if parent_opt['op_type'] != child_opt['op_type']:
@@ -275,6 +284,7 @@ def load_model_meta(meta_file='sample'):
             'dims': [] if not trainable_weights else node_shapes[trainable_weights],
             'op_type': node.op_type,
             'name': node.name if node.name else str(node.op_type)+str(opt_dir[node.op_type]),
+            'layer_name': None if not trainable_weights else '.'.join(trainable_weights.split('.')[:-1])
         }
         graph.add_node(idx, attr=attr)
 
@@ -289,29 +299,38 @@ def load_model_meta(meta_file='sample'):
 
     print('\nLoad {} takes {} sec \n'.format(meta_file, time.time() - start_time))
 
-    return graph
+    return graph, onnx_model
 
 # from networkx.algorithms.isomorphism import DiGraphMatcher
 # print(list(DiGraphMatcher(parent, child).subgraph_isomorphisms_iter()))
 
 def main():
     start_time = time.time()
-    parent = load_model_meta('vgg11')
-    child = load_model_meta('vgg19')
+    parent, parent_onnx = load_model_meta('widen')
+    child, child_onnx = load_model_meta('sample')
 
     opt = MatchingOperator(parent=parent)
-    opt.align_child(child=child)
+    mappings = opt.get_mappings(child=child)
 
-    print(len(opt.alignmentStrings()[0].split('\t')), len(opt.alignmentStrings()[1].split('\t')))
+    mapper = MappingOperator(parent, child, mappings, zoo_path='./')
+    mapper.cascading_mapping()
+    weights = mapper.get_mapping_weights()
 
-    print('\t'.join(x for x in opt.alignmentStrings()[0].split('\t')))# if x != '-'))
-    print('\t'.join(x for x in opt.alignmentStrings()[1].split('\t')))# if x != '-'))
-    print("\n")
-    print(opt.alignmentStrings()[2])
+    # record the shape of each weighted nodes
+    for idx, key in enumerate(weights.keys()):
+        child_onnx.graph.initializer[idx].CopyFrom(numpy_helper.from_array(weights[key]))
+    onnx.save(child_onnx, child.graph['name']+'_new.onnx')
 
-    print("======")
-    print(opt.graphStrings()[0], "\n\n")
-    print(opt.graphStrings()[1])
+    # print(len(opt.alignmentStrings()[0].split('\t')), len(opt.alignmentStrings()[1].split('\t')))
+
+    # print('\t'.join(x for x in opt.alignmentStrings()[0].split('\t')))# if x != '-'))
+    # print('\t'.join(x for x in opt.alignmentStrings()[1].split('\t')))# if x != '-'))
+    # print("\n")
+    # print(opt.alignmentStrings()[2])
+
+    # print("======")
+    # print(opt.graphStrings()[0], "\n\n")
+    # print(opt.graphStrings()[1])
     print("Match takes {} sec".format(time.time() - start_time))
 
 main()

@@ -1,5 +1,6 @@
 
 import numpy as np
+import torch
 
 def get_mapping_index(old_width, new_width):
     """Generate the unit index to replicate"""
@@ -38,7 +39,6 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
     1. More units/kernels
     2. Larger kernel size by padding zeros in resizing
     """
-
     n_weight = np.zeros_like(child_w)
     n_bias = np.zeros_like(child_b)
 
@@ -47,42 +47,75 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
     paste(child_b, parent_b, tuple([0] * len(child_b.shape)))
 
     # more units/output channels
-    old_width, new_width = parent.shape[0], child_w.shape[0]
+    old_width, new_width = parent_w.shape[0], child_w.shape[0]
+    widen_units = []
+
     if old_width < new_width:
         widen_units = mapping_index if mapping_index is not None else get_mapping_index(old_width, new_width)
 
         for i in range(old_width, new_width):
             idx = widen_units[i-old_width]
-            n_weight[i] = parent_w[idx]
-            n_bias[i] = parent_b[idx]
+            n_weight[i] = n_weight[idx]
+            n_bias[i] = n_bias[idx]
 
     noise_w = np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
     n_weight += noise_w
 
-    return n_weight, n_bias, mapping_index
+    return n_weight, n_bias, widen_units
 
 def widen_child(weight, mapping_index, noise_factor=0):
-    n_weight = weight.copy()
     if len(mapping_index) > 0:
-        n_weight = n_weight.transpose(0, 1)
         tracking = dict()
+        n_weight = torch.from_numpy(weight)
+        n_weight.transpose_(0, 1)
+
+        new_width = n_weight.shape[0]
+        old_width = new_width - len(mapping_index)
 
         for i in range(old_width, new_width):
-            idx = widen_units[i-old_width]
+            idx = mapping_index[i-old_width]
 
             if idx not in tracking:
                 tracking[idx] = [idx]
             tracking[idx].append(i)
 
-            n_weight[i] = weight[idx]
+            n_weight[i] = n_weight[idx].clone()
 
         for idx, d in tracking.items():
             for item in d:
-                n_weight[item] /= len(d)
+                n_weight[item] /= float(len(d))
 
-        n_weight = n_weight.transpose(0, 1)
+        n_weight.transpose_(0, 1)
+        n_weight = n_weight.numpy()
         noise_w = np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
         n_weight += noise_w
 
-    return n_weight
+        return n_weight
+    else:
+        return weight
+
+def deepen(weight, noise_factor=5e-2):
+    """Build an identity layer"""
+    n_bias = np.zeros(weight.shape[0], dtype=weight.dtype)
+
+    # 2-D Linear layers
+    if len(weight.shape) == 2:
+        weight = np.matrix(np.eye(weight.shape[0], dtype=weight.dtype))
+    else:
+        c_d, c_wh = weight[2]//2, weight[3]//2
+        n_weight = torch.zeros(weight.shape)
+
+        for i in range(n_weight.shape[0]):
+            if n_weight.dim() == 4:
+                n_weight.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).fill_(1)
+            elif n_weight.dim() == 5:
+                n_weight.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).narrow(4, c_wh, 1).fill_(1)
+
+        weight = n_weight.numpy()
+
+    # add noise
+    noise_w = np.random.normal(scale=noise_factor, size=list(weight.shape))
+    weight += noise_w
+
+    return weight, n_bias
 
