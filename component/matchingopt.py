@@ -1,11 +1,11 @@
 
 import onnx
 import numpy
-import igraph
-from igraph import *
-import time
-import collections
-import functools
+import networkx as nx
+import time, sys
+import functools, collections
+
+sys.setrecursionlimit(10000)
 
 def split_inputs(in_list):
     # input list may contain trainable weights
@@ -42,59 +42,24 @@ def get_tensor_shapes(model_graph):
 
     return node_shapes
 
-def visualize_graph(graph):
-    visual_style = {}
-    visual_style["vertex_size"] = 5
-    visual_style["layout"] = graph.layout("tree")
-    visual_style["bbox"] = (600, 600)
-    plot(graph, **visual_style)
-
-
-def get_layer_view(graph):
-    '''
-        @source_ids: source nodes in the graph. The default is 0.
-        
-        @return: BFS order of the graph. Results will guide the search order.
-        For nodes in the same layer, we sort by certain order later.
-    '''
-
-    in_degrees = dict()
-    que = collections.deque()
-
-    for v in graph.vs:
-        deg = graph.indegree(v)
-        if deg == 0:
-            que.append(v.index)
-        else:
-            in_degrees[v.index] = deg
-
-    nodes_by_layer = []
-    
-    while que:
-        layer_len = len(que)
-        nodes_by_layer.append([])
-
-        for _ in range(layer_len):
-            node = que.pop()
-            nodes_by_layer[-1].append(node)
-
-            for s in graph.successors(node):
-                in_degrees[s] -= 1
-
-                if in_degrees[s] == 0:
-                    del in_degrees[s]
-                    que.append(s)
-
-    assert(len(in_degrees) == 0)
-
-    #print([[graph.vs[v]['attribution']['name'] for v in vs] for vs in nodes_by_layer])
-    return nodes_by_layer
-
-
 def clip(var):
     if var < -1.: return -1.
     if var > 1.: return 1.
     return var
+
+def topological_sorting(graph):
+    """DFS based topological sort to max length of each chain"""
+    visited = set()
+    ret = []
+
+    def dfs(node):
+        visited.add(node)
+        [dfs(edge[1]) for edge in graph.out_edges(node) if edge[1] not in visited]
+        ret.append(node)
+
+    [dfs(node) for node in graph.nodes() if node not in visited]
+    ret.reverse()
+    return ret
 
 class MatchingOperator(object):
     __matchscore = 1
@@ -104,6 +69,7 @@ class MatchingOperator(object):
     def __init__(self, parent, globalAlign=True,
                  matchscore=__matchscore, mismatchscore=__mismatchscore,
                  gapscore=__gap):
+
         self._mismatchscore = mismatchscore
         self._matchscore = matchscore
         self._gap = gapscore
@@ -112,36 +78,42 @@ class MatchingOperator(object):
         self.parentidxs    = None
         self.globalAlign = globalAlign
         self.child = None
-        self.parentidx_order = self.parent.topological_sorting()
+        self.childidx_order = None
+
+        self.nodeIDtoIndex = {}
+        self.nodeIndexToID = {-1: None}
+
+        self.parentidx_order = topological_sorting(self.parent)
 
     def align_child(self, child):
         self.child = child
         self.matchidxs = self.parentidxs = None
-        self.childidx_order = self.child.topological_sorting()
+
+        self.childidx_order = topological_sorting(self.child)
         matches = self.alignChildToParent()
         self.matchidxs, self.parentidxs, self.match_score = matches
 
     def alignmentStrings(self):
-        return ("\t".join([self.child.vs[i]['attr']['name'] if i is not None else "-" for i in self.matchidxs]),
-                "\t".join([self.parent.vs[j]['attr']['name'] if j is not None else "-" for j in self.parentidxs]),
+        return ("\t".join([self.parent.nodes[j]['attr']['name'] if j is not None else "-" for j in self.parentidxs]), 
+                "\t".join([self.child.nodes[i]['attr']['name'] if i is not None else "-" for i in self.matchidxs]),
                 self.match_score)
 
+    def graphStrings(self):
+        return ("\t".join([self.parent.nodes[j]['attr']['name'] if j is not None else "-" for j in self.parentidx_order]),
+                "\t".join([self.child.nodes[i]['attr']['name'] if i is not None else "-" for i in self.childidx_order])
+                )
 
     def matchscore(self, parent_opt, child_opt):
         if parent_opt['op_type'] != child_opt['op_type']:
             return self._mismatchscore
         else:
-            # not trainable nodes
-            if parent_opt['dims'] is None and child_opt['dims'] is None:
-                return self._matchscore
-
             # diff number of parameters
             num_param_p = numpy.prod(parent_opt['dims'])
             num_param_c = numpy.prod(child_opt['dims'])
 
-            match_score = clip(1.-abs(num_param_p-num_param_c)/max(num_param_p, num_param_c)) * self._matchscore
+            match_score = clip(1.-abs(num_param_p-num_param_c)/max(num_param_p, num_param_c, 1e-4)) * self._matchscore
 
-            return match_score
+            return match_score #if match_score > .25 else self._mismatchscore
 
     def get_max(self, candidates):
         ans = 0
@@ -154,23 +126,22 @@ class MatchingOperator(object):
     def alignChildToParent(self):
         """Align node to parent, following same approach as smith waterman
         example"""
-        nodeIDtoIndex, nodeIndexToID, scores, backStrIdx, backGrphIdx = \
-                                    self.initializeDynamicProgrammingData(self.parentidx_order)
+        scores, backStrIdx, backGrphIdx = self.initializeDynamicProgrammingData(self.parentidx_order)
 
         # Dynamic Programming
         for i, pidx in enumerate(self.parentidx_order):
-            node = self.parent.vs[pidx]
-            pbase = node['attr']
+            pbase = self.parent.nodes[pidx]['attr']
 
             for j, cidx in enumerate(self.childidx_order):
-                cnode = self.child.vs[cidx]
-                sbase = cnode['attr']
-                candidates = [(scores[i+1, j] + self._gap, i+1, j, "INS")]
+                sbase = self.child.nodes[cidx]['attr']
+                candidates = []
                 # add all candidates to a list, pick the best
                 # insert to the child
-                for predIndex in self.prevIndices(node, nodeIDtoIndex):
-                    candidates += [(scores[predIndex+1, j+1] + self._gap, predIndex+1, j+1, "DEL")]
-                    candidates += [(scores[predIndex+1, j] + self.matchscore(sbase, pbase), predIndex+1, j, "MATCH")]
+                for predIndex in self.parentPrevIndices(pidx):
+                    candidates += [(scores[predIndex+1, j] + self.matchscore(pbase, sbase), predIndex+1, j, "MATCH")]
+                    candidates += [(scores[predIndex+1, j+1] + self._gap, predIndex+1, j+1, "DEL")] # skip a child node
+
+                candidates += [(scores[i+1, j] + self._gap, i+1, j, "INS")] # skip a parent node
 
                 scores[i+1, j+1], backGrphIdx[i+1, j+1], backStrIdx[i+1, j+1], movetype = self.get_max(candidates)
 
@@ -179,14 +150,16 @@ class MatchingOperator(object):
                     backGrphIdx[i+1, j+1] = -1
                     backStrIdx[i+1, j+1] = -1
 
-        return self.backtrack(scores, backStrIdx, backGrphIdx, nodeIndexToID, self.parentidx_order)
+        return self.backtrack(scores, backStrIdx, backGrphIdx, self.parentidx_order)
 
-    def prevIndices(self, node, nodeIDtoIndex):
+    # networkx is too slow in accessing edges
+    @functools.lru_cache(maxsize=5120)
+    def parentPrevIndices(self, node):
         """Return a list of the previous dynamic programming table indices
            corresponding to predecessors of the current node."""
         prev = []
-        for edge in node.in_edges():
-            prev.append(nodeIDtoIndex[edge.source])
+        for edge in self.parent.in_edges(node):
+            prev.append(self.nodeIDtoIndex[edge[0]])
 
         # if no predecessors, point to just before the parent
         if len(prev) == 0:
@@ -200,30 +173,29 @@ class MatchingOperator(object):
             - set up backtracking array
             - create index to Node ID table and vice versa
         """
-        l1 = len(self.parent.vs)
-        l2 = len(self.child.vs)
+        l1 = self.parent.number_of_nodes()
+        l2 = self.child.number_of_nodes()
 
-        nodeIDtoIndex = {}
-        nodeIndexToID = {-1: None}
+        self.nodeIDtoIndex = {}
+        self.nodeIndexToID = {-1: None}
         # generate a dict of (nodeID) -> (index into nodelist (and thus matrix))
         for (index, nidx) in enumerate(ni):
-            node = self.parent.vs[nidx]
-            nodeIDtoIndex[node.index] = index
-            nodeIndexToID[index] = node.index
+            self.nodeIDtoIndex[nidx] = index
+            self.nodeIndexToID[index] = nidx
 
         # Dynamic Programming data structures; scores matrix and backtracking
         # matrix
-        scores = numpy.zeros((l1+1, l2+1), dtype=numpy.int)
+        scores = numpy.zeros((l1+1, l2+1), dtype=numpy.float)
 
         # initialize insertion score
         # if global align, penalty for starting at head != 0
         if self.globalAlign:
             scores[0, :] = numpy.arange(l2+1)*self._gap
+            scores[:, 0] = numpy.arange(l1+1)*self._gap
 
             for (index, nidx) in enumerate(ni):
-                node = self.parent.vs[nidx]
-                prevIdxs = self.prevIndices(node, nodeIDtoIndex)
-                best = scores[prevIdxs[0]+1, 0]
+                prevIdxs = self.parentPrevIndices(nidx)
+                best = float('-inf')
                 for prevIdx in prevIdxs:
                     best = max(best, scores[prevIdx+1, 0])
                 scores[index+1, 0] = best + self._gap
@@ -232,9 +204,9 @@ class MatchingOperator(object):
         backStrIdx = numpy.zeros((l1+1, l2+1), dtype=numpy.int)
         backGrphIdx = numpy.zeros((l1+1, l2+1), dtype=numpy.int)
 
-        return nodeIDtoIndex, nodeIndexToID, scores, backStrIdx, backGrphIdx
+        return scores, backStrIdx, backGrphIdx
 
-    def backtrack(self, scores, backStrIdx, backGrphIdx, nodeIndexToID, ni):
+    def backtrack(self, scores, backStrIdx, backGrphIdx, ni):
         """Backtrack through the scores and backtrack arrays.
            Return a list of child indices and node IDs (not indices, which
            depend on ordering)."""
@@ -245,7 +217,7 @@ class MatchingOperator(object):
             besti, bestj = numpy.argwhere(scores == numpy.amax(scores))[-1]
         else:
             # still have to find best final index to start from
-            terminalIndices = [index for (index, pidx) in enumerate(ni) if self.parent.outdegree(pidx)==0]
+            terminalIndices = [index for (index, pidx) in enumerate(ni) if self.parent.out_degree(pidx)==0]
 
             besti = terminalIndices[0] + 1
             bestscore = scores[besti, bestj]
@@ -258,16 +230,20 @@ class MatchingOperator(object):
         strindexes = []
         while (self.globalAlign or scores[besti, bestj] > 0) and not(besti == 0 and bestj == 0):
             nexti, nextj = backGrphIdx[besti, bestj], backStrIdx[besti, bestj]
-            curstridx, curnodeidx = self.childidx_order[bestj-1], nodeIndexToID[besti-1]
+            curstridx, curnodeidx = self.childidx_order[bestj-1], self.nodeIndexToID[besti-1]
 
             name_aligned = True
             if curstridx is not None and curnodeidx is not None:
-                name_aligned = self.child.vs[curstridx]['attr']['op_type']==self.parent.vs[curnodeidx]['attr']['op_type']
+                name_aligned = self.child.nodes[curstridx]['attr']['op_type']==self.parent.nodes[curnodeidx]['attr']['op_type']
+            name_aligned = name_aligned and (nextj != bestj and nexti != besti)
 
-            strindexes.insert(0, curstridx if nextj != bestj and name_aligned else None)
-            matches.insert(0, curnodeidx if nexti != besti and name_aligned else None)
+            strindexes.append(curstridx if name_aligned else None)
+            matches.append(curnodeidx if name_aligned else None)
 
             besti, bestj = nexti, nextj
+
+        strindexes.reverse()
+        matches.reverse()
 
         return strindexes, matches, bestscore
 
@@ -284,7 +260,7 @@ def load_model_meta(meta_file='sample'):
 
     # construct the computation graph and align their attribution
     nodes = [n for n in onnx_model.graph.node if n.op_type not in skip_opts]
-    graph = igraph.Graph(directed=True)
+    graph = nx.DiGraph(name=meta_file)
 
     node_ids = dict()
     edge_source = collections.defaultdict(list)
@@ -296,16 +272,16 @@ def load_model_meta(meta_file='sample'):
 
         # add new nodes to graph
         attr = {
-            'dims': None if not trainable_weights else node_shapes[trainable_weights],
+            'dims': [] if not trainable_weights else node_shapes[trainable_weights],
             'op_type': node.op_type,
             'name': node.name if node.name else str(node.op_type)+str(opt_dir[node.op_type]),
         }
-        graph.add_vertex(name=idx, attr=attr)
+        graph.add_node(idx, attr=attr)
 
         # add edges
         for input_node in input_nodes:
             for s in edge_source[input_node]:
-                graph.add_edge(source=s, target=idx)
+                graph.add_edge(s, idx)
 
         # register node 
         for out_node in node.output:
@@ -315,21 +291,27 @@ def load_model_meta(meta_file='sample'):
 
     return graph
 
+# from networkx.algorithms.isomorphism import DiGraphMatcher
+# print(list(DiGraphMatcher(parent, child).subgraph_isomorphisms_iter()))
+
 def main():
     start_time = time.time()
-    parent = load_model_meta('shufflenet_v2_x1_0')
+    parent = load_model_meta('vgg11')
     child = load_model_meta('vgg19')
 
     opt = MatchingOperator(parent=parent)
     opt.align_child(child=child)
 
+    print(len(opt.alignmentStrings()[0].split('\t')), len(opt.alignmentStrings()[1].split('\t')))
 
-    print(opt.alignmentStrings()[0])
-    print("\n")
-    print(opt.alignmentStrings()[1])
+    print('\t'.join(x for x in opt.alignmentStrings()[0].split('\t')))# if x != '-'))
+    print('\t'.join(x for x in opt.alignmentStrings()[1].split('\t')))# if x != '-'))
     print("\n")
     print(opt.alignmentStrings()[2])
 
+    print("======")
+    print(opt.graphStrings()[0], "\n\n")
+    print(opt.graphStrings()[1])
     print("Match takes {} sec".format(time.time() - start_time))
 
 main()
