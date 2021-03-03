@@ -6,7 +6,7 @@ import logging
 import os
 
 def load_model_data(file):
-    onnx_model = onnx.load(file+".onnx")
+    onnx_model = onnx.load(file)
     graph = onnx_model.graph
 
     layer_weights = dict()
@@ -18,7 +18,7 @@ def load_model_data(file):
 class MappingOperator(object):
     """Map parent weights to child weights given the mapping index"""
 
-    def __init__(self, parent, child, mapping_indices, zoo_path):
+    def __init__(self, parent, child, mapping_indices):
         """
         @ parent, child: graph of nodes for each model
         @ mapping_indices: (parent_layer_name, child_layer_name): sorted by the topological order of child
@@ -27,8 +27,10 @@ class MappingOperator(object):
         self.child = child
         self.mapping_indices = mapping_indices
 
-        self.parent_weights = load_model_data(os.path.join(zoo_path, parent.graph['name']))
-        self.child_weights = load_model_data(os.path.join(zoo_path, child.graph['name']))
+        self.parent_weights = load_model_data(parent.graph['name'])
+        self.child_weights = load_model_data(child.graph['name'])
+
+        self.num_of_matched = 0
 
     def get_child_layers(self, graph, node_id):
         """Get the trainable next layers"""
@@ -38,22 +40,24 @@ class MappingOperator(object):
         def dfs(node):
             visited.add(node)
             # Trainable tensor. TODO: solve BN
-            if len(graph.nodes[node]['attr']['dims']) > 1 and node != node_id:
+            if len(graph.nodes[node]['attr']['dims']) >=1:
                 ret.append(graph.nodes[node]['attr']['layer_name'])
-            else:
+
+            # we overwrite BN and its child layers
+            if len(graph.nodes[node]['attr']['dims']) <= 1:
                 [dfs(edge[1]) for edge in graph.out_edges(node) if edge[1] not in visited]
 
         dfs(node_id)
-        return ret
+        return ret[1:] # skip node == node_id
 
     def get_weights(self, graph, initializer, node):
         layer_dims = graph.nodes[node]['attr']['dims']
-        if len(layer_dims) < 2:
+        if len(layer_dims) < 1:
             return None, None
 
         layer_name = graph.nodes[node]['attr']['layer_name']
         weight = initializer[layer_name+'.weight']
-        bias = initializer[layer_name+'.bias']
+        bias = initializer[layer_name+'.bias'] if layer_name+'.bias' in initializer else None
 
         return weight, bias
 
@@ -75,37 +79,38 @@ class MappingOperator(object):
             child_layer_name = self.child.nodes[child_layer]['attr']['layer_name']
 
             if parent_w is None or child_w is None:
-                print('Skip mapping {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['op_type'], 
-                                                            child_layer_name, self.child.nodes[child_layer]['attr']['op_type']))
+                print('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'], 
+                                                    self.child.nodes[child_layer]['attr']['op_type']))
             else:
                 n_weight, n_bias, mapping_index = widen(parent_w, parent_b, child_w, child_b, noise_factor=5e-2)
 
-                assert(n_weight.shape == child_w.shape and n_bias.shape == child_b.shape)
+                #assert(n_weight.shape == child_w.shape and n_bias.shape == child_b.shape)
 
                 self.child_weights[child_layer_name+'.weight'] = n_weight
-                self.child_weights[child_layer_name+'.bias'] = n_biass
+                if n_bias is not None:
+                    self.child_weights[child_layer_name+'.bias'] = n_bias
 
-                # get its child layers
+                # get its child layers, and override child weights
                 following_layers = self.get_child_layers(self.child, child_layer)
                 for layer in following_layers:
                     layer_w = self.child_weights[layer+'.weight']
                     nl_weight = widen_child(layer_w, mapping_index, noise_factor=5e-2)
 
-                    assert(layer_w.shape == nl_weight.shape)
+                    #assert(layer_w.shape == nl_weight.shape)
                     self.child_weights[layer+'.weight'] = nl_weight
-
-                # operation on layers, override child weights
+                
+                self.num_of_matched += 1
                 print('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
                                                             child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
 
     def get_mapping_weights(self):
-        return self.child_weights
+        return self.child_weights, self.num_of_matched
 
     def e2e_mapping(self):
         """
             Handle unmapped layers by padding identity layers or random initialization
         """
-        
+
         pass
 
 

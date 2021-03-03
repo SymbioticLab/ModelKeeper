@@ -2,11 +2,12 @@
 import onnx
 import numpy
 import networkx as nx
-import time, sys
+import time, sys, os
 import functools, collections
 from mappingopt import MappingOperator
 import logging
 from onnx import numpy_helper
+import multiprocessing
 
 sys.setrecursionlimit(10000)
 #logging.basicConfig(filename='logging', level=logging.INFO)
@@ -34,17 +35,65 @@ def split_inputs(in_list):
 def get_tensor_shapes(model_graph):
 
     node_shapes = dict()
+    num_of_trainable_tensors = 0
 
     if model_graph.initializer:
-        print("Load from initializer")
+        #print("Load from initializer")
         for init in model_graph.initializer:
+            if '.weight' in init.name or '.bias' in init.name:
+                num_of_trainable_tensors += 1
             node_shapes[init.name] = tuple(init.dims)
     else:
-        print("Load from input")
+        #print("Load from input")
         for node in model_graph.input:
             node_shapes[node.name] = tuple([p.dim_value for p in node.type.tensor_type.shape.dim])
 
-    return node_shapes
+    return node_shapes, num_of_trainable_tensors
+
+skip_opts = {'Constant'}
+
+def load_model_meta(meta_file='sample.onnx'):
+    start_time = time.time()
+    # meta file is rather small
+    onnx_model = onnx.load(meta_file)
+    model_graph = onnx_model.graph
+
+    # record the shape of each weighted nodes
+    node_shapes, num_of_trainable_tensors = get_tensor_shapes(model_graph)
+
+    # construct the computation graph and align their attribution
+    nodes = [n for n in onnx_model.graph.node if n.op_type not in skip_opts]
+    graph = nx.DiGraph(name=meta_file, num_tensors=num_of_trainable_tensors)
+
+    node_ids = dict()
+    edge_source = collections.defaultdict(list)
+
+    opt_dir = collections.defaultdict(int)
+    for idx, node in enumerate(nodes):
+        input_nodes, trainable_weights = split_inputs(node.input)
+        opt_dir[node.op_type] += 1
+
+        # add new nodes to graph
+        attr = {
+            'dims': [] if not trainable_weights else node_shapes[trainable_weights],
+            'op_type': node.op_type,
+            'name': node.name if node.name else str(node.op_type)+str(opt_dir[node.op_type]),
+            'layer_name': None if not trainable_weights else '.'.join(trainable_weights.split('.')[:-1])
+        }
+        graph.add_node(idx, attr=attr)
+
+        # add edges
+        for input_node in input_nodes:
+            for s in edge_source[input_node]:
+                graph.add_edge(s, idx)
+
+        # register node 
+        for out_node in node.output:
+            edge_source[out_node].append(idx)
+
+    print('\nLoad {} takes {} sec'.format(meta_file, time.time() - start_time))
+
+    return graph, onnx_model
 
 def clip(var):
     if var < -1.: return -1.
@@ -52,7 +101,7 @@ def clip(var):
     return var
 
 def topological_sorting(graph):
-    """DFS based topological sort to max length of each chain"""
+    """DFS based topological sort to maximize length of each chain"""
     visited = set()
     ret = []
 
@@ -110,7 +159,7 @@ class MatchingOperator(object):
     def get_mappings(self, child):
         self.align_child(child)
         return [(self.parentidxs[i], self.matchidxs[i]) for i in range(len(self.parentidxs)) \
-                if self.parentidxs[i] is not None and self.matchidxs[i] is not None]
+                if self.parentidxs[i] is not None and self.matchidxs[i] is not None], self.match_score
 
     def matchscore(self, parent_opt, child_opt):
         if parent_opt['op_type'] != child_opt['op_type']:
@@ -256,81 +305,59 @@ class MatchingOperator(object):
 
         return strindexes, matches, bestscore
 
-skip_opts = {'Constant'}
-
-def load_model_meta(meta_file='sample'):
-    start_time = time.time()
-    # meta file is rather small
-    onnx_model = onnx.load(meta_file+".onnx")
-    model_graph = onnx_model.graph
-
-    # record the shape of each weighted nodes
-    node_shapes = get_tensor_shapes(model_graph)
-
-    # construct the computation graph and align their attribution
-    nodes = [n for n in onnx_model.graph.node if n.op_type not in skip_opts]
-    graph = nx.DiGraph(name=meta_file)
-
-    node_ids = dict()
-    edge_source = collections.defaultdict(list)
-
-    opt_dir = collections.defaultdict(int)
-    for idx, node in enumerate(nodes):
-        input_nodes, trainable_weights = split_inputs(node.input)
-        opt_dir[node.op_type] += 1
-
-        # add new nodes to graph
-        attr = {
-            'dims': [] if not trainable_weights else node_shapes[trainable_weights],
-            'op_type': node.op_type,
-            'name': node.name if node.name else str(node.op_type)+str(opt_dir[node.op_type]),
-            'layer_name': None if not trainable_weights else '.'.join(trainable_weights.split('.')[:-1])
-        }
-        graph.add_node(idx, attr=attr)
-
-        # add edges
-        for input_node in input_nodes:
-            for s in edge_source[input_node]:
-                graph.add_edge(s, idx)
-
-        # register node 
-        for out_node in node.output:
-            edge_source[out_node].append(idx)
-
-    print('\nLoad {} takes {} sec \n'.format(meta_file, time.time() - start_time))
-
-    return graph, onnx_model
-
 # from networkx.algorithms.isomorphism import DiGraphMatcher
 # print(list(DiGraphMatcher(parent, child).subgraph_isomorphisms_iter()))
 
+def get_model_zoo(path):
+    return [os.path.join(path, x) for x in os.listdir(path) if os.path.isfile(os.path.join(path, x)) and '.onnx' in x]
+
+def mapping_func(parent_file, child_graph):
+    parent, parent_onnx = load_model_meta(parent_file)
+    opt = MatchingOperator(parent=parent)
+    mappings, score = opt.get_mappings(child=child_graph)
+
+    return (parent, mappings, score)
+
 def main():
     start_time = time.time()
-    parent, parent_onnx = load_model_meta('widen')
-    child, child_onnx = load_model_meta('sample')
+    num_of_processes = 10
 
-    opt = MatchingOperator(parent=parent)
-    mappings = opt.get_mappings(child=child)
+    zoo_path = './zoo'
+    model_zoo = get_model_zoo(zoo_path)
 
-    mapper = MappingOperator(parent, child, mappings, zoo_path='./')
+    # create multiple process to handle model zoos
+    child, child_onnx = load_model_meta('densenet201.onnx')
+
+    results = []
+    pool = multiprocessing.Pool(processes=num_of_processes)
+
+    for model in model_zoo:
+        results.append(pool.apply_async(mapping_func, (model, child)))
+    pool.close()
+    pool.join()
+
+    best_score = float('-inf')
+    parent = mappings = None
+
+    for res in results:
+        (p, m, s) = res.get()
+        if s > best_score:
+            parent, mappings, best_score = p, m, s
+
+    print("Find best mappings {} takes {} sec\n\n".format(parent.graph['name'], time.time() - start_time))
+
+    mapper = MappingOperator(parent, child, mappings)
     mapper.cascading_mapping()
-    weights = mapper.get_mapping_weights()
+    weights, num_of_matched = mapper.get_mapping_weights()
 
     # record the shape of each weighted nodes
     for idx, key in enumerate(weights.keys()):
         child_onnx.graph.initializer[idx].CopyFrom(numpy_helper.from_array(weights[key]))
+
+    print("\n\n{} layers in total, matched {} layers".format(child.graph['num_tensors'], num_of_matched))
     onnx.save(child_onnx, child.graph['name']+'_new.onnx')
 
-    # print(len(opt.alignmentStrings()[0].split('\t')), len(opt.alignmentStrings()[1].split('\t')))
-
-    # print('\t'.join(x for x in opt.alignmentStrings()[0].split('\t')))# if x != '-'))
-    # print('\t'.join(x for x in opt.alignmentStrings()[1].split('\t')))# if x != '-'))
-    # print("\n")
-    # print(opt.alignmentStrings()[2])
-
-    # print("======")
-    # print(opt.graphStrings()[0], "\n\n")
-    # print(opt.graphStrings()[1])
+    print("\n\n")
     print("Match takes {} sec".format(time.time() - start_time))
 
 main()
