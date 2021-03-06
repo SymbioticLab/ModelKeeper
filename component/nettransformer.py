@@ -101,12 +101,13 @@ def widen_child(weight, mapping_index, noise_factor=0):
 def deepen(weight, noise_factor=5e-2):
     """Build an identity layer"""
     n_bias = np.zeros(weight.shape[0], dtype=weight.dtype)
+    n_weight = None
 
     # 2-D Linear layers
     if len(weight.shape) == 2:
-        weight = np.matrix(np.eye(weight.shape[0], dtype=weight.dtype))
+        n_weight = np.matrix(np.eye(weight.shape[0], dtype=weight.dtype))
     else:
-        c_d, c_wh = weight[2]//2, weight[3]//2
+        c_d, c_wh = weight.shape[2]//2, weight.shape[3]//2
         n_weight = torch.zeros(weight.shape)
 
         for i in range(n_weight.shape[0]):
@@ -115,11 +116,13 @@ def deepen(weight, noise_factor=5e-2):
             elif n_weight.dim() == 5:
                 n_weight.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).narrow(4, c_wh, 1).fill_(1)
 
-        weight = n_weight.numpy()
+        n_weight = n_weight.numpy()
 
     # add noise
-    noise_w = np.random.normal(scale=noise_factor, size=list(weight.shape))
-    weight += noise_w
+    if n_weight is not None:
+        noise_w = np.random.normal(scale=noise_factor, size=list(n_weight.shape))
+        n_weight += noise_w
+        return n_weight, n_bias
 
     return weight, n_bias
 

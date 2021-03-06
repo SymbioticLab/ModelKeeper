@@ -1,9 +1,10 @@
 import onnx
 from onnx import numpy_helper
 import numpy
-from nettransformer import widen, widen_child
+from nettransformer import widen, widen_child, deepen
 import logging
 import os
+import collections
 
 def load_model_data(file):
     onnx_model = onnx.load(file)
@@ -30,6 +31,7 @@ class MappingOperator(object):
         self.parent_weights = load_model_data(parent.graph['name'])
         self.child_weights = load_model_data(child.graph['name'])
 
+        self.reset_layers = set()
         self.num_of_matched = 0
 
     def get_child_layers(self, graph, node_id):
@@ -100,17 +102,51 @@ class MappingOperator(object):
                     self.child_weights[layer+'.weight'] = nl_weight
                 
                 self.num_of_matched += 1
+                self.reset_layers.add(child_layer_name)
                 print('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
                                                             child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
 
     def get_mapping_weights(self):
         return self.child_weights, self.num_of_matched
 
-    def e2e_mapping(self):
+    def pad_mapping(self, threshold=4):
         """
             Handle unmapped layers by padding identity layers or random initialization
         """
+        # reverse the graph, and then run DFS to record the gap between warmed layers and next closest one
+        reversed_graph = self.child.reverse(copy=True)
+        layer_gaps = collections.defaultdict(int)
+        visited = set()
+        num_of_padding = 0
 
-        pass
+        def dfs(graph, node, depth):
+            visited.add(node)
+            cur_depth = depth
+            layer_name, layer_dims = self.child.nodes[node]['attr']['layer_name'], len(self.child.nodes[node]['attr']['dims'])
+
+            if layer_dims > 1:
+                cur_depth += 1
+                layer_gaps[layer_name] += cur_depth
+                if layer_name in self.reset_layers:
+                    cur_depth = 0
+
+            for source, target in graph.out_edges(node):
+                if target not in visited:
+                    dfs(graph, target, cur_depth)
+
+        [dfs(self.child, node, depth=0) for node in self.child.nodes() if self.child.in_degree(node)==0]
+        visited = set()
+        [dfs(reversed_graph, node, depth=0) for node in reversed_graph.nodes() if reversed_graph.in_degree(node)==0]
+        
+        for trainable_layer in layer_gaps:
+            if layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
+                n_weight, n_bias = deepen(self.child_weights[trainable_layer+'.weight'])
+                assert(n_weight.shape == self.child_weights[trainable_layer+'.weight'].shape)
+                self.child_weights[trainable_layer+'.weight'] = n_weight
+
+                num_of_padding += 1
+                print("Pad layer {} with gap {}".format(trainable_layer, layer_gaps[trainable_layer]))
+
+        print("\n\nPad {} identity layers".format(num_of_padding))
 
 

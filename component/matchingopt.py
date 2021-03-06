@@ -110,7 +110,7 @@ def topological_sorting(graph):
         [dfs(edge[1]) for edge in graph.out_edges(node) if edge[1] not in visited]
         ret.append(node)
 
-    [dfs(node) for node in graph.nodes() if node not in visited]
+    [dfs(node) for node in graph.nodes() if graph.in_degree(node)==0]
     ret.reverse()
     return ret
 
@@ -320,7 +320,7 @@ def mapping_func(parent_file, child_graph):
 
 def main():
     start_time = time.time()
-    num_of_processes = 10
+    num_of_processes = 4
 
     zoo_path = './zoo'
     model_zoo = get_model_zoo(zoo_path)
@@ -348,6 +348,7 @@ def main():
 
     mapper = MappingOperator(parent, child, mappings)
     mapper.cascading_mapping()
+    mapper.pad_mapping()
     weights, num_of_matched = mapper.get_mapping_weights()
 
     # record the shape of each weighted nodes
