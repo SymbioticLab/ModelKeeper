@@ -106,6 +106,7 @@ class MappingOperator(object):
                 print('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
                                                             child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
 
+
     def get_mapping_weights(self):
         return self.child_weights, self.num_of_matched
 
@@ -142,12 +143,15 @@ class MappingOperator(object):
         print("\n\n")
         for trainable_layer in layer_gaps:
             if layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
-                n_weight, n_bias = deepen(self.child_weights[trainable_layer+'.weight'])
-                assert(n_weight.shape == self.child_weights[trainable_layer+'.weight'].shape)
-                self.child_weights[trainable_layer+'.weight'] = n_weight
+                try:
+                    n_weight, n_bias = deepen(self.child_weights[trainable_layer+'.weight'])
+                    assert(n_weight.shape == self.child_weights[trainable_layer+'.weight'].shape)
+                    self.child_weights[trainable_layer+'.weight'] = n_weight
 
-                num_of_padding += 1
-                print("Pad layer {} with gap {}".format(trainable_layer, layer_gaps[trainable_layer]))
+                    num_of_padding += 1
+                    print("Pad layer {} with gap {}".format(trainable_layer, layer_gaps[trainable_layer]))
+                except Exception as e:
+                    print('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
         print("\n\nPad {} identity layers".format(num_of_padding))
 

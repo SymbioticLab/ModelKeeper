@@ -106,7 +106,7 @@ def deepen(weight, noise_factor=5e-2):
     # 2-D Linear layers
     if len(weight.shape) == 2:
         n_weight = np.matrix(np.eye(weight.shape[0], dtype=weight.dtype))
-    else:
+    elif len(weight.shape) > 2:
         c_d, c_wh = weight.shape[2]//2, weight.shape[3]//2
         n_weight = torch.zeros(weight.shape)
 

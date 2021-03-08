@@ -92,7 +92,7 @@ def load_model_meta(meta_file='sample.onnx'):
         for out_node in node.output:
             edge_source[out_node].append(idx)
 
-    print('\nLoad {} takes {} sec'.format(meta_file, time.time() - start_time))
+    #print('\nLoad {} takes {} sec'.format(meta_file, time.time() - start_time))
 
     return graph, onnx_model
 
@@ -176,12 +176,14 @@ class MatchingOperator(object):
         self.parentidx_order = topological_sorting(self.parent)
 
     def align_child(self, child):
+        start_time = time.time()
         self.child = child
         self.matchidxs = self.parentidxs = None
 
         self.childidx_order = topological_sorting(self.child)
         matches = self.alignChildToParent()
         self.matchidxs, self.parentidxs, self.match_score = matches
+        print("Match {} takes {:.2f} sec".format(self.parent.graph['name'], time.time() - start_time))
 
     def alignmentStrings(self):
         return ("\t".join([self.parent.nodes[j]['attr']['name'] if j is not None else "-" for j in self.parentidxs]), 
@@ -357,18 +359,18 @@ def mapping_func(parent_file, child_graph):
 
 def main():
     start_time = time.time()
-    num_of_processes = 10
+    num_of_processes = 16
 
     zoo_path = './zoo'
     model_zoo = get_model_zoo(zoo_path)
 
     # create multiple process to handle model zoos
-    child, child_onnx = load_model_meta('./zoo/resnet50.onnx')
+    child, child_onnx = load_model_meta('./zoo/wide_resnet50_2.onnx')
 
     results = []
     pool = multiprocessing.Pool(processes=num_of_processes)
 
-    for model in model_zoo:
+    for model in model_zoo: 
         results.append(pool.apply_async(mapping_func, (model, child)))
     pool.close()
     pool.join()
@@ -381,7 +383,7 @@ def main():
         if s > best_score:
             parent, mappings, best_score = p, m, s
 
-    print("Find best mappings {} (score: {}) takes {} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
+    print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
 
     mapper = MappingOperator(parent, child, mappings)
     mapper.cascading_mapping()
@@ -393,9 +395,9 @@ def main():
         child_onnx.graph.initializer[idx].CopyFrom(numpy_helper.from_array(weights[key]))
 
     print("\n\n{} layers in total, matched {} layers".format(child.graph['num_tensors'], num_of_matched))
-    onnx.save(child_onnx, child.graph['name']+'_new.onnx')
+    #onnx.save(child_onnx, child.graph['name']+'_new.onnx')
 
     print("\n\n")
-    print("Match takes {} sec".format(time.time() - start_time))
+    print("Match takes {:.2f} sec".format(time.time() - start_time))
 
 main()
