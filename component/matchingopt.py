@@ -23,10 +23,10 @@ def split_inputs(in_list):
             input_nodes.append(_input)
         # in onnx model, weight comes ahead of other trainable weights
         # in some cases, bias itself may be a tensor
-        elif 'weight' in _input:
+        elif '.weight' in _input:
             layer_name = _input
             break
-        elif 'bias' in _input:
+        elif '.bias' in _input:
             layer_name = _input
             break
 
@@ -40,7 +40,7 @@ def get_tensor_shapes(model_graph):
     if model_graph.initializer:
         #print("Load from initializer")
         for init in model_graph.initializer:
-            if '.weight' in init.name or '.bias' in init.name:
+            if '.weight' in init.name:
                 num_of_trainable_tensors += 1
             node_shapes[init.name] = tuple(init.dims)
     else:
@@ -73,6 +73,7 @@ def load_model_meta(meta_file='sample.onnx'):
         input_nodes, trainable_weights = split_inputs(node.input)
         opt_dir[node.op_type] += 1
 
+        #print(node.input, trainable_weights)
         # add new nodes to graph
         attr = {
             'dims': [] if not trainable_weights else node_shapes[trainable_weights],
@@ -113,6 +114,42 @@ def topological_sorting(graph):
     [dfs(node) for node in graph.nodes() if graph.in_degree(node)==0]
     ret.reverse()
     return ret
+
+def contract_graph(graph):
+    """Contract all branches into new subgraphs"""
+    branch_source = set([node for node in graph.nodes() if graph.out_degree(node)>1])
+    branch_sink = set([node for node in graph.nodes() if graph.in_degree(node)>1])
+
+    blockwise_graph = networkx.DiGraph()
+    block_idx = 1e5 # avoid conflicting with current node idx
+
+    def dfs(cur_graph, node, parents=None):
+        nonlocal block_idx
+
+        temp_graph = None
+        cur_graph.add_node(node, attr=graph.nodes[node]['attr'])
+
+        # not the beginning or end of a new subgraph
+        if node not in branch_source and node not in branch_sink:
+            temp_graph = cur_graph
+
+        elif node in branch_source:
+            # create a new subgraph, padding a super node to current graph
+            # insert a block node
+            sub_graph = networkx.DiGraph()
+            cur_graph.add_node(block_idx, attr={'subgraph':subgraph})
+            temp_graph = sub_graph
+        else:
+            # end of a subgraph
+            pass
+        for source, target in graph.out_edges(node):
+            pass
+
+        return graph
+
+    [dfs(blockwise_graph, node) for node in graph.nodes() if graph.in_degree(node)==0]
+
+    return blockwise_graph
 
 class MatchingOperator(object):
     __matchscore = 1
@@ -320,13 +357,13 @@ def mapping_func(parent_file, child_graph):
 
 def main():
     start_time = time.time()
-    num_of_processes = 4
+    num_of_processes = 10
 
     zoo_path = './zoo'
     model_zoo = get_model_zoo(zoo_path)
 
     # create multiple process to handle model zoos
-    child, child_onnx = load_model_meta('densenet201.onnx')
+    child, child_onnx = load_model_meta('./zoo/resnet50.onnx')
 
     results = []
     pool = multiprocessing.Pool(processes=num_of_processes)
@@ -344,7 +381,7 @@ def main():
         if s > best_score:
             parent, mappings, best_score = p, m, s
 
-    print("Find best mappings {} takes {} sec\n\n".format(parent.graph['name'], time.time() - start_time))
+    print("Find best mappings {} (score: {}) takes {} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
 
     mapper = MappingOperator(parent, child, mappings)
     mapper.cascading_mapping()

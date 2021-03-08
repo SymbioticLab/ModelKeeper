@@ -124,11 +124,12 @@ class MappingOperator(object):
             cur_depth = depth
             layer_name, layer_dims = self.child.nodes[node]['attr']['layer_name'], len(self.child.nodes[node]['attr']['dims'])
 
+            # trainable layers
             if layer_dims > 1:
                 cur_depth += 1
                 layer_gaps[layer_name] += cur_depth
                 if layer_name in self.reset_layers:
-                    cur_depth = 0
+                    cur_depth = 0 # reset the closest warmed layers
 
             for source, target in graph.out_edges(node):
                 if target not in visited:
@@ -138,6 +139,7 @@ class MappingOperator(object):
         visited = set()
         [dfs(reversed_graph, node, depth=0) for node in reversed_graph.nodes() if reversed_graph.in_degree(node)==0]
         
+        print("\n\n")
         for trainable_layer in layer_gaps:
             if layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
                 n_weight, n_bias = deepen(self.child_weights[trainable_layer+'.weight'])
