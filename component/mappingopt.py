@@ -5,6 +5,7 @@ from nettransformer import widen, widen_child, deepen
 import logging
 import os
 import collections
+import time
 
 def load_model_data(file):
     onnx_model = onnx.load(file)
@@ -68,6 +69,7 @@ class MappingOperator(object):
            We need to assure the following layers have been assigned,
            such that widening proceeding layers can replicate the right units
         """ 
+        start_time = time.time()
         
         mappings = self.mapping_indices.copy()
         mappings.reverse()
@@ -106,6 +108,8 @@ class MappingOperator(object):
                 print('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
                                                             child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
 
+        print("\n\nCascading mapping takes {:.2f} sec".format(time.time() - start_time))
+
 
     def get_mapping_weights(self):
         return self.child_weights, self.num_of_matched
@@ -115,6 +119,7 @@ class MappingOperator(object):
             Handle unmapped layers by padding identity layers or random initialization
         """
         # reverse the graph, and then run DFS to record the gap between warmed layers and next closest one
+        start_time = time.time()
         reversed_graph = self.child.reverse(copy=True)
         layer_gaps = collections.defaultdict(int)
         visited = set()
@@ -153,6 +158,6 @@ class MappingOperator(object):
                 except Exception as e:
                     print('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
-        print("\n\nPad {} identity layers".format(num_of_padding))
+        print("\n\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
 
 

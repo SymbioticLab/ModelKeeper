@@ -8,6 +8,7 @@ from mappingopt import MappingOperator
 import logging
 from onnx import numpy_helper
 import multiprocessing
+#from numba import jit
 
 sys.setrecursionlimit(10000)
 #logging.basicConfig(filename='logging', level=logging.INFO)
@@ -174,12 +175,14 @@ class MatchingOperator(object):
         self.nodeIndexToID = {-1: None}
 
         self.parentidx_order = topological_sorting(self.parent)
+        self.parentPrevIndicesList = []
 
     def align_child(self, child):
         start_time = time.time()
         self.child = child
         self.matchidxs = self.parentidxs = None
-
+        self.parentPrevIndicesList = []
+        
         self.childidx_order = topological_sorting(self.child)
         matches = self.alignChildToParent()
         self.matchidxs, self.parentidxs, self.match_score = matches
@@ -220,37 +223,39 @@ class MatchingOperator(object):
                 ans = i
         return candidates[ans]
 
+    #@jit
     def alignChildToParent(self):
         """Align node to parent, following same approach as smith waterman
         example"""
         scores, backStrIdx, backGrphIdx = self.initializeDynamicProgrammingData(self.parentidx_order)
 
+        # make it a list for speedup
+        sbases = [self.child.nodes[cidx]['attr'] for j, cidx in enumerate(self.childidx_order)]
+        
         # Dynamic Programming
         for i, pidx in enumerate(self.parentidx_order):
             pbase = self.parent.nodes[pidx]['attr']
 
             for j, cidx in enumerate(self.childidx_order):
-                sbase = self.child.nodes[cidx]['attr']
-                candidates = []
+                sbase = sbases[j]
+                candidates = [(scores[i+1, j] + self._gap, i+1, j, "INS")] # skip a parent node
                 # add all candidates to a list, pick the best
                 # insert to the child
-                for predIndex in self.parentPrevIndices(pidx):
+                for predIndex in self.parentPrevIndicesList[i]:
                     candidates += [(scores[predIndex+1, j] + self.matchscore(pbase, sbase), predIndex+1, j, "MATCH")]
                     candidates += [(scores[predIndex+1, j+1] + self._gap, predIndex+1, j+1, "DEL")] # skip a child node
 
-                candidates += [(scores[i+1, j] + self._gap, i+1, j, "INS")] # skip a parent node
+                scores[i+1, j+1], backGrphIdx[i+1, j+1], backStrIdx[i+1, j+1], movetype = max(candidates)
 
-                scores[i+1, j+1], backGrphIdx[i+1, j+1], backStrIdx[i+1, j+1], movetype = self.get_max(candidates)
-
-                if not self.globalAlign and scores[i+1, j+1] < 0:
-                    scores[i+1, j+1] = 0.
-                    backGrphIdx[i+1, j+1] = -1
-                    backStrIdx[i+1, j+1] = -1
+                # if not self.globalAlign and scores[i+1, j+1] < 0:
+                #     scores[i+1, j+1] = 0.
+                #     backGrphIdx[i+1, j+1] = -1
+                #     backStrIdx[i+1, j+1] = -1
 
         return self.backtrack(scores, backStrIdx, backGrphIdx, self.parentidx_order)
 
     # networkx is too slow in accessing edges
-    @functools.lru_cache(maxsize=5120)
+    #@functools.lru_cache(maxsize=5120)
     def parentPrevIndices(self, node):
         """Return a list of the previous dynamic programming table indices
            corresponding to predecessors of the current node."""
@@ -292,6 +297,8 @@ class MatchingOperator(object):
 
             for (index, nidx) in enumerate(ni):
                 prevIdxs = self.parentPrevIndices(nidx)
+                self.parentPrevIndicesList.append(prevIdxs)
+
                 best = float('-inf')
                 for prevIdx in prevIdxs:
                     best = max(best, scores[prevIdx+1, 0])
