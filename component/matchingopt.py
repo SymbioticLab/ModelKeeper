@@ -177,14 +177,18 @@ class MatchingOperator(object):
         self.parentidx_order = topological_sorting(self.parent)
         self.parentPrevIndicesList = []
 
+        self.child_cache = {}
+
     def align_child(self, child):
         start_time = time.time()
         self.child = child
         self.matchidxs = self.parentidxs = None
         self.parentPrevIndicesList = []
-        
+        self.child_cache = {}
+
         self.childidx_order = topological_sorting(self.child)
-        matches = self.alignChildToParent()
+        matches = self.alignStringToGraphFast()
+        #matches = self.alignChildToParent()
         self.matchidxs, self.parentidxs, self.match_score = matches
         print("Match {} takes {:.2f} sec".format(self.parent.graph['name'], time.time() - start_time))
 
@@ -211,9 +215,30 @@ class MatchingOperator(object):
             num_param_p = numpy.prod(parent_opt['dims'])
             num_param_c = numpy.prod(child_opt['dims'])
 
-            match_score = clip(1.-abs(num_param_p-num_param_c)/max(num_param_p, num_param_c, 1e-4)) * self._matchscore
+            match_score = (1.-abs(num_param_p-num_param_c)/max(num_param_p, num_param_c, 1e-4)) * self._matchscore
 
             return match_score #if match_score > .25 else self._mismatchscore
+
+    def get_child_parameters(self, name, dims):
+        if name not in self.child_cache:
+            self.child_cache[name] = numpy.prod(dims)
+        return self.child_cache[name]
+
+    def matchscoreVec(self, parent_opt, child_opts):
+        res = []
+        parent_opt_type = parent_opt['op_type']
+        parent_num_params = numpy.prod(parent_opt['dims'])
+
+        for child_opt in child_opts:
+            if parent_opt_type != child_opt['op_type']:
+                res.append(self._mismatchscore)
+            else:
+                # diff number of parameters
+                child_num_params = self.get_child_parameters(child_opt['name'], child_opt['dims'])
+                match_score = (1.-abs(parent_num_params-child_num_params)/max(parent_num_params, child_num_params, 1e-4)) * self._matchscore
+                res.append(match_score)
+
+        return res
 
     def get_max(self, candidates):
         ans = 0
@@ -222,6 +247,79 @@ class MatchingOperator(object):
             if (candidates[ans][0], candidates[ans][-1]) <= (candidates[i][0], candidates[i][-1]):
                 ans = i
         return candidates[ans]
+
+    def alignStringToGraphFast(self):
+        """Align string to graph - using numpy to vectorize across the string
+        at each iteration."""
+
+        scores, backStrIdx, backGrphIdx = self.initializeDynamicProgrammingData(self.parentidx_order)
+
+        l2 = len(self.child.nodes)
+        inserted = numpy.zeros((l2), dtype=numpy.bool)
+
+        sbases = [self.child.nodes[cidx]['attr'] for j, cidx in enumerate(self.childidx_order)]
+        seqvec = numpy.array(list(sbases))
+
+        # having the inner loop as a function improves performance
+        # can use Cython, etc on this for significant further improvements
+        # can't vectorize this since there's a loop-carried dependency
+        #  along the string
+        #@jit
+        def insertions(i, l2, scores, inserted):
+            inserted[:] = False
+            for j in range(l2):
+                insscore = scores[i+1, j] + self._gap
+                if insscore >= scores[i+1, j+1]:
+                    scores[i+1, j+1] = insscore
+                    inserted[j] = True
+
+        # Dynamic Programming
+        for i, node in enumerate(self.parentidx_order):
+            gbase = self.parent.nodes[node]['attr']
+            predecessors = self.parentPrevIndicesList[i]
+
+            # calculate all best deletions, matches in one go over all
+            # predecessors.
+
+            # First calculate for the first predecessor, over all string posns:
+            deletescore = scores[predecessors[0]+1, 1:] + self._gap
+            bestdelete = numpy.zeros((l2), dtype=numpy.int)+predecessors[0]+1
+
+            matchpoints = self.matchscoreVec(gbase, seqvec)
+            matchscore = scores[predecessors[0]+1, 0:-1] + matchpoints
+            bestmatch = numpy.zeros((l2), dtype=numpy.int)+predecessors[0]+1
+
+            # then, the remaining
+            for predecessor in predecessors[1:]:
+                newdeletescore = scores[predecessor+1, 1:] + self._gap
+                bestdelete     = numpy.where(newdeletescore > deletescore, predecessor+1, bestdelete)
+                deletescore    = numpy.maximum(newdeletescore, deletescore)
+
+                gbase = self.parent.nodes[predecessor]['attr']
+                matchpoints = self.matchscoreVec(gbase, seqvec)
+                newmatchscore = scores[predecessor+1, 0:-1] + matchpoints
+                bestmatch     = numpy.where(newmatchscore > matchscore, predecessor+1, bestmatch)
+                matchscore    = numpy.maximum(newmatchscore, matchscore)
+
+            # choose best options available of match, delete
+            deleted       = deletescore >= matchscore
+            backGrphIdx[i+1, 1:] = numpy.where(deleted, bestdelete, bestmatch)
+            backStrIdx [i+1, 1:] = numpy.where(deleted, numpy.arange(1, l2+1), numpy.arange(0, l2))
+            scores[i+1, 1:] = numpy.where(deleted, deletescore, matchscore)
+
+            # insertions: updated in place, don't depend on predecessors
+            insertions(i, l2, scores, inserted)
+            backGrphIdx[i+1, 1:] = numpy.where(inserted, i+1, backGrphIdx[i+1, 1:])
+            backStrIdx[i+1, 1:] = numpy.where(inserted, numpy.arange(l2), backStrIdx[i+1, 1:])
+
+            # if we're doing local alignment, don't let bad global alignment
+            # drag us negative
+            # if not self.globalAlign:
+            #     backGrphIdx[i+1, :] = numpy.where(scores[i+1, :] > 0, backGrphIdx[i+1, :], -1)
+            #     backStrIdx [i+1, :] = numpy.where(scores[i+1, :] > 0, backStrIdx[i+1, :], -1)
+            #     scores[i+1, :]      = numpy.maximum(scores[i+1, :], 0)
+
+        return self.backtrack(scores, backStrIdx, backGrphIdx, self.parentidx_order)
 
     #@jit
     def alignChildToParent(self):
@@ -255,13 +353,14 @@ class MatchingOperator(object):
         return self.backtrack(scores, backStrIdx, backGrphIdx, self.parentidx_order)
 
     # networkx is too slow in accessing edges
-    #@functools.lru_cache(maxsize=5120)
     def parentPrevIndices(self, node):
         """Return a list of the previous dynamic programming table indices
            corresponding to predecessors of the current node."""
         prev = []
         for edge in self.parent.in_edges(node):
             prev.append(self.nodeIDtoIndex[edge[0]])
+
+        #prev.sort(key=lambda k:-self.parentidx_order.index(k))
 
         # if no predecessors, point to just before the parent
         if len(prev) == 0:
@@ -362,16 +461,25 @@ def mapping_func(parent_file, child_graph):
     opt = MatchingOperator(parent=parent)
     mappings, score = opt.get_mappings(child=child_graph)
 
+    # print(opt.alignmentStrings()[0])
+    # print("\n\n")
+    # print(opt.alignmentStrings()[1])
+    # print("\n\n")
+    # print(opt.graphStrings()[0])
+    # print("\n\n")
+    # print(opt.graphStrings()[1])
     return (parent, mappings, score)
 
 def main():
     start_time = time.time()
     num_of_processes = 16
 
+    #zoo_path = './temp_zoo'
     zoo_path = './zoo'
     model_zoo = get_model_zoo(zoo_path)
 
     # create multiple process to handle model zoos
+    #child, child_onnx = load_model_meta('./temp_zoo/resnet50oppo1.onnx')
     child, child_onnx = load_model_meta('./zoo/wide_resnet50_2.onnx')
 
     results = []
