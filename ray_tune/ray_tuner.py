@@ -38,13 +38,19 @@ NUM_SAMPLES = 100
 REDUCTION_FACTOR = 4
 GRACE_PERIOD = 4
 CPU_RESOURCES_PER_TRIAL = 1
-GPU_RESOURCES_PER_TRIAL = 0
+GPU_RESOURCES_PER_TRIAL = 1
 METRIC = 'accuracy'  # or 'loss'
 
+
+conf_list = [{'name': 'infer.tiny', 'C': 16, 'N': 5, 'arch_str': '|avg_pool_3x3~0|+|avg_pool_3x3~0|nor_conv_1x1~1|+|none~0|avg_pool_3x3~1|nor_conv_3x3~2|', 'num_classes': 10},
+    {'name': 'infer.tiny', 'C': 16, 'N': 5, 'arch_str': '|skip_connect~0|+|none~0|skip_connect~1|+|nor_conv_3x3~0|nor_conv_1x1~1|skip_connect~2|', 'num_classes': 10}]
+
 CONFIG = {
-    "model": tune.sample_from(lambda _: np.random.randint(133, 135)),
+    "model": tune.grid_search([0, 1]),
     }
 ###################################
+
+
 
 
 
@@ -142,7 +148,7 @@ class TrainModel(tune.Trainable):
         use_cuda = torch.cuda.is_available()
         self.device = torch.device("cuda" if use_cuda else "cpu")
         self.train_loader, self.test_loader = get_data_loaders()
-        self.model = get_cell_based_tiny_net(api.get_net_config(config['model'], args.data))  
+        self.model = get_cell_based_tiny_net(conf_list[config['model']])  
         self.model_name = 'model_' + '_'.join([str(val) for val in config.values()]) + '.pth'
         self.best_acc = 0
         self.best_loss = np.Infinity
@@ -217,12 +223,14 @@ if __name__ == "__main__":
         help="Address of Ray cluster for seamless distributed execution.")
     args = parser.parse_args()
 
+    
+
     torch.manual_seed(args.seed)
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
-    api = API(args.meta, verbose=False)
-    ray.init(address=args.ray_address)
+    # api = API(args.meta, verbose=False)
+    ray.init()
 
     if METRIC=='accuracy':
         sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
@@ -259,13 +267,3 @@ if __name__ == "__main__":
         print("Best config is:", analysis.get_best_config(metric="mean_accuracy"))
     else:
         print("Best config is:", analysis.get_best_config(metric="mean_loss"))
-
-    # if args.cuda and torch.cuda.is_available():
-    #     print("Use cuda")
-    #     train(model, optimizer, criterion, train_loader, torch.device("cuda"))
-    #     eval(model, criterion, test_loader, torch.device("cuda"))
-
-    # else:
-    #     print("Use cpu")
-    #     train(model, optimizer, criterion, train_loader, torch.device("cpu"))
-    #     eval(model, criterion, test_loader, torch.device("cpu"))
