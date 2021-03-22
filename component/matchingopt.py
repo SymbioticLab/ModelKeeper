@@ -79,7 +79,7 @@ def load_model_meta(meta_file='sample.onnx'):
         attr = {
             'dims': [] if not trainable_weights else node_shapes[trainable_weights],
             'op_type': node.op_type,
-            'name': node.name if node.name else str(node.op_type)+str(opt_dir[node.op_type]),
+            'name': node.name,# if node.name else str(node.op_type)+str(opt_dir[node.op_type]),
             'layer_name': None if not trainable_weights else '.'.join(trainable_weights.split('.')[:-1])
         }
         graph.add_node(idx, attr=attr)
@@ -104,6 +104,7 @@ def clip(var):
 
 def topological_sorting(graph):
     """DFS based topological sort to maximize length of each chain"""
+    # return list(nx.topological_sort(graph))
     visited = set()
     ret = []
 
@@ -182,28 +183,43 @@ class MatchingOperator(object):
         self.child = None
         self.childidx_order = None
 
+        # parent
         self.nodeIDtoIndex = {}
         self.nodeIndexToID = {-1: None}
+
+        # child
+        self.childNodeIDtoIndex = {}
 
         self.parentidx_order = topological_sorting(self.parent)
         self.parentPrevIndicesList = []
 
         self.child_cache = {}
         self.parent_cache = {}
+        self.match_res = None
 
     def align_child(self, child):
         start_time = time.time()
+
+        # reset all parameters
         self.child = child
         self.matchidxs = self.parentidxs = None
         self.parentPrevIndicesList = []
         self.child_cache = {}
-        self.parent_cache = {}
+        self.childNodeIDtoIndex = {}
+        self.moveTypes = {}
+        self.match_res = None
 
         self.childidx_order = topological_sorting(self.child)
-        matches = self.alignStringToGraphFast()
-        #matches = self.alignChildToParent()
-        self.matchidxs, self.parentidxs, self.match_score = matches
+        self.child_bases = {cidx:self.child.nodes[cidx]['attr'] for j, cidx in enumerate(self.childidx_order)}
+
+        """Align node to parent, following same approach as smith waterman example"""
+        scores, backStrIdx, backGrphIdx = self.initializeDynamicProgrammingData()
+
+        #matches = self.alignStringToGraphFast()
+        self.match_res = self.alignChildToParent(scores, backStrIdx, backGrphIdx)
+
         print("Match {} takes {:.2f} sec".format(self.parent.graph['name'], time.time() - start_time))
+        return self.match_res[0][-1][-1] # score of end-to-end matching
 
     def alignmentStrings(self):
         return ("\t".join([self.parent.nodes[j]['attr']['name'] if j is not None else "-" for j in self.parentidxs]), 
@@ -216,7 +232,11 @@ class MatchingOperator(object):
                 )
 
     def get_mappings(self, child):
-        self.align_child(child)
+        if self.match_res is None:
+            score = self.align_child(child=child)
+        matches = self.backtrack(*self.match_res)
+        self.matchidxs, self.parentidxs, self.match_score = matches
+
         return [(self.parentidxs[i], self.matchidxs[i]) for i in range(len(self.parentidxs)) \
                 if self.parentidxs[i] is not None and self.matchidxs[i] is not None], self.match_score
 
@@ -225,14 +245,16 @@ class MatchingOperator(object):
             return self._mismatchscore
         else:
             # diff number of parameters
-            # num_param_p = numpy.prod(parent_opt['dims'])
-            # num_param_c = numpy.prod(child_opt['dims'])
             num_param_p = self.get_parent_parameters(parent_opt['name'], parent_opt['dims'])
-            num_param_c = self.get_child_parameters(child_opt['name'], child_opt['dims'])
+            #num_param_c = self.get_child_parameters(child_opt['name'], child_opt['dims'])
+            num_inherited = 1
+            for i, j in zip(parent_opt['dims'], child_opt['dims']):
+                num_inherited *= min(i, j)
 
-            match_score = (1.-abs(num_param_p-num_param_c)/max(num_param_p, num_param_c, 1e-4)) * self._matchscore
+            match_score = num_inherited/max(num_param_p, 1e-4) * self._matchscore
 
             return match_score #if match_score > .25 else self._mismatchscore
+
 
     def get_child_parameters(self, name, dims):
         if name not in self.child_cache:
@@ -272,7 +294,7 @@ class MatchingOperator(object):
         """Align string to graph - using numpy to vectorize across the string
         at each iteration."""
 
-        scores, backStrIdx, backGrphIdx = self.initializeDynamicProgrammingData(self.parentidx_order)
+        scores, backStrIdx, backGrphIdx = self.initializeDynamicProgrammingData()
 
         l2 = len(self.child.nodes)
         inserted = numpy.zeros((l2), dtype=numpy.bool)
@@ -331,38 +353,36 @@ class MatchingOperator(object):
             backGrphIdx[i+1, 1:] = numpy.where(inserted, i+1, backGrphIdx[i+1, 1:])
             backStrIdx[i+1, 1:] = numpy.where(inserted, numpy.arange(l2), backStrIdx[i+1, 1:])
 
-            # if we're doing local alignment, don't let bad global alignment
-            # drag us negative
-            # if not self.globalAlign:
-            #     backGrphIdx[i+1, :] = numpy.where(scores[i+1, :] > 0, backGrphIdx[i+1, :], -1)
-            #     backStrIdx [i+1, :] = numpy.where(scores[i+1, :] > 0, backStrIdx[i+1, :], -1)
-            #     scores[i+1, :]      = numpy.maximum(scores[i+1, :], 0)
 
-        return self.backtrack(scores, backStrIdx, backGrphIdx, self.parentidx_order)
+        return self.backtrack(scores, backStrIdx, backGrphIdx)
 
-    def alignChildToParent(self):
-        """Align node to parent, following same approach as smith waterman example"""
-        scores, backStrIdx, backGrphIdx = self.initializeDynamicProgrammingData(self.parentidx_order)
-
-        # make it a list for speedup
-        sbases = [self.child.nodes[cidx]['attr'] for j, cidx in enumerate(self.childidx_order)]
+    def alignChildToParent(self, scores, backStrIdx, backGrphIdx):
+        pair_set = set()
 
         # Dynamic Programming
         for i, pidx in enumerate(self.parentidx_order):
             pbase = self.parent.nodes[pidx]['attr']
 
             for j, cidx in enumerate(self.childidx_order):
-                sbase = sbases[j]
-                candidates = [(scores[i+1, j] + self._gap, i+1, j, "INS")] # skip a parent node
+                sbase = self.child_bases[cidx]
                 match_score = self.matchscore(pbase, sbase)
-                # add all candidates to a list, pick the best insert to the child
-                for predIndex in self.parentPrevIndicesList[i]:
-                    candidates += [(scores[predIndex+1, j] + match_score, predIndex+1, j, "MATCH")]
-                    candidates += [(scores[predIndex+1, j+1] + self._gap, predIndex+1, j+1, "DEL")] # skip a child node
+                best_candidates = (-1e10, )
 
-                scores[i+1, j+1], backGrphIdx[i+1, j+1], backStrIdx[i+1, j+1], movetype = max(candidates)
+                for cp in self.childPrevIndicesList[cidx]:
+                    # index of child parent
+                    cprev = cp+1
+                    best_candidates = max(best_candidates, (scores[i+1, cprev] + self._gap, i+1, cprev))#, "INS")) # skip a parent node
+                    
+                    # add all candidates to a list, pick the best insert to the child
+                    for predIndex in self.parentPrevIndicesList[i]:
+                        best_candidates = max(best_candidates, 
+                                        (scores[predIndex+1, cprev] + match_score, predIndex+1, cprev),#, "MATCH"),
+                                        (scores[predIndex+1, cprev+1] + self._gap, predIndex+1, cprev+1))#, "DEL")) # skip a child node
 
-        return self.backtrack(scores, backStrIdx, backGrphIdx, self.parentidx_order)
+                scores[i+1, j+1], backGrphIdx[i+1, j+1], backStrIdx[i+1, j+1] = best_candidates
+
+        return scores, backStrIdx, backGrphIdx 
+
 
     def parentPrevIndices(self, node):
         """Return a list of the previous dynamic programming table indices
@@ -376,7 +396,15 @@ class MatchingOperator(object):
             prev = [-1]
         return prev
 
-    def initializeDynamicProgrammingData(self, ni):
+    def childPrevIndices(self, node):
+        prev = []
+        for source, target in self.child.in_edges(node):
+            prev.append(self.childNodeIDtoIndex[source])
+        if len(prev) == 0:
+            prev = [-1]
+        return prev
+
+    def initializeDynamicProgrammingData(self):
         """Initalize the dynamic programming tables:
             @ni: re-index graph nodes
             - set up scores array
@@ -387,11 +415,21 @@ class MatchingOperator(object):
         l2 = self.child.number_of_nodes()
 
         self.nodeIDtoIndex = {}
-        self.nodeIndexToID = {-1: None}
         # generate a dict of (nodeID) -> (index into nodelist (and thus matrix))
-        for (index, nidx) in enumerate(ni):
+        for (index, nidx) in enumerate(self.parentidx_order):
             self.nodeIDtoIndex[nidx] = index
-            self.nodeIndexToID[index] = nidx
+
+        for (index, nidx) in enumerate(self.childidx_order):
+            self.childNodeIDtoIndex[nidx] = index
+
+        # initiate prevs for parent and child graph
+        self.parentPrevIndicesList = []
+        for (index, nidx) in enumerate(self.parentidx_order):
+            self.parentPrevIndicesList.append(self.parentPrevIndices(nidx))
+
+        self.childPrevIndicesList = {}
+        for (index, nidx) in enumerate(self.childidx_order):
+            self.childPrevIndicesList[nidx] = self.childPrevIndices(nidx)
 
         # Dynamic Programming data structures; scores matrix and backtracking
         # matrix
@@ -403,66 +441,71 @@ class MatchingOperator(object):
             scores[0, :] = numpy.arange(l2+1)*self._gap
             scores[:, 0] = numpy.arange(l1+1)*self._gap
 
-            for (index, nidx) in enumerate(ni):
-                prevIdxs = self.parentPrevIndices(nidx)
-                self.parentPrevIndicesList.append(prevIdxs)
+            for (index, nidx) in enumerate(self.parentidx_order):
+                prevIdxs = self.parentPrevIndicesList[index]
 
                 best = float('-inf')
                 for prevIdx in prevIdxs:
                     best = max(best, scores[prevIdx+1, 0])
                 scores[index+1, 0] = best + self._gap
 
+            for (index, nidx) in enumerate(self.childidx_order):
+                prevIdxs = self.childPrevIndicesList[nidx]
+
+                best = float('-inf')
+                for prevIdx in prevIdxs:
+                    best = max(best, scores[0, prevIdx+1])
+                scores[0, index+1] = best + self._gap
+
         # backtracking matrices
-        backStrIdx = numpy.zeros((l1+1, l2+1), dtype=numpy.int)
-        backGrphIdx = numpy.zeros((l1+1, l2+1), dtype=numpy.int)
+        backStrIdx = collections.defaultdict(list) #numpy.zeros((l1+1, l2+1), dtype=numpy.int)
+        backGrphIdx = collections.defaultdict(list) #numpy.zeros((l1+1, l2+1), dtype=numpy.int)
 
         return scores, backStrIdx, backGrphIdx
 
-    def backtrack(self, scores, backStrIdx, backGrphIdx, ni):
+    def backtrack(self, scores, backStrIdx, backGrphIdx):
         """Backtrack through the scores and backtrack arrays.
            Return a list of child indices and node IDs (not indices, which
            depend on ordering)."""
         besti, bestj = scores.shape
         besti -= 1
         bestj -= 1
-        if not self.globalAlign:
-            besti, bestj = numpy.argwhere(scores == numpy.amax(scores))[-1]
-        else:
-            # still have to find best final index to start from
-            terminalIndices = [index for (index, pidx) in enumerate(ni) if self.parent.out_degree(pidx)==0]
 
-            besti = terminalIndices[0] + 1
-            bestscore = scores[besti, bestj]
-            for i in terminalIndices[1:]:
-                score = scores[i+1, bestj]
-                if score > bestscore:
-                    bestscore, besti = score, i+1
+        bestscore = scores[besti, bestj]
+        matches, strindexes = [], []
+        que = [(besti, bestj)]
+        que_set = set([bestj])
 
-        matches = []
-        strindexes = []
-        while (self.globalAlign or scores[besti, bestj] > 0) and not(besti == 0 and bestj == 0):
-            nexti, nextj = backGrphIdx[besti, bestj], backStrIdx[besti, bestj]
-            curstridx, curnodeidx = self.childidx_order[bestj-1], self.nodeIndexToID[besti-1]
+        while len(que) != 0:
+            besti, bestj = que.pop()
+            curstridx, curnodeidx = self.childidx_order[bestj-1], self.parentidx_order[besti-1]
+
+            # multi-branch for child (j), then we need to recover all branches
+            nextis, nextjs = [], []
+            for childPrev in self.childPrevIndicesList[curstridx]:
+                nextis.append(backGrphIdx[besti, childPrev+2])
+                nextjs.append(backStrIdx[besti, childPrev+2])
+
+            #nextis, nextjs = [backGrphIdx[besti, bestj]], [backStrIdx[besti, bestj]]
 
             name_aligned = True
             if curstridx is not None and curnodeidx is not None:
-               name_aligned = self.child.nodes[curstridx]['attr']['op_type']==self.parent.nodes[curnodeidx]['attr']['op_type']
-            name_aligned = name_aligned and (nextj != bestj and nexti != besti)
+                name_aligned = self.child.nodes[curstridx]['attr']['op_type']==self.parent.nodes[curnodeidx]['attr']['op_type']
+            name_aligned = name_aligned and (bestj not in nextjs and besti not in nextis)
 
             strindexes.append(curstridx if name_aligned else None)
             matches.append(curnodeidx if name_aligned else None)
 
-            besti, bestj = nexti, nextj
+            for nexti, nextj in zip(nextis, nextjs):
+                if not(nexti == 0 and nextj == 0) and nextj not in que_set:
+                    que.append((nexti, nextj)) # DFS
+                    que_set.add(nextj)
 
         strindexes.reverse()
         matches.reverse()
 
-        #numpy.set_printoptions(threshold=sys.maxsize)
-        #print(scores[0, :], scores[:, 0], scores[1, ], scores[-1, ])
         return strindexes, matches, bestscore
 
-# from networkx.algorithms.isomorphism import DiGraphMatcher
-# print(list(DiGraphMatcher(parent, child).subgraph_isomorphisms_iter()))
 
 def get_model_zoo(path):
     if '.onnx' in path:
@@ -483,17 +526,73 @@ def mapping_func(parent_file, child_graph):
     # print(opt.graphStrings()[1])
     return (parent, mappings, score)
 
+def faked_graph():
+    graph = nx.DiGraph(name='faked')
+    attr1={'dims': [64, 32, 3, 3], 'op_type': 'cov1',}
+
+    graph.add_node(0, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'0'})
+    graph.add_node(1, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'1'})
+    graph.add_node(2, attr={'dims': [3, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
+    graph.add_node(3, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
+    graph.add_node(4, attr={'dims': [5, 32, 3, 3], 'op_type': 'cov1', 'name':'4'})
+
+    graph.add_edge(0, 1)
+    graph.add_edge(1, 2)
+    graph.add_edge(2, 4)
+    graph.add_edge(0, 3)
+    graph.add_edge(3, 4)
+
+    return graph
+
+def faked_graph2():
+    graph = nx.DiGraph(name='faked')
+    attr1={'dims': [64, 32, 3, 3], 'op_type': 'cov1',}
+
+    graph.add_node(0, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'0'})
+    graph.add_node(1, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'1'})
+    graph.add_node(2, attr={'dims': [3, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
+    graph.add_node(3, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
+    graph.add_node(4, attr={'dims': [5, 32, 3, 3], 'op_type': 'cov1', 'name':'4'})
+
+    graph.add_edge(0, 1)
+    graph.add_edge(1, 2)
+    graph.add_edge(2, 4)
+    graph.add_edge(0, 3)
+    graph.add_edge(3, 4)
+
+    return graph
+
+
+def mapping_faked(parent, child_graph):
+    opt = MatchingOperator(parent=parent)
+    mappings, score = opt.get_mappings(child=child_graph)
+
+    print(opt.alignmentStrings()[0])
+    print("\n\n")
+    print(opt.alignmentStrings()[1])
+    print("\n\n")
+    print(opt.graphStrings()[0])
+    print("\n\n")
+    # print(opt.graphStrings()[1])
+    return (parent, mappings, score)
+
 def main():
     start_time = time.time()
     num_of_processes = 16
+    # parent = faked_graph()
+    # child = faked_graph2()#parent.copy()
+
+    # parent, mappings, best_score = mapping_faked(parent, child)
+    # print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
+
 
     #zoo_path = './temp_zoo'
-    zoo_path = './zoo/resnet50.onnx'
-    zoo_path = './zoo'
+    #zoo_path = './zoo/resnet18.onnx'
+    zoo_path = './zoo/densenet201.onnx'
     model_zoo = get_model_zoo(zoo_path)
 
     # create multiple process to handle model zoos
-    #child, child_onnx = load_model_meta('./temp_zoo/resnet50oppo1.onnx')
+    #child, child_onnx = load_model_meta('./zoo/resnet152.onnx')
     child, child_onnx = load_model_meta('./zoo/densenet201.onnx')
 
     results = []
@@ -514,6 +613,7 @@ def main():
 
     print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
 
+    #print(mappings)
     mapper = MappingOperator(parent, child, mappings)
     mapper.cascading_mapping()
     mapper.pad_mapping()
