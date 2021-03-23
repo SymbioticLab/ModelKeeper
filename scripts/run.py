@@ -96,7 +96,7 @@ for w in range(1, numOfWorkers + 1):
 rawCmdPs = "\nray stop \nray start --head --redis-port=6379 --redis-shard-ports=6380 --node-manager-port=12345 --object-manager-port=12346 \nsleep 24h\n"
 
 with open('head.lsf', 'w') as fout:
-    scriptPS = template_server + '\n#BSUB -J head\n#BSUB -e server{}'.format(timeStamp) + '.e\n#BSUB -o head{}'.format(timeStamp) + '.o\n' + '#BSUB -m "'+master_node+'"\n\n' + rawCmdPs
+    scriptPS = template_server + '\n#BSUB -J head\n#BSUB -e head{}'.format(timeStamp) + '.e\n#BSUB -o head{}'.format(timeStamp) + '.o\n' + '#BSUB -m "'+master_node+'"\n\n' + rawCmdPs
     fout.writelines(scriptPS)
 
 with open('submit.lsf', 'w') as fout:
