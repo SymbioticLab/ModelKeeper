@@ -1,7 +1,7 @@
 import onnx
 from onnx import numpy_helper
 import numpy
-from nettransformer import widen, widen_child, deepen
+from oort.nettransformer import widen, widen_child, deepen
 import logging
 import os
 import collections
@@ -145,7 +145,7 @@ class MappingOperator(object):
         visited = set()
         [dfs(reversed_graph, node, depth=0) for node in reversed_graph.nodes() if reversed_graph.in_degree(node)==0]
         
-        print("\n\n")
+        print("\n")
         for trainable_layer in layer_gaps:
             if layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
                 try:
@@ -158,6 +158,6 @@ class MappingOperator(object):
                 except Exception as e:
                     print('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
-        print("\n\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
+        print("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
 
 

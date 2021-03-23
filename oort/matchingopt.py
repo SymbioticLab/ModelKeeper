@@ -4,11 +4,11 @@ import numpy
 import networkx as nx
 import time, sys, os
 import functools, collections
-from mappingopt import MappingOperator
+from oort.mappingopt import MappingOperator
 import logging
 from onnx import numpy_helper
 import multiprocessing
-#from numba import jit
+import torch
 
 sys.setrecursionlimit(10000)
 #logging.basicConfig(filename='logging', level=logging.INFO)
@@ -470,19 +470,20 @@ class Oort(object):
     def __init__(self, args):
         self.args = args
         self.model_zoo = collections.OrderedDict()
-        self.init_model_zoo()
+        self.init_model_zoo(args.zoo_path)
 
         self.current_mapping_id = 0
 
     def init_model_zoo(self, zoo_path):
-        if '.onnx' in path: 
-            model_paths = [path]
+        if '.onnx' in zoo_path: 
+            model_paths = [zoo_path]
         else:
             model_paths = [os.path.join(zoo_path, x) for x in os.listdir(zoo_path) \
                 if os.path.isfile(os.path.join(zoo_path, x)) and '.onnx' in x]
 
         for model_path in model_paths:
             self.add_to_zoo(model_path)
+            print(f"Added {model_path} to zoo ...")
 
     def add_to_zoo(self, model_path):
         model_graph, model_weight = load_model_meta(model_path)
@@ -506,7 +507,9 @@ class Oort(object):
 
         start_time = time.time()
 
-        pool = multiprocessing.Pool(processes=args.num_of_processes)
+        pool = multiprocessing.Pool(processes=self.args.num_of_processes)
+        results = []
+
         for model_path in self.model_zoo.keys(): 
             results.append(pool.apply_async(self.mapping_func, (model_path, child)))
         pool.close()
@@ -520,7 +523,7 @@ class Oort(object):
             if s > best_score:
                 parent, mappings, best_score = p, m, s
 
-        logging.info("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
+        print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
                             parent.graph['name'], best_score, time.time() - start_time))
         return parent, mappings, best_score
 
@@ -536,7 +539,7 @@ class Oort(object):
         for name, p in child_model.named_parameters():
             p.data = (torch.from_numpy(weights[name])).data
 
-        logging.info("Mapped {} layers to the child model ({} layers)".format(num_of_matched, child.graph['num_tensors']))
+        print("Mapped {} layers to the child model ({} layers)".format(num_of_matched, child.graph['num_tensors']))
 
 
     def map_for_model(self, child_model, dummy_input):
@@ -546,7 +549,7 @@ class Oort(object):
         # dump the model into onnx format
         onnx_model_name = os.path.join(self.args.exe_path, str(self.current_mapping_id)+".onnx")
         torch.onnx.export(child_model, dummy_input, onnx_model_name, 
-                    export_params=True, verbose=0, training=1)
+                    export_params=True, verbose=0, training=1, do_constant_folding=False)
         
         child, child_onnx = load_model_meta(onnx_model_name)
 
@@ -619,61 +622,58 @@ def mapping_faked(parent, child_graph):
     print(opt.graphStrings()[1])
     return (parent, mappings, score)
 
+
 def main():
-    pass
-    
-# def main():
-#     start_time = time.time()
-#     num_of_processes = 16
-#     # parent = faked_graph()
-#     # child = faked_graph2()#parent.copy()
+    start_time = time.time()
+    num_of_processes = 16
+    # parent = faked_graph()
+    # child = faked_graph2()#parent.copy()
 
-#     # parent, mappings, best_score = mapping_faked(parent, child)
-#     # print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
+    # parent, mappings, best_score = mapping_faked(parent, child)
+    # print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
 
 
-#     #zoo_path = './temp_zoo'
-#     #zoo_path = './zoo/resnet18.onnx'
-#     zoo_path = './zoo/densenet201.onnx'
-#     model_zoo = get_model_zoo(zoo_path)
+    #zoo_path = './temp_zoo'
+    #zoo_path = './zoo/resnet18.onnx'
+    zoo_path = './zoo/densenet201.onnx'
+    model_zoo = get_model_zoo(zoo_path)
 
-#     # create multiple process to handle model zoos
-#     #child, child_onnx = load_model_meta('./zoo/resnet152.onnx')
-#     child, child_onnx = load_model_meta('./zoo/densenet201.onnx')
+    # create multiple process to handle model zoos
+    #child, child_onnx = load_model_meta('./zoo/resnet152.onnx')
+    child, child_onnx = load_model_meta('./zoo/densenet201.onnx')
 
-#     results = []
-#     pool = multiprocessing.Pool(processes=num_of_processes)
+    results = []
+    pool = multiprocessing.Pool(processes=num_of_processes)
 
-#     for model in model_zoo: 
-#         results.append(pool.apply_async(mapping_func, (model, child)))
-#     pool.close()
-#     pool.join()
+    for model in model_zoo: 
+        results.append(pool.apply_async(mapping_func, (model, child)))
+    pool.close()
+    pool.join()
 
-#     best_score = float('-inf')
-#     parent = mappings = None
+    best_score = float('-inf')
+    parent = mappings = None
 
-#     for res in results:
-#         (p, m, s) = res.get()
-#         if s > best_score:
-#             parent, mappings, best_score = p, m, s
+    for res in results:
+        (p, m, s) = res.get()
+        if s > best_score:
+            parent, mappings, best_score = p, m, s
 
-#     print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
+    print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
 
-#     #print(mappings)
-#     mapper = MappingOperator(parent, child, mappings)
-#     mapper.cascading_mapping()
-#     mapper.pad_mapping()
-#     weights, num_of_matched = mapper.get_mapping_weights()
+    #print(mappings)
+    mapper = MappingOperator(parent, child, mappings)
+    mapper.cascading_mapping()
+    mapper.pad_mapping()
+    weights, num_of_matched = mapper.get_mapping_weights()
 
-#     # record the shape of each weighted nodes
-#     for idx, key in enumerate(weights.keys()):
-#         child_onnx.graph.initializer[idx].CopyFrom(numpy_helper.from_array(weights[key]))
+    # record the shape of each weighted nodes
+    for idx, key in enumerate(weights.keys()):
+        child_onnx.graph.initializer[idx].CopyFrom(numpy_helper.from_array(weights[key]))
 
-#     print("\n\n{} layers in total, matched {} layers".format(child.graph['num_tensors'], num_of_matched))
-#     #onnx.save(child_onnx, child.graph['name']+'_new.onnx')
+    print("\n\n{} layers in total, matched {} layers".format(child.graph['num_tensors'], num_of_matched))
+    #onnx.save(child_onnx, child.graph['name']+'_new.onnx')
 
-#     print("\n\n")
-#     print("Match takes {:.2f} sec".format(time.time() - start_time))
+    print("\n\n")
+    print("Match takes {:.2f} sec".format(time.time() - start_time))
 
-main()
 
