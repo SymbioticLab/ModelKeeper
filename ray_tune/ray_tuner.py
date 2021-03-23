@@ -1,6 +1,7 @@
 import os
 import time
 import random
+import pickle
 import argparse
 import logging
 import numpy as np
@@ -31,13 +32,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def GenerateConfig(n):
+def GenerateConfig(n, path):
     """
     n : number of models
+    path : meta file path
     """
-    config_list = []
-    with open(args.meta) as f:
-       config_list = f.readlines()
+    fr = open(path,'rb')
+    config_list = pickle.load(fr)
     return [config_list[i] for i in random.sample(range(0,len(config_list)), n)] 
 
 
@@ -204,11 +205,11 @@ if __name__ == "__main__":
                         help='noise or no noise 0-1')
     parser.add_argument('--data', type=str, default='cifar10')
     parser.add_argument('--dataset', type=str, default='/gpfs/gpfs0/groups/chowdhury/fanlai/dataset')
-    parser.add_argument('--meta', type=str, default='/gpfs/gpfs0/groups/chowdhury/dywsjtu/config.txt')
+    parser.add_argument('--meta', type=str, default='/gpfs/gpfs0/groups/chowdhury/dywsjtu/config.pkl')
     parser.add_argument(
         "--smoke-test", action="store_true", help="Finish quickly for testing")
     parser.add_argument(
-        "--ray-address",
+        "--address",
         default="localhost:6379",
         help="Address of Ray cluster for seamless distributed execution.")
     args = parser.parse_args()
@@ -219,7 +220,7 @@ if __name__ == "__main__":
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
-    conf_list = GenerateConfig(args.num_models)
+    conf_list = GenerateConfig(args.num_models, args.meta)
 
     ###################################
     ##  set main configurations here ##
@@ -228,14 +229,14 @@ if __name__ == "__main__":
     NUM_SAMPLES = 100
     REDUCTION_FACTOR = 4
     GRACE_PERIOD = 4
-    CPU_RESOURCES_PER_TRIAL = 1
-    GPU_RESOURCES_PER_TRIAL = 1
+    CPU_RESOURCES_PER_TRIAL = 2
+    GPU_RESOURCES_PER_TRIAL = 2
     METRIC = 'accuracy'  # or 'loss'
 
     CONFIG = {
-    "model": tune.grid_search([0, args.num_models - 1]),
+        "model": tune.grid_search([0, args.num_models - 1]),
     }
-    ray.init()
+    ray.init(args.address)
 
     if METRIC=='accuracy':
         sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
