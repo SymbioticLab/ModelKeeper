@@ -1,5 +1,6 @@
 import os
 import time
+import random
 import argparse
 import logging
 import numpy as np
@@ -30,34 +31,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-###################################
-##  set main configurations here ##
-
-TRAINING_ITERATION = 64
-NUM_SAMPLES = 100
-REDUCTION_FACTOR = 4
-GRACE_PERIOD = 4
-CPU_RESOURCES_PER_TRIAL = 1
-GPU_RESOURCES_PER_TRIAL = 1
-METRIC = 'accuracy'  # or 'loss'
-
-def GenerateConfig():
-    conf_list = []
+def GenerateConfig(n):
+    """
+    n : number of models
+    """
+    config_list = []
     with open(args.meta) as f:
-       conf_list = f.readlines()
-    print(len(conf_list))
-
-
-
-conf_list = [{'name': 'infer.tiny', 'C': 16, 'N': 5, 'arch_str': '|avg_pool_3x3~0|+|avg_pool_3x3~0|nor_conv_1x1~1|+|none~0|avg_pool_3x3~1|nor_conv_3x3~2|', 'num_classes': 10},
-    {'name': 'infer.tiny', 'C': 16, 'N': 5, 'arch_str': '|skip_connect~0|+|none~0|skip_connect~1|+|nor_conv_3x3~0|nor_conv_1x1~1|skip_connect~2|', 'num_classes': 10}]
-
-CONFIG = {
-    "model": tune.grid_search([0, 1]),
-    }
-###################################
-
-
+       config_list = f.readlines()
+    return [config_list[i] for i in random.sample(range(0,len(config_list)), n)] 
 
 
 
@@ -207,6 +188,8 @@ if __name__ == "__main__":
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
+    parser.add_argument('--num_models', type=int, default=4, metavar='N',
+                        help='number of models to train (default: 4)')
     parser.add_argument('--lr', type=float, default=1e-3, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
@@ -236,42 +219,56 @@ if __name__ == "__main__":
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
-    # api = API(args.meta, verbose=False)
-    GenerateConfig()
-    # ray.init()
+    conf_list = GenerateConfig(args.num_models)
 
-    # if METRIC=='accuracy':
-    #     sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
-    #                                     metric="mean_accuracy", 
-    #                                     mode='max', 
-    #                                     reduction_factor=REDUCTION_FACTOR, 
-    #                                     grace_period=GRACE_PERIOD)
-    # else:
-    #     sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
-    #                                     metric="mean_loss", 
-    #                                     mode='min', 
-    #                                     reduction_factor=REDUCTION_FACTOR, 
-    #                                     grace_period=GRACE_PERIOD)
+    ###################################
+    ##  set main configurations here ##
 
-    # analysis = tune.run(
-    #     TrainModel,
-    #     scheduler=sched,
-    #     queue_trials=True,
-    #     stop={"training_iteration": 1 if args.smoke_test else TRAINING_ITERATION
-    #     },
-    #     resources_per_trial={
-    #         "cpu": CPU_RESOURCES_PER_TRIAL,
-    #         "gpu": GPU_RESOURCES_PER_TRIAL
-    #     },
-    #     num_samples=2,
-    #     verbose=1,
-    #     checkpoint_at_end=True,
-    #     checkpoint_freq=1,
-    #     max_failures=3,
-    #     config=CONFIG
-    #     )
+    TRAINING_ITERATION = 32
+    NUM_SAMPLES = 100
+    REDUCTION_FACTOR = 4
+    GRACE_PERIOD = 4
+    CPU_RESOURCES_PER_TRIAL = 1
+    GPU_RESOURCES_PER_TRIAL = 1
+    METRIC = 'accuracy'  # or 'loss'
 
-    # if METRIC=='accuracy':
-    #     print("Best config is:", analysis.get_best_config(metric="mean_accuracy"))
-    # else:
-    #     print("Best config is:", analysis.get_best_config(metric="mean_loss"))
+    CONFIG = {
+    "model": tune.grid_search([0, args.num_models - 1]),
+    }
+    ray.init()
+
+    if METRIC=='accuracy':
+        sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
+                                        metric="mean_accuracy", 
+                                        mode='max', 
+                                        reduction_factor=REDUCTION_FACTOR, 
+                                        grace_period=GRACE_PERIOD)
+    else:
+        sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
+                                        metric="mean_loss", 
+                                        mode='min', 
+                                        reduction_factor=REDUCTION_FACTOR, 
+                                        grace_period=GRACE_PERIOD)
+
+    analysis = tune.run(
+        TrainModel,
+        scheduler=sched,
+        queue_trials=True,
+        stop={"training_iteration": 1 if args.smoke_test else TRAINING_ITERATION
+        },
+        resources_per_trial={
+            "cpu": CPU_RESOURCES_PER_TRIAL,
+            "gpu": GPU_RESOURCES_PER_TRIAL
+        },
+        num_samples=2,
+        verbose=1,
+        checkpoint_at_end=True,
+        checkpoint_freq=1,
+        max_failures=3,
+        config=CONFIG
+        )
+
+    if METRIC=='accuracy':
+        print("Best config is:", analysis.get_best_config(metric="mean_accuracy"))
+    else:
+        print("Best config is:", analysis.get_best_config(metric="mean_loss"))
