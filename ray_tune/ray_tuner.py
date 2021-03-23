@@ -41,6 +41,13 @@ CPU_RESOURCES_PER_TRIAL = 1
 GPU_RESOURCES_PER_TRIAL = 1
 METRIC = 'accuracy'  # or 'loss'
 
+def GenerateConfig():
+    conf_list = []
+    with open(args.meta) as f:
+       conf_list = f.readlines()
+    print(len(conf_list))
+
+
 
 conf_list = [{'name': 'infer.tiny', 'C': 16, 'N': 5, 'arch_str': '|avg_pool_3x3~0|+|avg_pool_3x3~0|nor_conv_1x1~1|+|none~0|avg_pool_3x3~1|nor_conv_3x3~2|', 'num_classes': 10},
     {'name': 'infer.tiny', 'C': 16, 'N': 5, 'arch_str': '|skip_connect~0|+|none~0|skip_connect~1|+|nor_conv_3x3~0|nor_conv_1x1~1|skip_connect~2|', 'num_classes': 10}]
@@ -214,7 +221,7 @@ if __name__ == "__main__":
                         help='noise or no noise 0-1')
     parser.add_argument('--data', type=str, default='cifar10')
     parser.add_argument('--dataset', type=str, default='/gpfs/gpfs0/groups/chowdhury/fanlai/dataset')
-    parser.add_argument('--meta', type=str, default='/gpfs/gpfs0/groups/chowdhury/dywsjtu/NAS-Bench-201-v1_1-096897.pth')
+    parser.add_argument('--meta', type=str, default='/gpfs/gpfs0/groups/chowdhury/dywsjtu/config.txt')
     parser.add_argument(
         "--smoke-test", action="store_true", help="Finish quickly for testing")
     parser.add_argument(
@@ -230,40 +237,41 @@ if __name__ == "__main__":
         torch.cuda.manual_seed(args.seed)
 
     # api = API(args.meta, verbose=False)
-    ray.init()
+    GenerateConfig()
+    # ray.init()
 
-    if METRIC=='accuracy':
-        sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
-                                        metric="mean_accuracy", 
-                                        mode='max', 
-                                        reduction_factor=REDUCTION_FACTOR, 
-                                        grace_period=GRACE_PERIOD)
-    else:
-        sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
-                                        metric="mean_loss", 
-                                        mode='min', 
-                                        reduction_factor=REDUCTION_FACTOR, 
-                                        grace_period=GRACE_PERIOD)
+    # if METRIC=='accuracy':
+    #     sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
+    #                                     metric="mean_accuracy", 
+    #                                     mode='max', 
+    #                                     reduction_factor=REDUCTION_FACTOR, 
+    #                                     grace_period=GRACE_PERIOD)
+    # else:
+    #     sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
+    #                                     metric="mean_loss", 
+    #                                     mode='min', 
+    #                                     reduction_factor=REDUCTION_FACTOR, 
+    #                                     grace_period=GRACE_PERIOD)
 
-    analysis = tune.run(
-        TrainModel,
-        scheduler=sched,
-        queue_trials=True,
-        stop={"training_iteration": 1 if args.smoke_test else TRAINING_ITERATION
-        },
-        resources_per_trial={
-            "cpu": CPU_RESOURCES_PER_TRIAL,
-            "gpu": GPU_RESOURCES_PER_TRIAL
-        },
-        num_samples=2,
-        verbose=1,
-        checkpoint_at_end=True,
-        checkpoint_freq=1,
-        max_failures=3,
-        config=CONFIG
-        )
+    # analysis = tune.run(
+    #     TrainModel,
+    #     scheduler=sched,
+    #     queue_trials=True,
+    #     stop={"training_iteration": 1 if args.smoke_test else TRAINING_ITERATION
+    #     },
+    #     resources_per_trial={
+    #         "cpu": CPU_RESOURCES_PER_TRIAL,
+    #         "gpu": GPU_RESOURCES_PER_TRIAL
+    #     },
+    #     num_samples=2,
+    #     verbose=1,
+    #     checkpoint_at_end=True,
+    #     checkpoint_freq=1,
+    #     max_failures=3,
+    #     config=CONFIG
+    #     )
 
-    if METRIC=='accuracy':
-        print("Best config is:", analysis.get_best_config(metric="mean_accuracy"))
-    else:
-        print("Best config is:", analysis.get_best_config(metric="mean_loss"))
+    # if METRIC=='accuracy':
+    #     print("Best config is:", analysis.get_best_config(metric="mean_accuracy"))
+    # else:
+    #     print("Best config is:", analysis.get_best_config(metric="mean_loss"))
