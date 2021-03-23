@@ -229,8 +229,8 @@ if __name__ == "__main__":
     NUM_SAMPLES = 100
     REDUCTION_FACTOR = 4
     GRACE_PERIOD = 4
-    CPU_RESOURCES_PER_TRIAL = 2
-    GPU_RESOURCES_PER_TRIAL = 2
+    CPU_RESOURCES_PER_TRIAL = 3
+    GPU_RESOURCES_PER_TRIAL = 3
     METRIC = 'accuracy'  # or 'loss'
 
     CONFIG = {
