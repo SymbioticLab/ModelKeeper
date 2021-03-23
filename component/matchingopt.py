@@ -117,53 +117,6 @@ def topological_sorting(graph):
     ret.reverse()
     return ret
 
-def contract_graph(graph):
-    """Contract all branches into new subgraphs"""
-    branch_source = set([node for node in graph.nodes() if graph.out_degree(node)>1])
-    branch_sink = set([node for node in graph.nodes() if graph.in_degree(node)>1])
-
-    blockwise_graph = networkx.DiGraph()
-    block_idx = 1e5 # avoid conflicting with current node idx
-
-    def dfs(cur_graph, node, parents=None):
-        nonlocal block_idx
-
-        temp_graph = None
-        cur_graph.add_node(node, attr=graph.nodes[node]['attr'])
-
-        # not the beginning or end of a new subgraph
-        if node not in branch_source and node not in branch_sink:
-            temp_graph = cur_graph
-
-        elif node in branch_source:
-            # create a new subgraph, padding a super node to current graph
-            # insert a block node
-            sub_graph = networkx.DiGraph()
-            cur_graph.add_node(block_idx, attr={'subgraph':subgraph})
-            temp_graph = sub_graph
-        else:
-            # end of a subgraph
-            pass
-        for source, target in graph.out_edges(node):
-            pass
-
-        return graph
-
-    [dfs(blockwise_graph, node) for node in graph.nodes() if graph.in_degree(node)==0]
-
-    return blockwise_graph
-
-def gen_chain(graph):
-    new_graph = nx.DiGraph(name='chained_'+graph.graph['name'])
-    order = topological_sorting(graph)
-
-    for i in range(len(order)):
-        new_graph.add_node(i, attr=graph.nodes[order[i]]['attr'])
-        if i > 0:
-            new_graph.add_edge(i-1, i)
-
-    return new_graph
-
 class MatchingOperator(object):
     __matchscore = 1
     __mismatchscore = -1
@@ -247,12 +200,13 @@ class MatchingOperator(object):
             # diff number of parameters
             num_param_p = self.get_parent_parameters(parent_opt['name'], parent_opt['dims'])
             #num_param_c = self.get_child_parameters(child_opt['name'], child_opt['dims'])
-            num_inherited = 1
+            num_inherited = 1.
             for i, j in zip(parent_opt['dims'], child_opt['dims']):
                 num_inherited *= min(i, j)
 
-            match_score = num_inherited/max(num_param_p, 1e-4) * self._matchscore
+            match_score = float(num_inherited)/max(num_param_p, 1e-4) * self._matchscore
 
+            #print(parent_opt['name'], child_opt['name'], parent_opt['dims'], child_opt['dims'], match_score)
             return match_score #if match_score > .25 else self._mismatchscore
 
 
@@ -282,13 +236,6 @@ class MatchingOperator(object):
 
         return res
 
-    def get_max(self, candidates):
-        ans = 0
-
-        for i in range(1, len(candidates)):
-            if (candidates[ans][0], candidates[ans][-1]) <= (candidates[i][0], candidates[i][-1]):
-                ans = i
-        return candidates[ans]
 
     def alignStringToGraphFast(self):
         """Align string to graph - using numpy to vectorize across the string
@@ -357,7 +304,6 @@ class MatchingOperator(object):
         return self.backtrack(scores, backStrIdx, backGrphIdx)
 
     def alignChildToParent(self, scores, backStrIdx, backGrphIdx):
-        pair_set = set()
 
         # Dynamic Programming
         for i, pidx in enumerate(self.parentidx_order):
@@ -366,7 +312,7 @@ class MatchingOperator(object):
             for j, cidx in enumerate(self.childidx_order):
                 sbase = self.child_bases[cidx]
                 match_score = self.matchscore(pbase, sbase)
-                best_candidates = (-1e10, )
+                best_candidates = (float('-inf'), )
 
                 for cp in self.childPrevIndicesList[cidx]:
                     # index of child parent
@@ -458,8 +404,8 @@ class MatchingOperator(object):
                 scores[0, index+1] = best + self._gap
 
         # backtracking matrices
-        backStrIdx = collections.defaultdict(list) #numpy.zeros((l1+1, l2+1), dtype=numpy.int)
-        backGrphIdx = collections.defaultdict(list) #numpy.zeros((l1+1, l2+1), dtype=numpy.int)
+        backStrIdx = numpy.zeros((l1+1, l2+1), dtype=numpy.int)
+        backGrphIdx = numpy.zeros((l1+1, l2+1), dtype=numpy.int)
 
         return scores, backStrIdx, backGrphIdx
 
@@ -474,72 +420,164 @@ class MatchingOperator(object):
         bestscore = scores[besti, bestj]
         matches, strindexes = [], []
         que = [(besti, bestj)]
-        que_set = set([bestj])
+        que_set = set([(besti, bestj)])
+
+        # print(scores)
+
+        # print(backGrphIdx[6, :])
+        # print(backStrIdx[6, :])
 
         while len(que) != 0:
             besti, bestj = que.pop()
             curstridx, curnodeidx = self.childidx_order[bestj-1], self.parentidx_order[besti-1]
 
-            # multi-branch for child (j), then we need to recover all branches
-            nextis, nextjs = [], []
+            nextis, nextjs = [backGrphIdx[besti, bestj]], [backStrIdx[besti, bestj]]
+            # multi-branch for child (j), then we need to recover other branches
             for childPrev in self.childPrevIndicesList[curstridx]:
-                nextis.append(backGrphIdx[besti, childPrev+2])
-                nextjs.append(backStrIdx[besti, childPrev+2])
+                # branch may conflict
+                if childPrev + 2 != bestj:
+                    # recover how to reach the current node
+                    nextis.append(backGrphIdx[besti, childPrev+1])
+                    nextjs.append(backStrIdx[besti, childPrev+1])
 
+                #print()
+
+            #print([self.parentidx_order[x] for x in nextis], [self.childidx_order[x] for x in nextjs], curstridx, [self.childidx_order[x] for x in self.childPrevIndicesList[curstridx]])
             #nextis, nextjs = [backGrphIdx[besti, bestj]], [backStrIdx[besti, bestj]]
 
             name_aligned = True
             if curstridx is not None and curnodeidx is not None:
                 name_aligned = self.child.nodes[curstridx]['attr']['op_type']==self.parent.nodes[curnodeidx]['attr']['op_type']
-            name_aligned = name_aligned and (bestj not in nextjs and besti not in nextis)
+
+            # we pad a gap
+            name_aligned = name_aligned and (bestj not in nextjs and besti not in nextis) 
 
             strindexes.append(curstridx if name_aligned else None)
             matches.append(curnodeidx if name_aligned else None)
 
             for nexti, nextj in zip(nextis, nextjs):
-                if not(nexti == 0 and nextj == 0) and nextj not in que_set:
+                if not(nexti == 0 and nextj == 0) and (nexti, nextj) not in que_set:
                     que.append((nexti, nextj)) # DFS
-                    que_set.add(nextj)
+                    que_set.add((nexti, nextj))
 
         strindexes.reverse()
         matches.reverse()
 
         return strindexes, matches, bestscore
 
+class Oort(object):
 
-def get_model_zoo(path):
-    if '.onnx' in path:
-        return [path]
-    return [os.path.join(path, x) for x in os.listdir(path) if os.path.isfile(os.path.join(path, x)) and '.onnx' in x]
+    def __init__(self, args):
+        self.args = args
+        self.model_zoo = collections.OrderedDict()
+        self.init_model_zoo()
 
-def mapping_func(parent_file, child_graph):
-    parent, parent_onnx = load_model_meta(parent_file)
-    opt = MatchingOperator(parent=parent)
-    mappings, score = opt.get_mappings(child=child_graph)
+        self.current_mapping_id = 0
 
-    # print(opt.alignmentStrings()[0])
-    # print("\n\n")
-    # print(opt.alignmentStrings()[1])
-    # print("\n\n")
-    # print(opt.graphStrings()[0])
-    # print("\n\n")
-    # print(opt.graphStrings()[1])
-    return (parent, mappings, score)
+    def init_model_zoo(self, zoo_path):
+        if '.onnx' in path: 
+            model_paths = [path]
+        else:
+            model_paths = [os.path.join(zoo_path, x) for x in os.listdir(zoo_path) \
+                if os.path.isfile(os.path.join(zoo_path, x)) and '.onnx' in x]
+
+        for model_path in model_paths:
+            self.add_to_zoo(model_path)
+
+    def add_to_zoo(self, model_path):
+        model_graph, model_weight = load_model_meta(model_path)
+        self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
+
+
+    def remove_from_zoo(self, model_path):
+        if model_path in self.model_zoo:
+            del self.model_zoo[model_path]
+        else:
+            logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
+
+
+    def mapping_func(self, parent_path, child):
+        mappings, score = self.model_zoo[parent_path].get_mappings(child=child)
+
+        return (self.model_zoo[parent_path].parent, mappings, score)
+
+
+    def get_best_mapping(self, child):
+
+        start_time = time.time()
+
+        pool = multiprocessing.Pool(processes=args.num_of_processes)
+        for model_path in self.model_zoo.keys(): 
+            results.append(pool.apply_async(self.mapping_func, (model_path, child)))
+        pool.close()
+        pool.join()
+
+        best_score = float('-inf')
+        parent = mappings = None
+
+        for res in results:
+            (p, m, s) = res.get()
+            if s > best_score:
+                parent, mappings, best_score = p, m, s
+
+        logging.info("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
+                            parent.graph['name'], best_score, time.time() - start_time))
+        return parent, mappings, best_score
+
+
+    def warm_weights(self, child_model, parent, child, mappings):
+
+        mapper = MappingOperator(parent, child, mappings)
+        mapper.cascading_mapping()
+        mapper.pad_mapping()
+        weights, num_of_matched = mapper.get_mapping_weights()
+
+        # get_warmed child model
+        for name, p in child_model.named_parameters():
+            p.data = (torch.from_numpy(weights[name])).data
+
+        logging.info("Mapped {} layers to the child model ({} layers)".format(num_of_matched, child.graph['num_tensors']))
+
+
+    def map_for_model(self, child_model, dummy_input):
+
+        self.current_mapping_id += 1
+
+        # dump the model into onnx format
+        onnx_model_name = os.path.join(self.args.exe_path, str(self.current_mapping_id)+".onnx")
+        torch.onnx.export(child_model, dummy_input, onnx_model_name, 
+                    export_params=True, verbose=0, training=1)
+        
+        child, child_onnx = load_model_meta(onnx_model_name)
+
+        # find the best mapping from the zoo
+        parent, mappings, best_score = self.get_best_mapping(child)
+
+        # overwrite the current model weights
+        self.warm_weights(child_model, parent, child, mappings)
+
+        # remove the temporary onnx model
+        os.remove(onnx_model_name)
 
 def faked_graph():
     graph = nx.DiGraph(name='faked')
     attr1={'dims': [64, 32, 3, 3], 'op_type': 'cov1',}
 
     graph.add_node(0, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'0'})
+
     graph.add_node(1, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'1'})
-    graph.add_node(2, attr={'dims': [3, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
+    graph.add_node(2, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
+
+    graph.add_node(5, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'5'})
     graph.add_node(3, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
+
     graph.add_node(4, attr={'dims': [5, 32, 3, 3], 'op_type': 'cov1', 'name':'4'})
 
     graph.add_edge(0, 1)
     graph.add_edge(1, 2)
     graph.add_edge(2, 4)
-    graph.add_edge(0, 3)
+    graph.add_edge(0, 5)
+    graph.add_edge(5, 3)
     graph.add_edge(3, 4)
 
     return graph
@@ -549,15 +587,20 @@ def faked_graph2():
     attr1={'dims': [64, 32, 3, 3], 'op_type': 'cov1',}
 
     graph.add_node(0, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'0'})
-    graph.add_node(1, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'1'})
-    graph.add_node(2, attr={'dims': [3, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
-    graph.add_node(3, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
+
+    graph.add_node(1, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'1'})
+    graph.add_node(2, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
+
+    graph.add_node(5, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'5'})
+    graph.add_node(3, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
+
     graph.add_node(4, attr={'dims': [5, 32, 3, 3], 'op_type': 'cov1', 'name':'4'})
 
     graph.add_edge(0, 1)
     graph.add_edge(1, 2)
     graph.add_edge(2, 4)
-    graph.add_edge(0, 3)
+    graph.add_edge(0, 5)
+    graph.add_edge(5, 3)
     graph.add_edge(3, 4)
 
     return graph
@@ -573,60 +616,64 @@ def mapping_faked(parent, child_graph):
     print("\n\n")
     print(opt.graphStrings()[0])
     print("\n\n")
-    # print(opt.graphStrings()[1])
+    print(opt.graphStrings()[1])
     return (parent, mappings, score)
 
 def main():
-    start_time = time.time()
-    num_of_processes = 16
-    # parent = faked_graph()
-    # child = faked_graph2()#parent.copy()
+    pass
+    
+# def main():
+#     start_time = time.time()
+#     num_of_processes = 16
+#     # parent = faked_graph()
+#     # child = faked_graph2()#parent.copy()
 
-    # parent, mappings, best_score = mapping_faked(parent, child)
-    # print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
+#     # parent, mappings, best_score = mapping_faked(parent, child)
+#     # print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
 
 
-    #zoo_path = './temp_zoo'
-    #zoo_path = './zoo/resnet18.onnx'
-    zoo_path = './zoo/densenet201.onnx'
-    model_zoo = get_model_zoo(zoo_path)
+#     #zoo_path = './temp_zoo'
+#     #zoo_path = './zoo/resnet18.onnx'
+#     zoo_path = './zoo/densenet201.onnx'
+#     model_zoo = get_model_zoo(zoo_path)
 
-    # create multiple process to handle model zoos
-    #child, child_onnx = load_model_meta('./zoo/resnet152.onnx')
-    child, child_onnx = load_model_meta('./zoo/densenet201.onnx')
+#     # create multiple process to handle model zoos
+#     #child, child_onnx = load_model_meta('./zoo/resnet152.onnx')
+#     child, child_onnx = load_model_meta('./zoo/densenet201.onnx')
 
-    results = []
-    pool = multiprocessing.Pool(processes=num_of_processes)
+#     results = []
+#     pool = multiprocessing.Pool(processes=num_of_processes)
 
-    for model in model_zoo: 
-        results.append(pool.apply_async(mapping_func, (model, child)))
-    pool.close()
-    pool.join()
+#     for model in model_zoo: 
+#         results.append(pool.apply_async(mapping_func, (model, child)))
+#     pool.close()
+#     pool.join()
 
-    best_score = float('-inf')
-    parent = mappings = None
+#     best_score = float('-inf')
+#     parent = mappings = None
 
-    for res in results:
-        (p, m, s) = res.get()
-        if s > best_score:
-            parent, mappings, best_score = p, m, s
+#     for res in results:
+#         (p, m, s) = res.get()
+#         if s > best_score:
+#             parent, mappings, best_score = p, m, s
 
-    print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
+#     print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
 
-    #print(mappings)
-    mapper = MappingOperator(parent, child, mappings)
-    mapper.cascading_mapping()
-    mapper.pad_mapping()
-    weights, num_of_matched = mapper.get_mapping_weights()
+#     #print(mappings)
+#     mapper = MappingOperator(parent, child, mappings)
+#     mapper.cascading_mapping()
+#     mapper.pad_mapping()
+#     weights, num_of_matched = mapper.get_mapping_weights()
 
-    # record the shape of each weighted nodes
-    for idx, key in enumerate(weights.keys()):
-        child_onnx.graph.initializer[idx].CopyFrom(numpy_helper.from_array(weights[key]))
+#     # record the shape of each weighted nodes
+#     for idx, key in enumerate(weights.keys()):
+#         child_onnx.graph.initializer[idx].CopyFrom(numpy_helper.from_array(weights[key]))
 
-    print("\n\n{} layers in total, matched {} layers".format(child.graph['num_tensors'], num_of_matched))
-    #onnx.save(child_onnx, child.graph['name']+'_new.onnx')
+#     print("\n\n{} layers in total, matched {} layers".format(child.graph['num_tensors'], num_of_matched))
+#     #onnx.save(child_onnx, child.graph['name']+'_new.onnx')
 
-    print("\n\n")
-    print("Match takes {:.2f} sec".format(time.time() - start_time))
+#     print("\n\n")
+#     print("Match takes {:.2f} sec".format(time.time() - start_time))
 
 main()
+
