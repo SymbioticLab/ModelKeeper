@@ -1,8 +1,10 @@
 import sys, os, time, datetime, random
+import random
+
+master_port = 6379#random.randint(1000, 60000)
 
 master_node = 'gpu-cn001'
-paramsCmd = ' --num_models 4 '
-master_ip = "10.246.6." + str(int(master_node[-3:]) + 90) + ":6379"
+master_ip = "10.246.6." + str(int(master_node[-3:]) + 90) + ":"+str(master_port)
 
 os.system("bhosts > vms")
 os.system("rm *.o")
@@ -44,10 +46,6 @@ for file in files:
         
 # get the number of workers first
 numOfWorkers = int(sys.argv[1])
-# learner = ' --learners=1'
-
-# for w in range(2, numOfWorkers+1):
-#     learner = learner + '-' + str(w)
 
 # load template
 with open('template.lsf', 'r') as fin:
@@ -61,11 +59,6 @@ _time_stamp = datetime.datetime.fromtimestamp(time.time()).strftime('%m%d_%H%M%S
 timeStamp = str(_time_stamp) + '_'
 jobPrefix = 'worker' + timeStamp
 
-# get the join of parameters
-params = ' '.join(sys.argv[2:]) +  ' '
-
-rawCmd = '\npython ~/Kuiper/learner.py' + paramsCmd
-
 
 if master_node in avaiVms:
     avaiVms[master_node] -= threadQuota
@@ -76,8 +69,9 @@ assignedVMs = []
 # generate new scripts, assign each worker to different vms
 for w in range(1, numOfWorkers + 1):
     
-    fileName = jobPrefix+str(w)
     jobName = 'worker' + str(w)
+    fileName = jobName#jobPrefix+str(w)
+
 
     _vm = sorted(avaiVms, key=avaiVms.get, reverse=True)[0]
     print('assign ...{} to {}'.format(str(w), _vm))
@@ -85,23 +79,24 @@ for w in range(1, numOfWorkers + 1):
 
     del avaiVms[_vm]
 
-    assignVm = '\n#BSUB -m "{}"\n'.format(_vm)
-    runCmd = template + assignVm + '\n#BSUB -J ' + jobName + '\n#BSUB -e ' + fileName + '.e\n'  + '#BSUB -o '+ fileName + '.o\n';
+    assignVm = ''#\n#BSUB -m "{}"\n'.format(_vm)
+    runCmd = template + assignVm + '\n#BSUB -J ' + jobName + '\n#BSUB -e ' + fileName + '.e\n'  + '#BSUB -o '+ fileName + '.o\n#BSUB -R "select[ngpus>0] rusage[ngpus_excl_p=1]" \n';
     runCmd += "\nray stop \nray start --address='" + master_ip + "'  --redis-password='5241590000000000'\nsleep 24h\n" 
 
     with open('worker' + str(w) + '.lsf', 'w') as fout:
         fout.writelines(runCmd)
 
+redis_port = 12345#random.randint(1000, 60000)
 # deal with ps
-rawCmdPs = "\nray stop \nray start --head --redis-port=6379 --redis-shard-ports=6380 --node-manager-port=12345 --object-manager-port=12346 \nsleep 24h\n"
+rawCmdPs = f"\nray stop \nray start --head --redis-port={master_port} --redis-shard-ports={master_port+1} --node-manager-port={redis_port} --object-manager-port={redis_port+1} \nsleep 24h\n"
 
 with open('head.lsf', 'w') as fout:
-    scriptPS = template_server + '\n#BSUB -J head\n#BSUB -e head{}'.format(timeStamp) + '.e\n#BSUB -o head{}'.format(timeStamp) + '.o\n' + '#BSUB -m "'+master_node+'"\n\n' + rawCmdPs
+    scriptPS = template_server + '\n#BSUB -J head\n#BSUB -e head.e\n#BSUB -o head.o\n' + '#BSUB -m "'+master_node+'"\n\n' + rawCmdPs
     fout.writelines(scriptPS)
 
 with open('submit.lsf', 'w') as fout:
-    scriptPS = template_server + '\n#BSUB -J submit\n#BSUB -e submit{}'.format(timeStamp) + '.e\n#BSUB -o submit{}'.format(timeStamp) + '.o\n' + '#BSUB -m "'+master_node+'"\n\n' 
-    scriptPS += "\npython ../ray_tune/ray_tuner.py\n"
+    scriptPS = template_server + '\n#BSUB -J submit\n#BSUB -e ray_job.e\n#BSUB -o ray_job.o\n' + '#BSUB -m "'+master_node+'"\n\n' 
+    scriptPS += ("\npython ../ray_tune/ray_tuner.py " + ' '.join(sys.argv[2:]) + "\n")
     fout.writelines(scriptPS)
 
 os.system('bsub < head.lsf')
@@ -111,7 +106,7 @@ os.system('rm vms')
 
 vmSets = set()
 for w in range(1, numOfWorkers + 1):
-    time.sleep(5)
+    time.sleep(1)
     vmSets.add(assignedVMs[w-1])
     os.system('bsub < worker' + str(w) + '.lsf')
 
