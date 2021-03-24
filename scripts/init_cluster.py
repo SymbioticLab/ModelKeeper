@@ -3,7 +3,7 @@ import random
 import pickle
 
 master_port = random.randint(11000, 60000)
-redis_port = random.randint(11000, 60000)
+redis_port = 12345#random.randint(11000, 60000)
 master_node = 'gpu-cn001'
 
 master_ip = "10.246.6." + str(int(master_node[-3:]) + 90) + ":"+str(master_port)
