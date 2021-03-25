@@ -25,10 +25,10 @@ from torchvision import datasets, transforms
 from nas_201_api import NASBench201API as API
 from models import get_cell_based_tiny_net
 
+import socket
+from random import Random
 
-
-
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, filename='./ray_log.e', filemode='w')
 logger = logging.getLogger(__name__)
 
 
@@ -39,7 +39,13 @@ def GenerateConfig(n, path):
     """
     fr = open(path,'rb')
     config_list = pickle.load(fr)
-    return [config_list[i] for i in random.sample(range(0,len(config_list)), n)] 
+
+    rng = Random()
+    rng.seed(0)
+    rng.shuffle(config_list)
+
+    return config_list[:n]
+    #return [config_list[i] for i in random.sample(range(0,len(config_list)), n)] 
 
 
 
@@ -93,7 +99,7 @@ def eval(model, criterion, data_loader, device=torch.device("cpu")):
     """
     model.to(device).eval()
     correct = 0
-    total = 0
+    total = 0   
     with torch.no_grad():
         for data, target in data_loader:
             data, target = Variable(data.to(device)), Variable(target.to(device))
@@ -133,8 +139,21 @@ class TrainModel(tune.Trainable):
     Note: See https://ray.readthedocs.io/en/latest/_modules/ray/tune/trainable.html#Trainable
     
     """
+
     def _setup(self, config):
+        self.logger = self._create_logger()
         use_cuda = torch.cuda.is_available()
+
+        # if use_cuda:
+        #     for i in range(3, -1, -1):
+        #         try:
+        #             device = torch.device('cuda:'+str(i))
+        #             torch.cuda.set_device(i)
+        #             self.logger.info(f'====end up with cuda device {torch.rand(1).to(device=device)}')
+        #             break
+        #         except Exception as e:
+        #             assert(i != 0)
+
         self.device = torch.device("cuda" if use_cuda else "cpu")
         self.train_loader, self.test_loader = get_data_loaders()
         self.model = get_cell_based_tiny_net(conf_list[config['model']])  
@@ -145,7 +164,11 @@ class TrainModel(tune.Trainable):
         self.criterion = nn.CrossEntropyLoss()  # define loss function
         self.epoch = 0
 
+        self.logger.info(f"Setup for model {self.model_name} ...")
+
     def _train(self):
+        self.logger.info(f"Start _train for model {self.model_name}")
+
         train(self.model, self.optimizer, self.criterion, self.train_loader, self.device)
         acc, loss = eval(self.model, self.criterion, self.test_loader, self.device)
         self.epoch += 1
@@ -165,7 +188,7 @@ class TrainModel(tune.Trainable):
                 'optimizer_state_dict': self.optimizer.state_dict(),
                 }, self.model_name)
             except Exception as e:
-                logger.warning(e)
+                self.logger.warning(e)
 
         if METRIC == 'accuracy':
             return {"mean_accuracy": acc}
@@ -180,6 +203,20 @@ class TrainModel(tune.Trainable):
     def _restore(self, checkpoint_path):
         self.model.load_state_dict(torch.load(checkpoint_path))
 
+    def _create_logger(self):
+        log_dir = f"{os.environ['HOME']}/ray_logs"
+        if not os.path.isdir(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, f'{socket.gethostname()}')
+
+        logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO,
+                    handlers=[
+                        logging.FileHandler(log_path, mode='a'),
+                        logging.StreamHandler()
+                    ])
+        return logging.getLogger(__name__)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PyTorch Cifar10 Example")
@@ -189,8 +226,8 @@ if __name__ == "__main__":
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--num_models', type=int, default=4, metavar='N',
-                        help='number of models to train (default: 4)')
+    parser.add_argument('--num_models', type=int, default=20, metavar='N',
+                        help='number of models to train ')
     parser.add_argument('--lr', type=float, default=1e-3, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
@@ -214,7 +251,6 @@ if __name__ == "__main__":
         help="Address of Ray cluster for seamless distributed execution.")
     args = parser.parse_args()
 
-    
 
     torch.manual_seed(args.seed)
     if args.cuda:
@@ -222,51 +258,58 @@ if __name__ == "__main__":
 
     conf_list = GenerateConfig(args.num_models, args.meta)
 
+    # Clear the log dir
+    log_dir = f"{os.environ['HOME']}/ray_logs"
+    if not os.path.isdir(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+    os.system(f"rm {os.environ['HOME']}/ray_logs/*")
+
     ###################################
     ##  set main configurations here ##
 
-    TRAINING_ITERATION = 32
-    NUM_SAMPLES = 100
-    REDUCTION_FACTOR = 4
-    GRACE_PERIOD = 4
-    CPU_RESOURCES_PER_TRIAL = 3
-    GPU_RESOURCES_PER_TRIAL = 3
+    TRAINING_EPOCH = 1#32
+
+    REDUCTION_FACTOR = 2
+    GRACE_PERIOD = 1#4
+    CPU_RESOURCES_PER_TRIAL = 10
+    GPU_RESOURCES_PER_TRIAL = 1
     METRIC = 'accuracy'  # or 'loss'
 
     CONFIG = {
-        "model": tune.grid_search([0, args.num_models - 1]),
+        "model": tune.grid_search(list(range(args.num_models))),
     }
-    ray.init(args.address)
+    ray.init(address="auto")
 
     if METRIC=='accuracy':
-        sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
+        sched = AsyncHyperBandScheduler(time_attr="training_epoch", 
                                         metric="mean_accuracy", 
                                         mode='max', 
                                         reduction_factor=REDUCTION_FACTOR, 
-                                        grace_period=GRACE_PERIOD)
+                                        grace_period=GRACE_PERIOD,
+                                        brackets=1)
     else:
-        sched = AsyncHyperBandScheduler(time_attr="training_iteration", 
+        sched = AsyncHyperBandScheduler(time_attr="training_epoch", 
                                         metric="mean_loss", 
                                         mode='min', 
                                         reduction_factor=REDUCTION_FACTOR, 
-                                        grace_period=GRACE_PERIOD)
+                                        grace_period=GRACE_PERIOD,
+                                        brackets=1)
 
     analysis = tune.run(
-        TrainModel,
-        scheduler=sched,
-        queue_trials=True,
-        stop={"training_iteration": 1 if args.smoke_test else TRAINING_ITERATION
-        },
-        resources_per_trial={
-            "cpu": CPU_RESOURCES_PER_TRIAL,
-            "gpu": GPU_RESOURCES_PER_TRIAL
-        },
-        num_samples=2,
-        verbose=1,
-        checkpoint_at_end=True,
-        checkpoint_freq=1,
-        max_failures=3,
-        config=CONFIG
+            TrainModel,
+            scheduler=sched,
+            queue_trials=True,
+            stop={"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},
+            resources_per_trial={
+                "cpu": CPU_RESOURCES_PER_TRIAL,
+                "gpu": GPU_RESOURCES_PER_TRIAL
+            },
+            #num_samples=args.num_models,
+            verbose=3,
+            checkpoint_at_end=True,
+            checkpoint_freq=1,
+            max_failures=3,
+            config=CONFIG
         )
 
     if METRIC=='accuracy':

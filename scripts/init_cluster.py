@@ -2,8 +2,8 @@ import sys, os, time, datetime
 import random
 import pickle
 
-master_port = random.randint(11000, 60000)
-redis_port = 12345#random.randint(11000, 60000)
+master_port = 6379 #random.randint(11000, 60000)
+redis_port = 12345 #random.randint(11000, 60000)
 master_node = 'gpu-cn001'
 
 master_ip = "10.246.6." + str(int(master_node[-3:]) + 90) + ":"+str(master_port)
@@ -93,13 +93,13 @@ for w in range(1, numOfWorkers + 1):
 
     assignVm = ''#\n#BSUB -m "{}"\n'.format(_vm)
     runCmd = template + assignVm + '\n#BSUB -J ' + jobName + '\n#BSUB -e ' + fileName + '.e\n'  + '#BSUB -o '+ fileName + '.o\n#BSUB -R "select[ngpus>0] rusage[ngpus_excl_p=1]" \n';
-    runCmd += f'\nray stop \nray start --address="{master_ip}" --redis-password="5241590000000000"\nsleep 24h\n'
+    runCmd += f'\nray stop \nray start --address="{master_ip}" --redis-password="5241590000000000" --num-cpus=10 --num-gpus=1 \nsleep 24h\n'
 
     with open('worker' + str(w) + '.lsf', 'w') as fout:
         fout.writelines(runCmd)
 
 # deal with ps
-rawCmdPs = f"\nray stop \nray start --head --redis-port={master_port} --redis-shard-ports={master_port+1} --node-manager-port={redis_port} --object-manager-port={redis_port+1} \nsleep 24h\n"
+rawCmdPs = f"\nray stop \nray start --head --num-cpus=1 --num-gpus=0 --redis-port={master_port} --redis-shard-ports={master_port+1} --node-manager-port={redis_port} --object-manager-port={redis_port+1} \nsleep 24h\n"
 
 with open('master.lsf', 'w') as fout:
     scriptPS = template_server + '\n#BSUB -J master\n#BSUB -e master.e\n#BSUB -o master.o\n' + '#BSUB -m "'+master_node+'"\n\n' + rawCmdPs
@@ -107,7 +107,7 @@ with open('master.lsf', 'w') as fout:
 
 os.system('bsub < master.lsf')
 
-time.sleep(10)
+time.sleep(5)
 os.system('rm vms')
 
 vmSets = set()
