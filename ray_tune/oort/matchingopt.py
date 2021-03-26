@@ -51,51 +51,6 @@ def get_tensor_shapes(model_graph):
 
     return node_shapes, num_of_trainable_tensors
 
-skip_opts = {'Constant'}
-
-def load_model_meta(meta_file='sample.onnx'):
-    start_time = time.time()
-    # meta file is rather small
-    onnx_model = onnx.load(meta_file)
-    model_graph = onnx_model.graph
-
-    # record the shape of each weighted nodes
-    node_shapes, num_of_trainable_tensors = get_tensor_shapes(model_graph)
-
-    # construct the computation graph and align their attribution
-    nodes = [n for n in onnx_model.graph.node if n.op_type not in skip_opts]
-    graph = nx.DiGraph(name=meta_file, num_tensors=num_of_trainable_tensors)
-
-    node_ids = dict()
-    edge_source = collections.defaultdict(list)
-
-    opt_dir = collections.defaultdict(int)
-    for idx, node in enumerate(nodes):
-        input_nodes, trainable_weights = split_inputs(node.input)
-        opt_dir[node.op_type] += 1
-
-        #print(node.input, trainable_weights)
-        # add new nodes to graph
-        attr = {
-            'dims': [] if not trainable_weights else node_shapes[trainable_weights],
-            'op_type': node.op_type,
-            'name': node.name,# if node.name else str(node.op_type)+str(opt_dir[node.op_type]),
-            'layer_name': None if not trainable_weights else '.'.join(trainable_weights.split('.')[:-1])
-        }
-        graph.add_node(idx, attr=attr)
-
-        # add edges
-        for input_node in input_nodes:
-            for s in edge_source[input_node]:
-                graph.add_edge(s, idx)
-
-        # register node 
-        for out_node in node.output:
-            edge_source[out_node].append(idx)
-
-    #print('\nLoad {} takes {} sec'.format(meta_file, time.time() - start_time))
-
-    return graph, onnx_model
 
 def clip(var):
     if var < -1.: return -1.
@@ -171,7 +126,7 @@ class MatchingOperator(object):
         #matches = self.alignStringToGraphFast()
         self.match_res = self.alignChildToParent(scores, backStrIdx, backGrphIdx)
 
-        print("Match {} takes {:.2f} sec".format(self.parent.graph['name'], time.time() - start_time))
+        #print("Match {} takes {:.2f} sec".format(self.parent.graph['name'], time.time() - start_time))
         return self.match_res[0][-1][-1] # score of end-to-end matching
 
     def alignmentStrings(self):
@@ -185,13 +140,24 @@ class MatchingOperator(object):
                 )
 
     def get_mappings(self, child):
-        if self.match_res is None:
-            score = self.align_child(child=child)
+        #if self.match_res is None:
+        score = self.align_child(child=child)
         matches = self.backtrack(*self.match_res)
         self.matchidxs, self.parentidxs, self.match_score = matches
 
-        return [(self.parentidxs[i], self.matchidxs[i]) for i in range(len(self.parentidxs)) \
-                if self.parentidxs[i] is not None and self.matchidxs[i] is not None], self.match_score
+        mapping_res = []
+        parent_set = set()
+        child_set = set()
+
+        for i in range(len(self.parentidxs)):
+            if self.parentidxs[i] is not None and self.matchidxs[i] is not None:
+                if self.parentidxs[i] not in parent_set and self.matchidxs[i] not in child_set:
+                    mapping_res.append((self.parentidxs[i], self.matchidxs[i]))
+
+                    parent_set.add(self.parentidxs[i])
+                    child_set.add(self.matchidxs[i])
+
+        return mapping_res, self.match_score
 
     def matchscore(self, parent_opt, child_opt):
         if parent_opt['op_type'] != child_opt['op_type']:
@@ -470,9 +436,12 @@ class Oort(object):
     def __init__(self, args):
         self.args = args
         self.model_zoo = collections.OrderedDict()
-        self.init_model_zoo(args.zoo_path)
+
+        if args.zoo_path is not None:
+            self.init_model_zoo(args.zoo_path)
 
         self.current_mapping_id = 0
+        self.skip_opts = {'Constant'}
 
     def init_model_zoo(self, zoo_path):
         if '.onnx' in zoo_path: 
@@ -485,8 +454,55 @@ class Oort(object):
             self.add_to_zoo(model_path)
             print(f"Added {model_path} to zoo ...")
 
+
+    def load_model_meta(self, meta_file='sample.onnx'):
+        skip_opts = {'Constant'}
+        start_time = time.time()
+        # meta file is rather small
+        onnx_model = onnx.load(meta_file)
+        model_graph = onnx_model.graph
+
+        # record the shape of each weighted nodes
+        node_shapes, num_of_trainable_tensors = get_tensor_shapes(model_graph)
+
+        # construct the computation graph and align their attribution
+        nodes = [n for n in onnx_model.graph.node if n.op_type not in skip_opts]
+        graph = nx.DiGraph(name=meta_file, num_tensors=num_of_trainable_tensors)
+
+        node_ids = dict()
+        edge_source = collections.defaultdict(list)
+
+        opt_dir = collections.defaultdict(int)
+        for idx, node in enumerate(nodes):
+            input_nodes, trainable_weights = split_inputs(node.input)
+            opt_dir[node.op_type] += 1
+
+            #print(node.input, trainable_weights)
+            # add new nodes to graph
+            attr = {
+                'dims': [] if not trainable_weights else node_shapes[trainable_weights],
+                'op_type': node.op_type,
+                'name': node.name,# if node.name else str(node.op_type)+str(opt_dir[node.op_type]),
+                'layer_name': None if not trainable_weights else '.'.join(trainable_weights.split('.')[:-1])
+            }
+            graph.add_node(idx, attr=attr)
+
+            # add edges
+            for input_node in input_nodes:
+                for s in edge_source[input_node]:
+                    graph.add_edge(s, idx)
+
+            # register node 
+            for out_node in node.output:
+                edge_source[out_node].append(idx)
+
+        #print('\nLoad {} takes {} sec'.format(meta_file, time.time() - start_time))
+
+        return graph, onnx_model
+
+
     def add_to_zoo(self, model_path):
-        model_graph, model_weight = load_model_meta(model_path)
+        model_graph, model_weight = self.load_model_meta(model_path)
         self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
 
 
@@ -515,20 +531,20 @@ class Oort(object):
         pool.close()
         pool.join()
 
-        best_score = float('-inf')
-        parent = mappings = None
+        parent, mappings, best_score = None, [], float('-inf')
 
         for res in results:
             (p, m, s) = res.get()
             if s > best_score:
                 parent, mappings, best_score = p, m, s
 
-        print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
-                            parent.graph['name'], best_score, time.time() - start_time))
+        if parent is not None:
+            print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
+                                parent.graph['name'], best_score, time.time() - start_time))
         return parent, mappings, best_score
 
 
-    def warm_weights(self, child_model, parent, child, mappings):
+    def warm_weights(self, parent, child, mappings):
 
         mapper = MappingOperator(parent, child, mappings)
         mapper.cascading_mapping()
@@ -536,11 +552,12 @@ class Oort(object):
         weights, num_of_matched = mapper.get_mapping_weights()
 
         # get_warmed child model
-        for name, p in child_model.named_parameters():
-            p.data = (torch.from_numpy(weights[name])).data
+        # for name, p in child_model.named_parameters():
+        #     p.data = (torch.from_numpy(weights[name])).data
 
         print("Mapped {} layers to the child model ({} layers)".format(num_of_matched, child.graph['num_tensors']))
 
+        return weights, num_of_matched
 
     def map_for_model(self, child_model, dummy_input):
 
@@ -551,16 +568,20 @@ class Oort(object):
         torch.onnx.export(child_model, dummy_input, onnx_model_name, 
                     export_params=True, verbose=0, training=1, do_constant_folding=False)
         
-        child, child_onnx = load_model_meta(onnx_model_name)
+        child, child_onnx = self.load_model_meta(onnx_model_name)
 
         # find the best mapping from the zoo
         parent, mappings, best_score = self.get_best_mapping(child)
 
         # overwrite the current model weights
-        self.warm_weights(child_model, parent, child, mappings)
+        weights, num_of_matched = None, 0
+        if parent is not None:
+            weights, num_of_matched = self.warm_weights(parent, child, mappings)
 
         # remove the temporary onnx model
         os.remove(onnx_model_name)
+
+        return weights, num_of_matched
 
 def faked_graph():
     graph = nx.DiGraph(name='faked')

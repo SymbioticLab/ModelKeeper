@@ -83,7 +83,7 @@ class MappingOperator(object):
             child_layer_name = self.child.nodes[child_layer]['attr']['layer_name']
 
             if parent_w is None or child_w is None:
-                print('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'], 
+                logging.debug('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'], 
                                                     self.child.nodes[child_layer]['attr']['op_type']))
             else:
                 n_weight, n_bias, mapping_index = widen(parent_w, parent_b, child_w, child_b, noise_factor=5e-2)
@@ -105,10 +105,10 @@ class MappingOperator(object):
                 
                 self.num_of_matched += 1
                 self.reset_layers.add(child_layer_name)
-                print('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
+                logging.debug('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
                                                             child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
 
-        print("\n\nCascading mapping takes {:.2f} sec".format(time.time() - start_time))
+        logging.debug("\n\nCascading mapping takes {:.2f} sec".format(time.time() - start_time))
 
 
     def get_mapping_weights(self):
@@ -145,7 +145,7 @@ class MappingOperator(object):
         visited = set()
         [dfs(reversed_graph, node, depth=0) for node in reversed_graph.nodes() if reversed_graph.in_degree(node)==0]
         
-        print("\n")
+        logging.debug("\n")
         for trainable_layer in layer_gaps:
             if layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
                 try:
@@ -154,10 +154,10 @@ class MappingOperator(object):
                     self.child_weights[trainable_layer+'.weight'] = n_weight
 
                     num_of_padding += 1
-                    print("Pad layer {} with gap {}".format(trainable_layer, layer_gaps[trainable_layer]))
+                    logging.debug("Pad layer {} with gap {}".format(trainable_layer, layer_gaps[trainable_layer]))
                 except Exception as e:
-                    print('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
+                    logging.debug('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
-        print("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
+        logging.debug("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
 
 

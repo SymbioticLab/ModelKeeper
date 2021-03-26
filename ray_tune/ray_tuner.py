@@ -27,6 +27,11 @@ from models import get_cell_based_tiny_net
 
 import socket
 from random import Random
+from collections import defaultdict, deque
+
+import sys
+from oort.config import oort_config
+from oort.matchingopt import Oort
 
 logging.basicConfig(level=logging.INFO, filename='./ray_log.e', filemode='w')
 logger = logging.getLogger(__name__)
@@ -133,6 +138,91 @@ def get_data_loaders():
             batch_size=args.test_batch_size, shuffle=True, **kwargs)
     return train_loader, test_loader
 
+from ray.tune.stopper import Stopper
+class TrialPlateauStopper(Stopper):
+    """Early stop single trials when they reached a plateau.
+
+    When the standard deviation of the `metric` result of a trial is
+    below a threshold `std`, the trial plateaued and will be stopped
+    early.
+
+    Args:
+        metric (str): Metric to check for convergence.
+        std (float): Maximum metric standard deviation to decide if a
+            trial plateaued. Defaults to 0.01.
+        num_results (int): Number of results to consider for stdev
+            calculation.
+        grace_period (int): Minimum number of timesteps before a trial
+            can be early stopped
+        metric_threshold (Optional[float]):
+            Minimum or maximum value the result has to exceed before it can
+            be stopped early.
+        mode (Optional[str]): If a `metric_threshold` argument has been
+            passed, this must be one of [min, max]. Specifies if we optimize
+            for a large metric (max) or a small metric (min). If max, the
+            `metric_threshold` has to be exceeded, if min the value has to
+            be lower than `metric_threshold` in order to early stop.
+    """
+
+    def __init__(self,
+                 metric: str,
+                 std: float = 0.01,
+                 num_results: int = 4,
+                 grace_period: int = 4,
+                 metric_threshold: float = None,
+                 mode: str = 'max'):
+        self._metric = metric
+        self._mode = mode
+
+        self._std = std
+        self._num_results = num_results
+        self._grace_period = grace_period
+        self._metric_threshold = metric_threshold
+
+        if self._metric_threshold:
+            if mode not in ["min", "max"]:
+                raise ValueError(
+                    f"When specifying a `metric_threshold`, the `mode` "
+                    f"argument has to be one of [min, max]. "
+                    f"Got: {mode}")
+
+        self._iter = defaultdict(lambda: 0)
+        self._trial_results = defaultdict(
+            lambda: deque(maxlen=self._num_results))
+
+    def __call__(self, trial_id: str, result: dict):
+        metric_result = result.get(self._metric)
+        self._trial_results[trial_id].append(metric_result)
+        self._iter[trial_id] += 1
+
+        # If still in grace period, do not stop yet
+        if self._iter[trial_id] < self._grace_period:
+            return False
+
+        # If not enough results yet, do not stop yet
+        if len(self._trial_results[trial_id]) < self._num_results:
+            return False
+
+        # If metric threshold value not reached, do not stop yet
+        if self._metric_threshold is not None:
+            if self._mode == "min" and metric_result > self._metric_threshold:
+                return False
+            elif self._mode == "max" and \
+                    metric_result < self._metric_threshold:
+                return False
+
+        # Calculate stdev of last `num_results` results
+        try:
+            current_std = np.std(self._trial_results[trial_id])
+        except Exception:
+            current_std = float("inf")
+
+        # If stdev is lower than threshold, stop early.
+        return current_std < self._std
+
+    def stop_all(self):
+        return False
+
 class TrainModel(tune.Trainable):
     """
     Ray Tune's class-based API for hyperparameter tuning
@@ -141,23 +231,41 @@ class TrainModel(tune.Trainable):
     """
 
     def _setup(self, config):
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3" 
         self.logger = self._create_logger()
         use_cuda = torch.cuda.is_available()
 
-        # if use_cuda:
-        #     for i in range(3, -1, -1):
-        #         try:
-        #             device = torch.device('cuda:'+str(i))
-        #             torch.cuda.set_device(i)
-        #             self.logger.info(f'====end up with cuda device {torch.rand(1).to(device=device)}')
-        #             break
-        #         except Exception as e:
-        #             assert(i != 0)
+        device = torch.device('cuda')
+        if use_cuda:
+            for i in range(3, -1, -1):
+                try:
+                    #device = torch.device('cuda:'+str(i))
+                    torch.cuda.set_device(i)
+                    self.logger.info(f'End up with cuda device {torch.rand(1).to(device=device)}')
+                    break
+                except Exception as e:
+                    pass #assert(i != 0)
 
-        self.device = torch.device("cuda" if use_cuda else "cpu")
+        self.device = torch.device(device if use_cuda else "cpu")
         self.train_loader, self.test_loader = get_data_loaders()
-        self.model = get_cell_based_tiny_net(conf_list[config['model']])  
+        self.model = get_cell_based_tiny_net(conf_list[config['model']])
         self.model_name = 'model_' + '_'.join([str(val) for val in config.values()]) + '.pth'
+
+        self.use_oort = True
+        # Apply Oort to warm start
+        if self.use_oort:
+            mapper = Oort(oort_config)
+            weights, num_of_matched = mapper.map_for_model(self.model, torch.rand(8, 3, 32, 32))
+            total_layers = 0
+            if weights is not None:
+                for name, p in self.model.named_parameters():
+                    temp_data = (torch.from_numpy(weights[name])).data
+                    assert(temp_data.shape == p.data.shape)
+                    p.data = temp_data
+                    total_layers += 1
+
+            self.logger.info(f"Oort warm starts {num_of_matched} layers, total {total_layers} layers for {self.model_name}")
+
         self.best_acc = 0
         self.best_loss = np.Infinity
         self.optimizer = optim.Adam(self.model.parameters(), lr=1e-3)  # define optimizer
@@ -165,17 +273,29 @@ class TrainModel(tune.Trainable):
         self.epoch = 0
 
         self.logger.info(f"Setup for model {self.model_name} ...")
+        self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
     def _train(self):
-        self.logger.info(f"Start _train for model {self.model_name}")
+        start_time = time.time()
 
         train(self.model, self.optimizer, self.criterion, self.train_loader, self.device)
-        acc, loss = eval(self.model, self.criterion, self.test_loader, self.device)
         self.epoch += 1
+
+        training_duration = time.time() - start_time
+        acc, loss = eval(self.model, self.criterion, self.test_loader, self.device)
+        
+        self.history[self.epoch] = {
+                    'time': self.history[self.epoch-1]['time']+training_duration,
+                    'acc': acc,
+                    'loss': loss,
+                }
+
+        self.logger.info(f"Trained model {self.model_name}: epoch {self.epoch}, acc {acc}, loss {loss}")
 
         # remember best metric and save checkpoint
         if METRIC == 'accuracy':
             is_best = acc > self.best_acc
+            self.dump_to_zoo(zoo_path = os.path.join(os.environ['HOME'], 'model_zoo', 'nasbench201'))
         else:
             is_best = loss < self.best_loss
         self.best_acc = max(acc, self.best_acc)
@@ -194,6 +314,17 @@ class TrainModel(tune.Trainable):
             return {"mean_accuracy": acc}
         else:
             return {"mean_loss": loss}
+
+    def dump_to_zoo(self, zoo_path):
+        with open(os.path.join(zoo_path, self.model_name), 'wb') as fout:
+            pickle.dump(self.model.to(device='cpu'), fout)
+            pickle.dump(self.history, fout)
+
+        if self.use_oort:
+            torch.onnx.export(self.model, torch.rand(8, 3, 32, 32), os.path.join(zoo_path, f"{self.model_name}.temp_onnx"), 
+                                export_params=True, verbose=0, training=1)
+            # avoid conflicts
+            os.system(f'mv {os.path.join(zoo_path, f"{self.model_name}.temp_onnx")} {os.path.join(zoo_path, f"{self.model_name}.onnx")}')
 
     def _save(self, checkpoint_dir):
         checkpoint_path = os.path.join(checkpoint_dir, "model.pth")
@@ -226,7 +357,7 @@ if __name__ == "__main__":
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--num_models', type=int, default=20, metavar='N',
+    parser.add_argument('--num_models', type=int, default=100, metavar='N',
                         help='number of models to train ')
     parser.add_argument('--lr', type=float, default=1e-3, metavar='LR',
                         help='learning rate (default: 0.01)')
@@ -269,8 +400,8 @@ if __name__ == "__main__":
 
     TRAINING_EPOCH = 1#32
 
-    REDUCTION_FACTOR = 2
-    GRACE_PERIOD = 1#4
+    REDUCTION_FACTOR = 1.000001
+    GRACE_PERIOD = 2#4
     CPU_RESOURCES_PER_TRIAL = 10
     GPU_RESOURCES_PER_TRIAL = 1
     METRIC = 'accuracy'  # or 'loss'
@@ -295,11 +426,13 @@ if __name__ == "__main__":
                                         grace_period=GRACE_PERIOD,
                                         brackets=1)
 
+    # Random scheduler (FIFO) that trains all models to the end
     analysis = tune.run(
             TrainModel,
-            scheduler=sched,
+            #scheduler=sched,
             queue_trials=True,
-            stop={"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},
+            stop=TrialPlateauStopper(metric='mean_accuracy', mode='max', std=5e-3,
+                            num_results=GRACE_PERIOD+2, grace_period=GRACE_PERIOD),#{"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},
             resources_per_trial={
                 "cpu": CPU_RESOURCES_PER_TRIAL,
                 "gpu": GPU_RESOURCES_PER_TRIAL
@@ -309,7 +442,8 @@ if __name__ == "__main__":
             checkpoint_at_end=True,
             checkpoint_freq=1,
             max_failures=3,
-            config=CONFIG
+            config=CONFIG,
+            #local_dir=log_dir,
         )
 
     if METRIC=='accuracy':
