@@ -30,6 +30,7 @@ from random import Random
 from collections import defaultdict, deque
 
 import sys
+from ImageNet import ImageNet16
 from oort.config import oort_config
 from oort.matchingopt import Oort
 
@@ -136,6 +137,14 @@ def get_data_loaders():
         test_loader = torch.utils.data.DataLoader(
             datasets.CIFAR10(args.dataset, train=False, download=True, transform=test_transform),
             batch_size=args.test_batch_size, shuffle=True, **kwargs)
+    elif args.data == 'ImageNet16-120':
+        train_data = ImageNet16(args.dataset, True , train_transform, 120)
+        test_data  = ImageNet16(args.dataset, False, test_transform, 120)
+        assert len(train_data) == 151700 and len(test_data) == 6000
+        train_loader = torch.utils.data.DataLoader(
+            train_data, batch_size=args.batch_size, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(
+            test_data, batch_size=args.test_batch_size, shuffle=True, **kwargs)
     return train_loader, test_loader
 
 from ray.tune.stopper import Stopper
@@ -373,7 +382,7 @@ if __name__ == "__main__":
                         help='noise or no noise 0-1')
     parser.add_argument('--data', type=str, default='cifar10')
     parser.add_argument('--dataset', type=str, default='/gpfs/gpfs0/groups/chowdhury/fanlai/dataset')
-    parser.add_argument('--meta', type=str, default='/gpfs/gpfs0/groups/chowdhury/dywsjtu/config.pkl')
+    parser.add_argument('--meta', type=str, default='/gpfs/gpfs0/groups/chowdhury/dywsjtu/')
     parser.add_argument(
         "--smoke-test", action="store_true", help="Finish quickly for testing")
     parser.add_argument(
@@ -387,7 +396,7 @@ if __name__ == "__main__":
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
-    conf_list = GenerateConfig(args.num_models, args.meta)
+    conf_list = GenerateConfig(args.num_models, args.meta + args.data + "_config.pkl")
 
     # Clear the log dir
     log_dir = f"{os.environ['HOME']}/ray_logs"
