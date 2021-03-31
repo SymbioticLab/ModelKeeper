@@ -9,4 +9,4 @@ parser.add_argument('--zoo_path', type=str, default='/gpfs/gpfs0/groups/chowdhur
 # Framework configuration
 parser.add_argument('--num_of_processes', type=int, default=16, help='Number of threads used for mapping (~CPU cores)')
 
-oort_config = parser.parse_args()
+oort_config, unknown = parser.parse_known_args()

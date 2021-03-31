@@ -34,6 +34,12 @@ from ImageNet import ImageNet16
 from oort.config import oort_config
 from oort.matchingopt import Oort
 
+from thirdparty.utils import batchify
+from thirdparty.model import AWDRNNModel
+from thirdparty.train import train_nlp, eval_nlp
+from thirdparty import data
+from thirdparty.splitcross import SplitCrossEntropyLoss
+
 logging.basicConfig(level=logging.INFO, filename='./ray_log.e', filemode='w')
 logger = logging.getLogger(__name__)
 
@@ -55,7 +61,7 @@ def GenerateConfig(n, path):
 
 
 
-def train(model, optimizer, criterion, train_loader, device=torch.device("cpu")):
+def train_cv(model, optimizer, criterion, train_loader, device=torch.device("cpu")):
     """
     Model training function
     Parameters
@@ -84,7 +90,7 @@ def train(model, optimizer, criterion, train_loader, device=torch.device("cpu"))
         optimizer.step()
 
 
-def eval(model, criterion, data_loader, device=torch.device("cpu")):
+def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
     """
     Model evaluation function
     Parameters
@@ -130,22 +136,29 @@ def get_data_loaders():
 
     kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
 
-    if args.data == 'cifar10':
-        train_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10(args.dataset, train=True, download=True, transform=train_transform),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
-        test_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10(args.dataset, train=False, download=True, transform=test_transform),
-            batch_size=args.test_batch_size, shuffle=True, **kwargs)
-    elif args.data == 'ImageNet16-120':
-        train_data = ImageNet16(args.dataset, True , train_transform, 120)
-        test_data  = ImageNet16(args.dataset, False, test_transform, 120)
-        assert len(train_data) == 151700 and len(test_data) == 6000
-        train_loader = torch.utils.data.DataLoader(
-            train_data, batch_size=args.batch_size, shuffle=True, **kwargs)
-        test_loader = torch.utils.data.DataLoader(
-            test_data, batch_size=args.test_batch_size, shuffle=True, **kwargs)
-    return train_loader, test_loader
+    if args.task == "cv":
+        if args.data == 'cifar10':
+            train_loader = torch.utils.data.DataLoader(
+                datasets.CIFAR10(args.dataset, train=True, download=True, transform=train_transform),
+                batch_size=args.batch_size, shuffle=True, **kwargs)
+            test_loader = torch.utils.data.DataLoader(
+                datasets.CIFAR10(args.dataset, train=False, download=True, transform=test_transform),
+                batch_size=args.test_batch_size, shuffle=True, **kwargs)
+        elif args.data == 'ImageNet16-120':
+            train_data = ImageNet16(args.dataset, True , train_transform, 120)
+            test_data  = ImageNet16(args.dataset, False, test_transform, 120)
+            assert len(train_data) == 151700 and len(test_data) == 6000
+            train_loader = torch.utils.data.DataLoader(
+                train_data, batch_size=args.batch_size, shuffle=True, **kwargs)
+            test_loader = torch.utils.data.DataLoader(
+                test_data, batch_size=args.test_batch_size, shuffle=True, **kwargs)
+        return train_loader, test_loader, None
+    elif args.task == "nlp":
+        corpus = data.Corpus(args.dataset)
+        cuda = 'cuda'
+        train_loader = batchify(corpus.train, args.batch_size, args, cuda)
+        test_loader = batchify(corpus.test, args.test_batch_size, args, cuda)
+        return train_loader, test_loader, len(corpus.dictionary)
 
 from ray.tune.stopper import Stopper
 class TrialPlateauStopper(Stopper):
@@ -256,11 +269,37 @@ class TrainModel(tune.Trainable):
                     pass #assert(i != 0)
 
         self.device = torch.device(device if use_cuda else "cpu")
-        self.train_loader, self.test_loader = get_data_loaders()
-        self.model = get_cell_based_tiny_net(conf_list[config['model']])
+
+
+        self.best_acc = 0
+        self.best_loss = np.Infinity
+        self.train_loader, self.test_loader, self.ntokens = get_data_loaders()
+        if args.task == "cv":
+            self.model = get_cell_based_tiny_net(conf_list[config['model']])       
+            self.optimizer = optim.Adam(self.model.parameters(), lr=1e-3)  # define optimizer
+            self.criterion = nn.CrossEntropyLoss()  # define loss function   
+        elif args.task == "nlp":
+            self.model = AWDRNNModel('CustomRNN', 
+                               self.ntokens, 
+                               args.emsize, 
+                               args.nhid, 
+                               args.nlayers, 
+                               args.dropout, 
+                               args.dropouth, 
+                               args.dropouti, 
+                               args.dropoute, 
+                               args.wdrop, 
+                               args.tied,
+                               conf_list[config['model']],
+                               verbose=False)
+            self.criterion = SplitCrossEntropyLoss(args.emsize, splits=[], verbose=False)
+            self.params = list(self.model.parameters()) + list(self.criterion.parameters())
+
+            self.optimizer = torch.optim.Adam(self.params, lr=args.lr, weight_decay=args.wdecay)
+        self.epoch = 0
         self.model_name = 'model_' + '_'.join([str(val) for val in config.values()]) + '.pth'
 
-        self.use_oort = True
+        self.use_oort = False
         # Apply Oort to warm start
         if self.use_oort:
             mapper = Oort(oort_config)
@@ -275,24 +314,24 @@ class TrainModel(tune.Trainable):
 
             self.logger.info(f"Oort warm starts {num_of_matched} layers, total {total_layers} layers for {self.model_name}")
 
-        self.best_acc = 0
-        self.best_loss = np.Infinity
-        self.optimizer = optim.Adam(self.model.parameters(), lr=1e-3)  # define optimizer
-        self.criterion = nn.CrossEntropyLoss()  # define loss function
-        self.epoch = 0
 
         self.logger.info(f"Setup for model {self.model_name} ...")
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
     def _train(self):
         start_time = time.time()
+        training_duration, acc, loss = 0, 0, np.Infinity
+        if args.task == "cv":
+            train_cv(self.model, self.optimizer, self.criterion, self.train_loader, self.device)
+            training_duration = time.time() - start_time
+            acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
+        elif args.task == "nlp":
+            train_nlp(self.model, self.optimizer, self.params, self.criterion, self.train_loader, args, self.epoch,self.device)
+            training_duration = time.time() - start_time
+            loss = eval_nlp(self.model, self.criterion, self.test_loader, args.test_batch_size, args, self.device)
 
-        train(self.model, self.optimizer, self.criterion, self.train_loader, self.device)
         self.epoch += 1
 
-        training_duration = time.time() - start_time
-        acc, loss = eval(self.model, self.criterion, self.test_loader, self.device)
-        
         self.history[self.epoch] = {
                     'time': self.history[self.epoch-1]['time']+training_duration,
                     'acc': acc,
@@ -366,8 +405,8 @@ if __name__ == "__main__":
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--num_models', type=int, default=100, metavar='N',
-                        help='number of models to train ')
+    parser.add_argument('--num_models', type=int, default=2, metavar='N',
+                        help='number of models to train (default: 2)')
     parser.add_argument('--lr', type=float, default=1e-3, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
@@ -389,6 +428,36 @@ if __name__ == "__main__":
         "--address",
         default="localhost:6379",
         help="Address of Ray cluster for seamless distributed execution.")
+    ## nlp branch args
+    parser.add_argument('--task', type=str, default='cv')
+    parser.add_argument('--emsize', type=int, default=400,
+                    help='emsize')
+    parser.add_argument('--nhid', type=int, default=600,
+                        help='nhid')
+    parser.add_argument('--nlayers', type=int, default=3,
+                        help='nlayers')
+    parser.add_argument('--dropout', type=float, default=0.4,
+                        help='dropout')
+    parser.add_argument('--dropouth', type=float, default=0.25,
+                        help='dropouth')
+    parser.add_argument('--dropouti', type=float, default=0.4,
+                        help='dropouti')
+    parser.add_argument('--dropoute', type=float, default=0.1,
+                        help='dropoute')
+    parser.add_argument('--wdrop', type=float, default=0.5,
+                        help='wdrop')
+    parser.add_argument('--alpha', type=float, default=2,
+                        help='alpha')
+    parser.add_argument('--beta', type=float, default=1,
+                        help='beta')
+    parser.add_argument('--bptt', type=float, default=70,
+                        help='bptt')
+    parser.add_argument('--wdecay', type=float, default=1.2e-6,
+                    help='weight decay')
+    parser.add_argument('--tied', action='store_true', default=True,
+                    help='tied')
+    parser.add_argument('--clip', type=float, default=0.25,
+                    help='clip')
     args = parser.parse_args()
 
 
@@ -413,7 +482,7 @@ if __name__ == "__main__":
     GRACE_PERIOD = 2#4
     CPU_RESOURCES_PER_TRIAL = 10
     GPU_RESOURCES_PER_TRIAL = 1
-    METRIC = 'accuracy'  # or 'loss'
+    METRIC = 'loss'  # or 'loss'
 
     CONFIG = {
         "model": tune.grid_search(list(range(args.num_models))),
@@ -440,7 +509,7 @@ if __name__ == "__main__":
             TrainModel,
             #scheduler=sched,
             queue_trials=True,
-            stop=TrialPlateauStopper(metric='mean_accuracy', mode='max', std=5e-3,
+            stop=TrialPlateauStopper(metric='mean_loss', mode='min', std=5e-3,
                             num_results=GRACE_PERIOD+2, grace_period=GRACE_PERIOD),#{"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},
             resources_per_trial={
                 "cpu": CPU_RESOURCES_PER_TRIAL,
