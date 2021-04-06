@@ -299,11 +299,17 @@ class TrainModel(tune.Trainable):
         self.epoch = 0
         self.model_name = 'model_' + '_'.join([str(val) for val in config.values()]) + '.pth'
 
-        self.use_oort = False
+        self.use_oort = True
         # Apply Oort to warm start
         if self.use_oort:
             mapper = Oort(oort_config)
-            weights, num_of_matched = mapper.map_for_model(self.model, torch.rand(8, 3, 32, 32))
+            if args.task == "cv":
+                weights, num_of_matched = mapper.map_for_model(self.model, torch.rand(8, 3, 32, 32))
+            elif args.task == "nlp":
+                self.model.eval()
+                dummy_input = torch.randint(0, self.ntokens, (70, args.batch_size))
+                hidden = self.model.init_hidden(args.batch_size)
+                weights, num_of_matched = mapper.map_for_model(self.model, dummy_input, hidden)
             total_layers = 0
             if weights is not None:
                 for name, p in self.model.named_parameters():
@@ -368,9 +374,21 @@ class TrainModel(tune.Trainable):
             pickle.dump(self.model.to(device='cpu'), fout)
             pickle.dump(self.history, fout)
 
-        if self.use_oort:
-            torch.onnx.export(self.model, torch.rand(8, 3, 32, 32), os.path.join(zoo_path, f"{self.model_name}.temp_onnx"), 
-                                export_params=True, verbose=0, training=1)
+       if self.use_oort:
+            if args.task == "cv":
+                torch.onnx.export(self.model, torch.rand(8, 3, 32, 32), os.path.join(zoo_path, f"{self.model_name}.temp_onnx"), 
+                                    export_params=True, verbose=0, training=1)
+            elif args.task == "nlp":
+                self.model.eval()
+                with torch.no_grad():
+                    dummy_input = torch.randint(0, self.ntokens, (70, args.batch_size))
+                    hidden = self.model.init_hidden(args.batch_size)
+                    torch.onnx.export(self.model, (dummy_input, hidden), os.path.join(zoo_path, f"{self.model_name}.temp_onnx"), 
+                                        export_params=True, verbose=0, training=0,
+                                        input_names=['dummy_input'],
+                                        output_names=['output'],
+                                        dynamic_axes={'dummy_input': [0], 'output': [0]}       
+                                    )
             # avoid conflicts
             os.system(f'mv {os.path.join(zoo_path, f"{self.model_name}.temp_onnx")} {os.path.join(zoo_path, f"{self.model_name}.onnx")}')
 
