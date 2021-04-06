@@ -374,7 +374,7 @@ class TrainModel(tune.Trainable):
             pickle.dump(self.model.to(device='cpu'), fout)
             pickle.dump(self.history, fout)
 
-       if self.use_oort:
+        if self.use_oort:
             if args.task == "cv":
                 torch.onnx.export(self.model, torch.rand(8, 3, 32, 32), os.path.join(zoo_path, f"{self.model_name}.temp_onnx"), 
                                     export_params=True, verbose=0, training=1)

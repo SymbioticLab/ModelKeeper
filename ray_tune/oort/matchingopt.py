@@ -576,7 +576,7 @@ class Oort(object):
                             do_constant_folding=False, 
                             input_names=['dummy_input'],
                             output_names=['output'],
-                            dynamic_axes={'dummy_input': [0], 'output': [0]}
+                            dynamic_axes={'dummy_input': [0], 'output': [0]})
         child, child_onnx = self.load_model_meta(onnx_model_name)
 
         # find the best mapping from the zoo
