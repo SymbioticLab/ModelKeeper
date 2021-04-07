@@ -9,9 +9,12 @@ import logging
 from onnx import numpy_helper
 import multiprocessing
 import torch
+import heapq
+from multiprocessing import Manager
 
 sys.setrecursionlimit(10000)
 #logging.basicConfig(filename='logging', level=logging.INFO)
+INS, DEL, MISMATCH, MATCH = [-2, -1, 0, 1]
 
 def split_inputs(in_list):
     # input list may contain trainable weights
@@ -73,13 +76,11 @@ def topological_sorting(graph):
     return ret
 
 class MatchingOperator(object):
-    __matchscore = 1
-    __mismatchscore = -1
-    __gap = -2
+    __matchscore = 1.
+    __mismatchscore = -2.
+    __gap = -1.
 
-    def __init__(self, parent, globalAlign=True,
-                 matchscore=__matchscore, mismatchscore=__mismatchscore,
-                 gapscore=__gap):
+    def __init__(self, parent, matchscore=__matchscore, mismatchscore=__mismatchscore, gapscore=__gap):
 
         self._mismatchscore = mismatchscore
         self._matchscore = matchscore
@@ -87,7 +88,6 @@ class MatchingOperator(object):
         self.parent       = parent
         self.matchidxs  = None
         self.parentidxs    = None
-        self.globalAlign = globalAlign
         self.child = None
         self.childidx_order = None
 
@@ -139,25 +139,30 @@ class MatchingOperator(object):
                 "\t".join([self.child.nodes[i]['attr']['name'] if i is not None else "-" for i in self.childidx_order])
                 )
 
-    def get_mappings(self, child):
-        #if self.match_res is None:
+    def get_matching_score(self, child):
         score = self.align_child(child=child)
+        return score
+
+    def get_mappings(self):
+
         matches = self.backtrack(*self.match_res)
         self.matchidxs, self.parentidxs, self.match_score = matches
 
         mapping_res = []
-        parent_set = set()
-        child_set = set()
+        parent_set, child_set = set(), set()
+
+        ans = self.alignmentStrings()
 
         for i in range(len(self.parentidxs)):
             if self.parentidxs[i] is not None and self.matchidxs[i] is not None:
                 if self.parentidxs[i] not in parent_set and self.matchidxs[i] not in child_set:
                     mapping_res.append((self.parentidxs[i], self.matchidxs[i]))
-
                     parent_set.add(self.parentidxs[i])
                     child_set.add(self.matchidxs[i])
 
+        #print("\n", sorted(mapping_res), "\n", len(self.parentidx_order), len(self.childidx_order))
         return mapping_res, self.match_score
+
 
     def matchscore(self, parent_opt, child_opt):
         if parent_opt['op_type'] != child_opt['op_type']:
@@ -165,15 +170,15 @@ class MatchingOperator(object):
         else:
             # diff number of parameters
             num_param_p = self.get_parent_parameters(parent_opt['name'], parent_opt['dims'])
-            #num_param_c = self.get_child_parameters(child_opt['name'], child_opt['dims'])
+            num_param_c = self.get_child_parameters(child_opt['name'], child_opt['dims'])
             num_inherited = 1.
             for i, j in zip(parent_opt['dims'], child_opt['dims']):
                 num_inherited *= min(i, j)
 
-            match_score = float(num_inherited)/max(num_param_p, 1e-4) * self._matchscore
+            match_score = float(num_inherited)/max(num_param_p, num_param_c, 1.) * self._matchscore
 
             #print(parent_opt['name'], child_opt['name'], parent_opt['dims'], child_opt['dims'], match_score)
-            return match_score #if match_score > .25 else self._mismatchscore
+            return match_score if match_score > .25 else self._mismatchscore
 
 
     def get_child_parameters(self, name, dims):
@@ -186,90 +191,42 @@ class MatchingOperator(object):
             self.parent_cache[name] = numpy.prod(dims)
         return self.parent_cache[name]
 
-    def matchscoreVec(self, parent_opt, child_opts):
-        res = []
-        parent_opt_type = parent_opt['op_type']
-        parent_num_params = numpy.prod(parent_opt['dims'])
+    # merge k ordered list
+    def merge_branch_mapping(self, lists):
+        heap = []
+        [heapq.heappush(heap, (-l[0][0], i, 0)) for i, l in enumerate(lists) if l]
 
-        for child_opt in child_opts:
-            if parent_opt_type != child_opt['op_type']:
-                res.append(self._mismatchscore)
-            else:
-                # diff number of parameters
-                child_num_params = self.get_child_parameters(child_opt['name'], child_opt['dims'])
-                match_score = (1.-abs(parent_num_params-child_num_params)/max(parent_num_params, child_num_params, 1e-4)) * self._matchscore
-                res.append(match_score)
+        merge_score = 0.
+        merge_graph_list, merge_child_list = [], []
+        matched_parents = set()
 
-        return res
+        while heap:
+            cur_val, branch_id, list_id = heapq.heappop(heap)
 
+            should_match = True
+            if lists[branch_id][list_id][-1] == MATCH:
+                parent_graph_node = lists[branch_id][list_id][1]
 
-    def alignStringToGraphFast(self):
-        """Align string to graph - using numpy to vectorize across the string
-        at each iteration."""
+                if parent_graph_node in matched_parents:
+                    # move to the next matching idx for this branch
+                    should_match = False
+                    if list_id < len(lists[branch_id]) - 1:
+                        list_id += 1
+                        heapq.heappush(heap, (-lists[branch_id][list_id][0], branch_id, list_id))
+                else:
+                    matched_parents.add(parent_graph_node)
 
-        scores, backStrIdx, backGrphIdx = self.initializeDynamicProgrammingData()
+            if should_match:
+                merge_score += lists[branch_id][list_id][0]
+                merge_graph_list.append(lists[branch_id][list_id][1])
+                merge_child_list.append(lists[branch_id][list_id][2])
 
-        l2 = len(self.child.nodes)
-        inserted = numpy.zeros((l2), dtype=numpy.bool)
-
-        sbases = [self.child.nodes[cidx]['attr'] for j, cidx in enumerate(self.childidx_order)]
-        seqvec = numpy.array(list(sbases))
-
-        # having the inner loop as a function improves performance
-        # can use Cython, etc on this for significant further improvements
-        # can't vectorize this since there's a loop-carried dependency
-        #  along the string
-        def insertions(i, l2, scores, inserted):
-            inserted[:] = False
-            for j in range(l2):
-                insscore = scores[i+1, j] + self._gap
-                if insscore >= scores[i+1, j+1]:
-                    scores[i+1, j+1] = insscore
-                    inserted[j] = True
-
-        # Dynamic Programming
-        for i, node in enumerate(self.parentidx_order):
-            gbase = self.parent.nodes[node]['attr']
-            predecessors = self.parentPrevIndicesList[i]
-
-            # calculate all best deletions, matches in one go over all
-            # predecessors.
-
-            # First calculate for the first predecessor, over all string posns:
-            deletescore = scores[predecessors[0]+1, 1:] + self._gap
-            bestdelete = numpy.zeros((l2), dtype=numpy.int)+predecessors[0]+1
-
-            matchpoints = self.matchscoreVec(gbase, seqvec)
-            matchscore = scores[predecessors[0]+1, 0:-1] + matchpoints
-            bestmatch = numpy.zeros((l2), dtype=numpy.int)+predecessors[0]+1
-
-            # then, the remaining
-            for predecessor in predecessors[1:]:
-                newdeletescore = scores[predecessor+1, 1:] + self._gap
-                bestdelete     = numpy.where(newdeletescore > deletescore, predecessor+1, bestdelete)
-                deletescore    = numpy.maximum(newdeletescore, deletescore)
-
-                gbase = self.parent.nodes[predecessor]['attr']
-                matchpoints = self.matchscoreVec(gbase, seqvec)
-                newmatchscore = scores[predecessor+1, 0:-1] + matchpoints
-                bestmatch     = numpy.where(newmatchscore > matchscore, predecessor+1, bestmatch)
-                matchscore    = numpy.maximum(newmatchscore, matchscore)
-
-            # choose best options available of match, delete
-            deleted       = deletescore >= matchscore
-            backGrphIdx[i+1, 1:] = numpy.where(deleted, bestdelete, bestmatch)
-            backStrIdx [i+1, 1:] = numpy.where(deleted, numpy.arange(1, l2+1), numpy.arange(0, l2))
-            scores[i+1, 1:] = numpy.where(deleted, deletescore, matchscore)
-
-            # insertions: updated in place, don't depend on predecessors
-            insertions(i, l2, scores, inserted)
-            backGrphIdx[i+1, 1:] = numpy.where(inserted, i+1, backGrphIdx[i+1, 1:])
-            backStrIdx[i+1, 1:] = numpy.where(inserted, numpy.arange(l2), backStrIdx[i+1, 1:])
-
-
-        return self.backtrack(scores, backStrIdx, backGrphIdx)
+        return merge_score/len(merge_graph_list), merge_graph_list, merge_child_list
 
     def alignChildToParent(self, scores, backStrIdx, backGrphIdx):
+    
+        align_start = time.time()
+        cum_time = 0.
 
         # Dynamic Programming
         for i, pidx in enumerate(self.parentidx_order):
@@ -278,22 +235,28 @@ class MatchingOperator(object):
             for j, cidx in enumerate(self.childidx_order):
                 sbase = self.child_bases[cidx]
                 match_score = self.matchscore(pbase, sbase)
-                best_candidates = (float('-inf'), )
 
+                temp_ans = []
                 for cp in self.childPrevIndicesList[cidx]:
-                    # index of child parent
+                    temp_ans.append([])
+
+                    # enumerate all branches
                     cprev = cp+1
-                    best_candidates = max(best_candidates, (scores[i+1, cprev] + self._gap, i+1, cprev))#, "INS")) # skip a parent node
+                    temp_ans[-1].append((scores[i+1, cprev] + self._gap, i+1, cprev, INS)) # skip a parent node
                     
                     # add all candidates to a list, pick the best insert to the child
                     for predIndex in self.parentPrevIndicesList[i]:
-                        best_candidates = max(best_candidates, 
-                                        (scores[predIndex+1, cprev] + match_score, predIndex+1, cprev),#, "MATCH"),
-                                        (scores[predIndex+1, cprev+1] + self._gap, predIndex+1, cprev+1))#, "DEL")) # skip a child node
+                        temp_ans[-1].append((scores[predIndex+1, cprev] + match_score, predIndex+1, cprev, MATCH if match_score > 0 else MISMATCH))
+                        temp_ans[-1].append((scores[predIndex+1, cprev+1] + self._gap, predIndex+1, cprev+1, DEL)) # skip a child node
 
-                scores[i+1, j+1], backGrphIdx[i+1, j+1], backStrIdx[i+1, j+1] = best_candidates
+                    # consider the score only 
+                    temp_ans[-1].sort(reverse=True, key=lambda k:k[0])
 
-        return scores, backStrIdx, backGrphIdx 
+                # merge branch results
+                scores[i+1, j+1], backGrphIdx[i+1, j+1], backStrIdx[i+1, j+1] = self.merge_branch_mapping(temp_ans)
+
+        #print(time.time() - align_start, cum_time)
+        return (scores, backStrIdx, backGrphIdx)
 
 
     def parentPrevIndices(self, node):
@@ -308,6 +271,7 @@ class MatchingOperator(object):
             prev = [-1]
         return prev
 
+
     def childPrevIndices(self, node):
         prev = []
         for source, target in self.child.in_edges(node):
@@ -315,6 +279,7 @@ class MatchingOperator(object):
         if len(prev) == 0:
             prev = [-1]
         return prev
+
 
     def initializeDynamicProgrammingData(self):
         """Initalize the dynamic programming tables:
@@ -348,30 +313,28 @@ class MatchingOperator(object):
         scores = numpy.zeros((l1+1, l2+1), dtype=numpy.float)
 
         # initialize insertion score
-        # if global align, penalty for starting at head != 0
-        if self.globalAlign:
-            scores[0, :] = numpy.arange(l2+1)*self._gap
-            scores[:, 0] = numpy.arange(l1+1)*self._gap
+        scores[0, :] = numpy.arange(l2+1)*self._gap
+        scores[:, 0] = numpy.arange(l1+1)*self._gap
 
-            for (index, nidx) in enumerate(self.parentidx_order):
-                prevIdxs = self.parentPrevIndicesList[index]
+        for (index, nidx) in enumerate(self.parentidx_order):
+            prevIdxs = self.parentPrevIndicesList[index]
 
-                best = float('-inf')
-                for prevIdx in prevIdxs:
-                    best = max(best, scores[prevIdx+1, 0])
-                scores[index+1, 0] = best + self._gap
+            best = float('-inf')
+            for prevIdx in prevIdxs:
+                best = max(best, scores[prevIdx+1, 0])
+            scores[index+1, 0] = best + self._gap
 
-            for (index, nidx) in enumerate(self.childidx_order):
-                prevIdxs = self.childPrevIndicesList[nidx]
+        for (index, nidx) in enumerate(self.childidx_order):
+            prevIdxs = self.childPrevIndicesList[nidx]
 
-                best = float('-inf')
-                for prevIdx in prevIdxs:
-                    best = max(best, scores[0, prevIdx+1])
-                scores[0, index+1] = best + self._gap
+            best = float('-inf')
+            for prevIdx in prevIdxs:
+                best = max(best, scores[0, prevIdx+1])
+            scores[0, index+1] = best + self._gap
 
         # backtracking matrices
-        backStrIdx = numpy.zeros((l1+1, l2+1), dtype=numpy.int)
-        backGrphIdx = numpy.zeros((l1+1, l2+1), dtype=numpy.int)
+        backStrIdx = collections.defaultdict(list) #numpy.zeros((l1+1, l2+1), dtype=numpy.int)
+        backGrphIdx = collections.defaultdict(list)#numpy.zeros((l1+1, l2+1), dtype=numpy.int)
 
         return scores, backStrIdx, backGrphIdx
 
@@ -388,28 +351,11 @@ class MatchingOperator(object):
         que = [(besti, bestj)]
         que_set = set([(besti, bestj)])
 
-        # print(scores)
-
-        # print(backGrphIdx[6, :])
-        # print(backStrIdx[6, :])
-
         while len(que) != 0:
             besti, bestj = que.pop()
             curstridx, curnodeidx = self.childidx_order[bestj-1], self.parentidx_order[besti-1]
 
-            nextis, nextjs = [backGrphIdx[besti, bestj]], [backStrIdx[besti, bestj]]
-            # multi-branch for child (j), then we need to recover other branches
-            for childPrev in self.childPrevIndicesList[curstridx]:
-                # branch may conflict
-                if childPrev + 2 != bestj:
-                    # recover how to reach the current node
-                    nextis.append(backGrphIdx[besti, childPrev+1])
-                    nextjs.append(backStrIdx[besti, childPrev+1])
-
-                #print()
-
-            #print([self.parentidx_order[x] for x in nextis], [self.childidx_order[x] for x in nextjs], curstridx, [self.childidx_order[x] for x in self.childPrevIndicesList[curstridx]])
-            #nextis, nextjs = [backGrphIdx[besti, bestj]], [backStrIdx[besti, bestj]]
+            nextis, nextjs = backGrphIdx[besti, bestj], backStrIdx[besti, bestj] # last step to (besti, bestj)
 
             name_aligned = True
             if curstridx is not None and curnodeidx is not None:
@@ -431,10 +377,18 @@ class MatchingOperator(object):
 
         return strindexes, matches, bestscore
 
+
+def mapping_func(parent_opt, child):
+    score = parent_opt.get_matching_score(child=child)
+    return (parent_opt.parent.graph['name'], score) #(self.model_zoo[parent_path].parent, mappings, score)
+
+
 class Oort(object):
 
     def __init__(self, args):
         self.args = args
+        #manager = Manager()
+
         self.model_zoo = collections.OrderedDict()
 
         if args.zoo_path is not None:
@@ -497,13 +451,16 @@ class Oort(object):
                 edge_source[out_node].append(idx)
 
         #print('\nLoad {} takes {} sec'.format(meta_file, time.time() - start_time))
-
+        #print(graph.graph['name'], graph.number_of_nodes())
         return graph, onnx_model
 
 
     def add_to_zoo(self, model_path):
-        model_graph, model_weight = self.load_model_meta(model_path)
-        self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
+        try:
+            model_graph, model_weight = self.load_model_meta(model_path)
+            self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
+        except Exception as e:
+            print(f"Error: {e} for {model_path}")
 
 
     def remove_from_zoo(self, model_path):
@@ -513,30 +470,37 @@ class Oort(object):
             logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
 
 
-    def mapping_func(self, parent_path, child):
-        mappings, score = self.model_zoo[parent_path].get_mappings(child=child)
+    def get_mappings(self, parent_path):
+        mapping_res, score = self.model_zoo[parent_path].get_mappings()
+        return (self.model_zoo[parent_path].parent, mapping_res, score)
 
-        return (self.model_zoo[parent_path].parent, mappings, score)
 
-
-    def get_best_mapping(self, child):
+    def get_best_mapping(self, child, blacklist=set(), model_name=None):
 
         start_time = time.time()
 
         pool = multiprocessing.Pool(processes=self.args.num_of_processes)
         results = []
 
-        for model_path in self.model_zoo.keys(): 
-            results.append(pool.apply_async(self.mapping_func, (model_path, child)))
+        for model_path in self.model_zoo.keys():
+            if model_path not in blacklist:
+                results.append(pool.apply_async(mapping_func, (self.model_zoo[model_path], child)))
+
         pool.close()
         pool.join()
 
-        parent, mappings, best_score = None, [], float('-inf')
+        parent_path, mappings, best_score = None, [], float('-inf')
 
         for res in results:
-            (p, m, s) = res.get()
+            (p, s) = res.get()
+            #logging.info(f"For mapping pair ({model_name}, {p.graph['name']}) score is {s}")
+            print(f"For mapping pair ({model_name}, {p}) score is {s}")
             if s > best_score:
-                parent, mappings, best_score = p, m, s
+                parent_path, best_score = p, s
+
+        if parent_path is not None:
+            mapping_func(self.model_zoo[parent_path], child)
+            parent, mappings, best_score = self.get_mappings(parent_path)
 
         if parent is not None:
             print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
@@ -555,11 +519,17 @@ class Oort(object):
         # for name, p in child_model.named_parameters():
         #     p.data = (torch.from_numpy(weights[name])).data
 
-        print("Mapped {} layers to the child model ({} layers)".format(num_of_matched, child.graph['num_tensors']))
+        print("Mapped {} layers to the child model ({} layers), parent {} layers".format(num_of_matched, child.graph['num_tensors'],
+                    parent.graph['num_tensors']))
 
         return weights, num_of_matched
 
-    def map_for_model(self, child_model, dummy_input):
+    def map_for_model(self, child_model, dummy_input, blacklist=set(), model_name=None):
+        """
+        @ child_model: model to warm start
+        @ dummpy_input: randomly generated input to infer the shape of model
+        @ blacklist: blacklist certain models in the zoo during matching
+        """
 
         self.current_mapping_id += 1
 
@@ -571,17 +541,37 @@ class Oort(object):
         child, child_onnx = self.load_model_meta(onnx_model_name)
 
         # find the best mapping from the zoo
-        parent, mappings, best_score = self.get_best_mapping(child)
+        parent, mappings, best_score = self.get_best_mapping(child, blacklist, model_name)
 
         # overwrite the current model weights
         weights, num_of_matched = None, 0
+        parent_name = 'None'
+
         if parent is not None:
             weights, num_of_matched = self.warm_weights(parent, child, mappings)
+            parent_name = parent.graph['name']
 
         # remove the temporary onnx model
         os.remove(onnx_model_name)
 
-        return weights, num_of_matched
+        return weights, num_of_matched, parent_name
+
+    def map_for_onnx(self, child_onnx_path, blacklist=set(), model_name=None):
+        child, child_onnx = self.load_model_meta(child_onnx_path)
+        #print(child.graph['num_tensors'])
+
+        # find the best mapping from the zoo
+        parent, mappings, best_score = self.get_best_mapping(child, blacklist, model_name)
+
+        # overwrite the current model weights
+        weights, num_of_matched = None, 0
+        parent_name = 'None'
+
+        if parent is not None:
+            weights, num_of_matched = self.warm_weights(parent, child, mappings)
+            parent_name = parent.graph['name']
+
+        return weights, num_of_matched, parent_name
 
 def faked_graph():
     graph = nx.DiGraph(name='faked')
@@ -592,17 +582,17 @@ def faked_graph():
     graph.add_node(1, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'1'})
     graph.add_node(2, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
 
-    graph.add_node(5, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'5'})
-    graph.add_node(3, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
+    #graph.add_node(5, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'5'})
+    #graph.add_node(3, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
 
     graph.add_node(4, attr={'dims': [5, 32, 3, 3], 'op_type': 'cov1', 'name':'4'})
 
     graph.add_edge(0, 1)
     graph.add_edge(1, 2)
     graph.add_edge(2, 4)
-    graph.add_edge(0, 5)
-    graph.add_edge(5, 3)
-    graph.add_edge(3, 4)
+    #graph.add_edge(0, 5)
+    #graph.add_edge(5, 3)
+    #graph.add_edge(3, 4)
 
     return graph
 
@@ -612,11 +602,11 @@ def faked_graph2():
 
     graph.add_node(0, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'0'})
 
-    graph.add_node(1, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'1'})
-    graph.add_node(2, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
+    graph.add_node(1, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'1'})
+    graph.add_node(2, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
 
-    graph.add_node(5, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'5'})
-    graph.add_node(3, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
+    graph.add_node(5, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'5'})
+    graph.add_node(3, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
 
     graph.add_node(4, attr={'dims': [5, 32, 3, 3], 'op_type': 'cov1', 'name':'4'})
 
@@ -643,58 +633,34 @@ def mapping_faked(parent, child_graph):
     print(opt.graphStrings()[1])
     return (parent, mappings, score)
 
+def test_fake():
+    parent, child = faked_graph(), faked_graph2()
 
-def main():
+    mapper = MatchingOperator(parent=parent)
+    print(mapper.get_mappings(child))
+
+
+def test():
+    import argparse
+
     start_time = time.time()
-    num_of_processes = 16
-    # parent = faked_graph()
-    # child = faked_graph2()#parent.copy()
 
-    # parent, mappings, best_score = mapping_faked(parent, child)
-    # print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
+    zoo_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/model_zoo/imagenet120/500_800/cos_lr'#/densenet161.onnx'
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--zoo_path', type=str, default=zoo_path)
+    parser.add_argument('--num_of_processes', type=int, default=12)
+    
+    args = parser.parse_args()
 
-    #zoo_path = './temp_zoo'
-    #zoo_path = './zoo/resnet18.onnx'
-    zoo_path = './zoo/densenet201.onnx'
-    model_zoo = get_model_zoo(zoo_path)
+    mapper = Oort(args)
 
-    # create multiple process to handle model zoos
-    #child, child_onnx = load_model_meta('./zoo/resnet152.onnx')
-    child, child_onnx = load_model_meta('./zoo/densenet201.onnx')
-
-    results = []
-    pool = multiprocessing.Pool(processes=num_of_processes)
-
-    for model in model_zoo: 
-        results.append(pool.apply_async(mapping_func, (model, child)))
-    pool.close()
-    pool.join()
-
-    best_score = float('-inf')
-    parent = mappings = None
-
-    for res in results:
-        (p, m, s) = res.get()
-        if s > best_score:
-            parent, mappings, best_score = p, m, s
-
-    print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(parent.graph['name'], best_score, time.time() - start_time))
-
-    #print(mappings)
-    mapper = MappingOperator(parent, child, mappings)
-    mapper.cascading_mapping()
-    mapper.pad_mapping()
-    weights, num_of_matched = mapper.get_mapping_weights()
-
-    # record the shape of each weighted nodes
-    for idx, key in enumerate(weights.keys()):
-        child_onnx.graph.initializer[idx].CopyFrom(numpy_helper.from_array(weights[key]))
-
-    print("\n\n{} layers in total, matched {} layers".format(child.graph['num_tensors'], num_of_matched))
-    #onnx.save(child_onnx, child.graph['name']+'_new.onnx')
-
-    print("\n\n")
-    print("Match takes {:.2f} sec".format(time.time() - start_time))
+    child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/model_zoo/imagenet120/500_800/cos_lr/model_134.onnx'
+    weights, num_of_matched, parent_name = mapper.map_for_onnx(child_onnx_path, blacklist=set([child_onnx_path]))
 
 
+    print("\n\nMatched {} layers".format(num_of_matched))
+
+
+#test()
+#test_fake()

@@ -27,6 +27,6 @@ def gen_model_zoo(path):
                                     export_params=True, verbose=0, training=1)
                 print('Generate {} to zoo'.format(model_type))
             except Exception as e:
-                pass
+                print("Error: ", e)
 
-gen_model_zoo('./zoo')
+gen_model_zoo('../zoo')

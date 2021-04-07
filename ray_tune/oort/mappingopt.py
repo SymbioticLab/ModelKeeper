@@ -105,8 +105,8 @@ class MappingOperator(object):
                 
                 self.num_of_matched += 1
                 self.reset_layers.add(child_layer_name)
-                logging.debug('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
-                                                            child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
+                #logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
+                #                                            child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
 
         logging.debug("\n\nCascading mapping takes {:.2f} sec".format(time.time() - start_time))
 
@@ -158,6 +158,7 @@ class MappingOperator(object):
                 except Exception as e:
                     logging.debug('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
-        logging.debug("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
+        logging.info("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
+
 
 
