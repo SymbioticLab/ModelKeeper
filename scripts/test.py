@@ -37,7 +37,7 @@ from oort.matchingopt import Oort
 logging.basicConfig(level=logging.INFO, filename='./ray_log.e', filemode='w')
 logger = logging.getLogger(__name__)
 
-modelidx_base = 1000
+modelidx_base = 500
 
 def GenerateConfig(n, path):
     """
@@ -83,9 +83,7 @@ def train(model, optimizer, criterion, train_loader, device=torch.device("cpu"),
         loss = criterion(output, target)
         loss.backward()
         optimizer.step()
-        #scheduler.step()
-
-    model.to(device='cpu')
+        scheduler.step()
 
 def eval(model, criterion, data_loader, device=torch.device("cpu")):
     """
@@ -118,7 +116,6 @@ def eval(model, criterion, data_loader, device=torch.device("cpu")):
             total += target.size(0)
             correct += (predicted == target).sum().item()
     accuracy = correct / total
-    model.to(device='cpu')
     return accuracy, loss
 
 def get_data_loaders():
@@ -260,42 +257,32 @@ class TrainModel(tune.Trainable):
         use_cuda = torch.cuda.is_available()
 
         device = torch.device('cuda')
-        trial, MAX_TRIAL, flag = 0, 3, True
-
-        while trial < MAX_TRIAL and flag:
-            if use_cuda:
-                for i in range(3, -1, -1):
-                    try:
-                        device = torch.device('cuda:'+str(i))
-                        torch.cuda.set_device(i)
-                        self.logger.info(f'End up with cuda device {torch.rand(1).to(device=device)}')
-                        flag = False
-                        break
-                    except Exception as e:
-                        pass
-
-                time.sleep(np.random.rand(1)[0] * 3)
-
-            trial += 1
-
-        assert (trial < MAX_TRIAL)
+        if use_cuda:
+            for i in range(3, -1, -1):
+                try:
+                    #device = torch.device('cuda:'+str(i))
+                    torch.cuda.set_device(i)
+                    self.logger.info(f'End up with cuda device {torch.rand(1).to(device=device)}')
+                    break
+                except Exception as e:
+                    assert(i != 0)
 
         torch.manual_seed(0)
         torch.cuda.manual_seed_all(0)
         
-        self.device = device if use_cuda else torch.device("cpu")
+        self.device = torch.device(device if use_cuda else "cpu")
         self.train_loader, self.test_loader = get_data_loaders()
         self.model = get_cell_based_tiny_net(conf_list[config['model']])
         self.model_name = 'model_' + '_'.join([str(val) for val in config.values()]) + '.pth'
         self.total_layers = 0
 
-        self.use_oort = True # True
+        self.use_oort = True
         # Apply Oort to warm start
         if self.use_oort:
             start_matching = time.time()
             mapper = Oort(oort_config)
-            weights, num_of_matched, parent_name = mapper.map_for_model(self.model, torch.rand(8, 3, 32, 32).to(device='cpu'), 
-                                            #blacklist=set([os.path.join(oort_config.zoo_path, self.model_name+'.onnx')]), 
+            weights, num_of_matched, parent_name = mapper.map_for_model(self.model, torch.rand(8, 3, 32, 32), 
+                                            blacklist=set([os.path.join(oort_config.zoo_path, self.model_name+'.onnx')]), 
                                             model_name=self.model_name)
 
             parent_acc = parent_layers = 0
@@ -304,7 +291,7 @@ class TrainModel(tune.Trainable):
                 if weights is not None:
                     temp_data = (torch.from_numpy(weights[name])).data
                     assert(temp_data.shape == p.data.shape)
-                    p.data = temp_data.to(dtype=p.data.dtype)
+                    p.data = temp_data
 
                 if '.weight' in name:
                     self.total_layers += 1
@@ -313,12 +300,13 @@ class TrainModel(tune.Trainable):
                 parent_history = self.get_model_meta(parent_name.replace(".onnx", ''))
                 parent_acc, parent_layers = parent_history['final_acc'], parent_history['weight_layers']
 
-            self.logger.info(f"Oort warm starts {num_of_matched} layers from {parent_name} (Acc: {parent_acc}, Layers: {parent_layers}), total {self.total_layers} layers for {self.model_name} in {int(time.time() - start_matching)} sec")
+            self.logger.info(f"""Oort warm starts {num_of_matched} layers from {parent_name} (Acc: {parent_acc}, Layers: {parent_layers}), 
+                            total {self.total_layers} layers for {self.model_name} in {int(time.time() - start_matching)} sec""")
 
         self.best_acc = 0
         self.best_loss = np.Infinity
-        self.optimizer = optim.SGD(self.model.parameters(), lr=5e-3, weight_decay=5e-4, momentum=0.9, nesterov=True)  # define optimizer
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=500*len(self.train_loader), eta_min=1e-3)
+        self.optimizer = optim.SGD(self.model.parameters(), lr=1e-2, weight_decay=5e-4, momentum=0.9, nesterov=True)  # define optimizer
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=200*len(self.train_loader))
         self.criterion = nn.CrossEntropyLoss()  # define loss function
         self.epoch = 0
 
@@ -372,20 +360,16 @@ class TrainModel(tune.Trainable):
             return history
 
     def _stop(self):
-
         zoo_path = os.path.join(os.environ['HOME'], 'model_zoo', 'nasbench201')
         self.history['weight_layers'] = self.total_layers
         self.history['final_acc'] = self.history[self.epoch]['acc']
 
-        self.model.to(device='cpu')
-        self.model = self.model.to(device='cpu')
-
         with open(os.path.join(zoo_path, self.model_name), 'wb') as fout:
             pickle.dump(self.history, fout)
-            #pickle.dump(self.model, fout)
+            pickle.dump(self.model.to(device='cpu'), fout)
 
         if self.use_oort:
-            torch.onnx.export(self.model, torch.rand(8, 3, 32, 32).to(device='cpu'), os.path.join(zoo_path, f"{self.model_name}.temp_onnx"), 
+            torch.onnx.export(self.model, torch.rand(8, 3, 32, 32), os.path.join(zoo_path, f"{self.model_name}.temp_onnx"), 
                                 export_params=True, verbose=0, training=1)
             # avoid conflicts
             os.system(f'mv {os.path.join(zoo_path, f"{self.model_name}.temp_onnx")} {os.path.join(zoo_path, f"{self.model_name}.onnx")}')
@@ -468,7 +452,7 @@ if __name__ == "__main__":
     TRAINING_EPOCH = 1#32
 
     REDUCTION_FACTOR = 1.000001
-    GRACE_PERIOD = 5#4
+    GRACE_PERIOD = 4#4
     CPU_RESOURCES_PER_TRIAL = 10
     GPU_RESOURCES_PER_TRIAL = 1
     METRIC = 'accuracy'  # or 'loss'

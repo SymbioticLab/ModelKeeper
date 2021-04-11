@@ -1,3 +1,4 @@
+
 import onnx
 import numpy
 import networkx as nx
@@ -10,17 +11,11 @@ import multiprocessing
 import torch
 import heapq
 from multiprocessing import Manager
-import ctypes
 import json
-
-# Call C backend
-clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'oort/backend/bin/matcher.so'))
-clib_matcher.get_matching_score.restype = ctypes.c_double
 
 sys.setrecursionlimit(10000)
 #logging.basicConfig(filename='logging', level=logging.INFO)
 INS, DEL, MISMATCH, MATCH = [-2, -1, 0, 1]
-
 
 def split_inputs(in_list):
     # input list may contain trainable weights
@@ -52,11 +47,11 @@ def get_tensor_shapes(model_graph):
         for init in model_graph.initializer:
             if '.weight' in init.name:
                 num_of_trainable_tensors += 1
-            node_shapes[init.name] = tuple(init.dims)
+            node_shapes[init.name] = list(init.dims)
     else:
         #print("Load from input")
         for node in model_graph.input:
-            node_shapes[node.name] = tuple([p.dim_value for p in node.type.tensor_type.shape.dim])
+            node_shapes[node.name] = [p.dim_value for p in node.type.tensor_type.shape.dim]
 
     return node_shapes, num_of_trainable_tensors
 
@@ -107,58 +102,33 @@ class MatchingOperator(object):
         self.parentidx_order = topological_sorting(self.parent)
         self.parentPrevIndicesList = []
 
+        self.child_cache = {}
+        self.parent_cache = {}
         self.match_res = None
-        self.meta_data = {}
 
-        self.init_parent_index()
-
-    def init_parent_index(self):
-        # generate a dict of (nodeID) -> (index into nodelist (and thus matrix))
-        for (index, nidx) in enumerate(self.parentidx_order):
-            self.nodeIDtoIndex[nidx] = index
-
-        # initiate prevs for parent and child graph
-        self.parentPrevIndicesList = []
-        for (index, nidx) in enumerate(self.parentidx_order):
-            self.parentPrevIndicesList.append(self.parentPrevIndices(nidx))
-
-        self.meta_data['parent']= {'opts':[self.parent.nodes[x]['attr']['op_type'] for x in self.parentidx_order],
-                                  'dims':[self.parent.nodes[x]['attr']['dims'] for x in self.parentidx_order],
-                                  'parents':[self.parentPrevIndicesList[i] for i in range(len(self.parentidx_order))]
-                        }
-
-        self.meta_data['len_parent'] = len(self.parentidx_order)
-
-    def align_child(self, child, read_mapping):
+    def align_child(self, child):
         start_time = time.time()
 
         # reset all parameters
         self.child = child
         self.matchidxs = self.parentidxs = None
         self.parentPrevIndicesList = []
+        self.child_cache = {}
         self.childNodeIDtoIndex = {}
+        self.moveTypes = {}
         self.match_res = None
 
         self.childidx_order = topological_sorting(self.child)
         self.child_bases = {cidx:self.child.nodes[cidx]['attr'] for j, cidx in enumerate(self.childidx_order)}
 
-        self.init_child_index()
+        """Align node to parent, following same approach as smith waterman example"""
+        scores, backStrIdx, backGrphIdx = self.initializeDynamicProgrammingData()
 
-        child_exe_file = self.child.graph['model_id'] + '_' + self.parent.graph['model_id'] + '.json'
-        child_exe_file = os.path.join(os.path.dirname(__file__), 'oort/backend/bin/', child_exe_file)
+        #matches = self.alignStringToGraphFast()
+        self.match_res = self.alignChildToParent(scores, backStrIdx, backGrphIdx)
 
-        # call C lib to get mapping
-        self.dump_meta_json(child_exe_file)
-        self.match_score = clib_matcher.get_matching_score(ctypes.c_char_p(bytes(child_exe_file, encoding="utf-8")),
-                                                          ctypes.c_bool(read_mapping))
-        os.remove(child_exe_file)
-
-        if read_mapping:
-            child_ans_file = child_exe_file+'_mapping'
-            self.match_res = self.read_mapping_json(child_ans_file)
-            os.remove(child_ans_file)
-
-        return self.match_score
+        #print("Match {} takes {:.2f} sec".format(self.parent.graph['name'], time.time() - start_time))
+        return self.match_res[0][-1][-1] # score of end-to-end matching
 
     def alignmentStrings(self):
         return ("\t".join([self.parent.nodes[j]['attr']['name'] if j is not None else "-" for j in self.parentidxs]), 
@@ -170,14 +140,16 @@ class MatchingOperator(object):
                 "\t".join([self.child.nodes[i]['attr']['name'] if i is not None else "-" for i in self.childidx_order])
                 )
 
-    def get_matching_score(self, child, read_mapping=False):
-        score = self.align_child(child=child, read_mapping=read_mapping)
+    def get_matching_score(self, child):
+        start_time = time.time()
+        score = self.align_child(child=child)
+        print(f"Get matching score takes {time.time() - start_time} sec")
         return score
 
     def get_mappings(self):
 
         matches = self.backtrack(*self.match_res)
-        self.matchidxs, self.parentidxs = matches
+        self.matchidxs, self.parentidxs, self.match_score = matches
 
         mapping_res = []
         parent_set, child_set = set(), set()
@@ -191,33 +163,121 @@ class MatchingOperator(object):
                     parent_set.add(self.parentidxs[i])
                     child_set.add(self.matchidxs[i])
 
+        #print("\n", sorted(mapping_res), "\n", len(self.parentidx_order), len(self.childidx_order))
         return mapping_res, self.match_score
 
-    def dump_meta_json(self, child_exe_file):
-        self.meta_data['len_child'] = len(self.childidx_order)
-        self.meta_data['child'] = {'opts':[self.child.nodes[x]['attr']['op_type'] for x in self.childidx_order],
-                                   'dims':[self.child.nodes[x]['attr']['dims'] for x in self.childidx_order],
-                                   'parents':[self.childPrevIndicesList[x]  for x in self.childidx_order]}
 
-        with open(child_exe_file, 'w') as f:
-            json.dump(self.meta_data, f)
+    def matchscore(self, parent_opt, child_opt):
+        if parent_opt['op_type'] != child_opt['op_type']:
+            return self._mismatchscore
+        else:
+            # diff number of parameters
+            num_param_p = self.get_parent_parameters(parent_opt['name'], parent_opt['dims'])
+            num_param_c = self.get_child_parameters(child_opt['name'], child_opt['dims'])
+            num_inherited = 1.
+            for i, j in zip(parent_opt['dims'], child_opt['dims']):
+                num_inherited *= min(i, j)
 
-    def read_mapping_json(self, child_ans_file):
-        with open(child_ans_file) as fin:
-            ans = json.load(fin)
+            match_score = float(num_inherited)/max(num_param_p, num_param_c, 1.) * self._matchscore
 
-        backGrphIdx, backStrIdx = {}, {}
+            #print(parent_opt['name'], child_opt['name'], parent_opt['dims'], child_opt['dims'], match_score)
+            return match_score if match_score > .25 else self._mismatchscore
 
-        # parse information
-        for key in ans['backParentIdx']:
-            hash_v = key.split('_') 
-            backGrphIdx[int(hash_v[0]), int(hash_v[1])] = ans['backParentIdx'][key]
 
-        for key in ans['backChildIdx']:
-            hash_v = key.split('_') 
-            backStrIdx[int(hash_v[0]), int(hash_v[1])] = ans['backChildIdx'][key]
+    def get_child_parameters(self, name, dims):
+        if name not in self.child_cache:
+            self.child_cache[name] = numpy.prod(dims)
+        return self.child_cache[name]
 
-        return backGrphIdx, backStrIdx
+    def get_parent_parameters(self, name, dims):
+        if name not in self.parent_cache:
+            self.parent_cache[name] = numpy.prod(dims)
+        return self.parent_cache[name]
+
+    # merge k ordered list
+    def merge_branch_mapping(self, lists):
+        heap = []
+        [heapq.heappush(heap, (-l[0][0], i, 0)) for i, l in enumerate(lists) if l]
+
+        merge_score = 0.
+        merge_graph_list, merge_child_list = [], []
+        matched_parents = set()
+
+        while heap:
+            cur_val, branch_id, list_id = heapq.heappop(heap)
+
+            should_match = True
+            if lists[branch_id][list_id][-1] == MATCH:
+                parent_graph_node = lists[branch_id][list_id][1]
+
+                if parent_graph_node in matched_parents:
+                    # move to the next matching idx for this branch
+                    should_match = False
+                    if list_id < len(lists[branch_id]) - 1:
+                        list_id += 1
+                        heapq.heappush(heap, (-lists[branch_id][list_id][0], branch_id, list_id))
+                else:
+                    matched_parents.add(parent_graph_node)
+
+            if should_match:
+                merge_score += lists[branch_id][list_id][0]
+                merge_graph_list.append(lists[branch_id][list_id][1])
+                merge_child_list.append(lists[branch_id][list_id][2])
+
+        return merge_score/len(merge_graph_list), merge_graph_list, merge_child_list
+
+    def alignChildToParent(self, scores, backStrIdx, backGrphIdx):
+    
+        align_start = time.time()
+        cum_time = 0.
+
+        datas = {'len_parent':len(self.parentidx_order), 
+                'len_child': len(self.childidx_order),#,'scores': scores.tolist()}
+                'parent': {'opts':[self.parent.nodes[x]['attr']['op_type'] for x in self.parentidx_order],
+                        'dims':[self.parent.nodes[x]['attr']['dims'] for x in self.parentidx_order],
+                        'parents':[self.parentPrevIndicesList[i] for i in range(len(self.parentidx_order))]
+                        }, 
+                'child': {'opts':[self.child.nodes[x]['attr']['op_type'] for x in self.childidx_order],
+                        'dims':[self.child.nodes[x]['attr']['dims'] for x in self.childidx_order],
+                        'parents':[self.childPrevIndicesList[x]  for x in self.childidx_order]
+                        }
+                }
+
+        with open('graph_meta.json', 'w') as f:
+            json.dump(datas, f)
+
+        json_complete = time.time()
+
+        # Dynamic Programming
+        for i, pidx in enumerate(self.parentidx_order):
+            pbase = self.parent.nodes[pidx]['attr']
+
+            for j, cidx in enumerate(self.childidx_order):
+                sbase = self.child_bases[cidx]
+                match_score = self.matchscore(pbase, sbase)
+
+                temp_ans = []
+                for cp in self.childPrevIndicesList[cidx]:
+                    temp_ans.append([])
+
+                    # enumerate all branches
+                    cprev = cp+1
+                    temp_ans[-1].append((scores[i+1, cprev] + self._gap, i+1, cprev, INS)) # skip a parent node
+                    
+                    # add all candidates to a list, pick the best insert to the child
+                    for predIndex in self.parentPrevIndicesList[i]:
+                        temp_ans[-1].append((scores[predIndex+1, cprev] + match_score, predIndex+1, cprev, MATCH if match_score > 0 else MISMATCH))
+                        temp_ans[-1].append((scores[predIndex+1, cprev+1] + self._gap, predIndex+1, cprev+1, DEL)) # skip a child node
+
+                    # consider the score only 
+                    temp_ans[-1].sort(reverse=True, key=lambda k:k[0])
+
+                # merge branch results
+                scores[i+1, j+1], backGrphIdx[i+1, j+1], backStrIdx[i+1, j+1] = self.merge_branch_mapping(temp_ans)
+
+        print(time.time() - align_start, json_complete - align_start)
+        return (scores, backStrIdx, backGrphIdx)
+
 
     def parentPrevIndices(self, node):
         """Return a list of the previous dynamic programming table indices
@@ -241,22 +301,72 @@ class MatchingOperator(object):
         return prev
 
 
-    def init_child_index(self):
+    def initializeDynamicProgrammingData(self):
+        """Initalize the dynamic programming tables:
+            @ni: re-index graph nodes
+            - set up scores array
+            - set up backtracking array
+            - create index to Node ID table and vice versa
+        """
+        l1 = self.parent.number_of_nodes()
+        l2 = self.child.number_of_nodes()
+
+        self.nodeIDtoIndex = {}
+        # generate a dict of (nodeID) -> (index into nodelist (and thus matrix))
+        for (index, nidx) in enumerate(self.parentidx_order):
+            self.nodeIDtoIndex[nidx] = index
 
         for (index, nidx) in enumerate(self.childidx_order):
             self.childNodeIDtoIndex[nidx] = index
+
+        # initiate prevs for parent and child graph
+        self.parentPrevIndicesList = []
+        for (index, nidx) in enumerate(self.parentidx_order):
+            self.parentPrevIndicesList.append(self.parentPrevIndices(nidx))
 
         self.childPrevIndicesList = {}
         for (index, nidx) in enumerate(self.childidx_order):
             self.childPrevIndicesList[nidx] = self.childPrevIndices(nidx)
 
+        # Dynamic Programming data structures; scores matrix and backtracking
+        # matrix
+        scores = numpy.zeros((l1+1, l2+1), dtype=numpy.float)
 
-    def backtrack(self, backGrphIdx, backStrIdx):
+        # initialize insertion score
+        scores[0, :] = numpy.arange(l2+1)*self._gap
+        scores[:, 0] = numpy.arange(l1+1)*self._gap
+
+        for (index, nidx) in enumerate(self.parentidx_order):
+            prevIdxs = self.parentPrevIndicesList[index]
+
+            best = float('-inf')
+            for prevIdx in prevIdxs:
+                best = max(best, scores[prevIdx+1, 0])
+            scores[index+1, 0] = best + self._gap
+
+        for (index, nidx) in enumerate(self.childidx_order):
+            prevIdxs = self.childPrevIndicesList[nidx]
+
+            best = float('-inf')
+            for prevIdx in prevIdxs:
+                best = max(best, scores[0, prevIdx+1])
+            scores[0, index+1] = best + self._gap
+
+        # backtracking matrices
+        backStrIdx = collections.defaultdict(list) #numpy.zeros((l1+1, l2+1), dtype=numpy.int)
+        backGrphIdx = collections.defaultdict(list)#numpy.zeros((l1+1, l2+1), dtype=numpy.int)
+
+        return scores, backStrIdx, backGrphIdx
+
+    def backtrack(self, scores, backStrIdx, backGrphIdx):
         """Backtrack through the scores and backtrack arrays.
            Return a list of child indices and node IDs (not indices, which
            depend on ordering)."""
-        besti, bestj = len(self.parentidx_order), len(self.childidx_order)
+        besti, bestj = scores.shape
+        besti -= 1
+        bestj -= 1
 
+        bestscore = scores[besti, bestj]
         matches, strindexes = [], []
         que = [(besti, bestj)]
         que_set = set([(besti, bestj)])
@@ -285,11 +395,11 @@ class MatchingOperator(object):
         strindexes.reverse()
         matches.reverse()
 
-        return strindexes, matches
+        return strindexes, matches, bestscore
 
 
-def mapping_func(parent_opt, child, read_mapping=False):
-    score = parent_opt.get_matching_score(child=child, read_mapping=read_mapping)
+def mapping_func(parent_opt, child):
+    score = parent_opt.get_matching_score(child=child)
     return (parent_opt.parent.graph['name'], score) #(self.model_zoo[parent_path].parent, mappings, score)
 
 
@@ -297,6 +407,7 @@ class Oort(object):
 
     def __init__(self, args):
         self.args = args
+        #manager = Manager()
 
         self.model_zoo = collections.OrderedDict()
 
@@ -313,8 +424,8 @@ class Oort(object):
             model_paths = [os.path.join(zoo_path, x) for x in os.listdir(zoo_path) \
                 if os.path.isfile(os.path.join(zoo_path, x)) and '.onnx' in x]
 
-        for idx, model_path in enumerate(model_paths):
-            self.add_to_zoo(model_path, idx)
+        for model_path in model_paths:
+            self.add_to_zoo(model_path)
             print(f"Added {model_path} to zoo ...")
 
 
@@ -359,13 +470,14 @@ class Oort(object):
             for out_node in node.output:
                 edge_source[out_node].append(idx)
 
+        #print('\nLoad {} takes {} sec'.format(meta_file, time.time() - start_time))
+        #print(graph.graph['name'], graph.number_of_nodes())
         return graph, onnx_model
 
 
-    def add_to_zoo(self, model_path, idx):
+    def add_to_zoo(self, model_path):
         try:
             model_graph, model_weight = self.load_model_meta(model_path)
-            model_graph.graph['model_id'] = str(idx)
             self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
         except Exception as e:
             print(f"Error: {e} for {model_path}")
@@ -408,14 +520,12 @@ class Oort(object):
                 parent_path, best_score = p, s
 
         if parent_path is not None:
-            mapping_func(self.model_zoo[parent_path], child, read_mapping=True)
+            mapping_func(self.model_zoo[parent_path], child)
             parent, mappings, best_score = self.get_mappings(parent_path)
 
-        print("takes {:.2f} sec".format(time.time() - start_time))
         if parent is not None:
             print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
                                 parent.graph['name'], best_score, time.time() - start_time))
-
         return parent, mappings, best_score
 
 
@@ -426,14 +536,16 @@ class Oort(object):
         mapper.pad_mapping()
         weights, num_of_matched = mapper.get_mapping_weights()
 
+        # get_warmed child model
+        # for name, p in child_model.named_parameters():
+        #     p.data = (torch.from_numpy(weights[name])).data
+
         print("Mapped {} layers to the child model ({} layers), parent {} layers".format(num_of_matched, child.graph['num_tensors'],
                     parent.graph['num_tensors']))
 
         return weights, num_of_matched
 
-
-
-    def map_for_model(self, child_model, dummy_input, hidden = None, blacklist=set(), model_name=None):
+    def map_for_model(self, child_model, dummy_input, blacklist=set(), model_name=None):
         """
         @ child_model: model to warm start
         @ dummpy_input: randomly generated input to infer the shape of model
@@ -444,22 +556,10 @@ class Oort(object):
 
         # dump the model into onnx format
         onnx_model_name = os.path.join(self.args.exe_path, str(self.current_mapping_id)+".onnx")
-        if hidden is None:
-            torch.onnx.export(child_model, dummy_input, onnx_model_name, 
-                        export_params=True, verbose=0, training=1, do_constant_folding=False)
-        else:
-            with torch.no_grad():
-                output, hidden = child_model(dummy_input, hidden)
-                torch.onnx.export(child_model, (dummy_input, hidden), onnx_model_name,
-                            export_params=True, verbose=0, training=1, 
-                            do_constant_folding=False, 
-                            input_names=['dummy_input'],
-                            output_names=['output'],
-                            dynamic_axes={'dummy_input': [0], 'output': [0]})
-
-
+        torch.onnx.export(child_model, dummy_input, onnx_model_name, 
+                    export_params=True, verbose=0, training=1, do_constant_folding=False)
+        
         child, child_onnx = self.load_model_meta(onnx_model_name)
-        child.graph['model_id'] = str(self.current_mapping_id)
 
         # find the best mapping from the zoo
         parent, mappings, best_score = self.get_best_mapping(child, blacklist, model_name)
@@ -479,7 +579,7 @@ class Oort(object):
 
     def map_for_onnx(self, child_onnx_path, blacklist=set(), model_name=None):
         child, child_onnx = self.load_model_meta(child_onnx_path)
-        child.graph['model_id'] = str(self.current_mapping_id)
+        #print(child.graph['num_tensors'])
 
         # find the best mapping from the zoo
         parent, mappings, best_score = self.get_best_mapping(child, blacklist, model_name)
@@ -565,13 +665,14 @@ def test():
     import argparse
 
     start_time = time.time()
+
     zoo_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/model_zoo/imagenet120/500_800/cos_lr/random/'
     zoo_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/torchzoo/shufflenet_v2_x2_0.onnx'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--zoo_path', type=str, default=zoo_path)
-    parser.add_argument('--num_of_processes', type=int, default=16)
-        
+    parser.add_argument('--num_of_processes', type=int, default=64)
+    
     args = parser.parse_args()
 
     mapper = Oort(args)
@@ -584,6 +685,5 @@ def test():
     print("\n\nMatched {} layers".format(num_of_matched))
 
 
-#test()
+test()
 #test_fake()
-

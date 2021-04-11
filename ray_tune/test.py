@@ -359,6 +359,8 @@ class Oort(object):
             for out_node in node.output:
                 edge_source[out_node].append(idx)
 
+        #print('\nLoad {} takes {} sec'.format(meta_file, time.time() - start_time))
+        #print(graph.graph['name'], graph.number_of_nodes())
         return graph, onnx_model
 
 
@@ -431,9 +433,7 @@ class Oort(object):
 
         return weights, num_of_matched
 
-
-
-    def map_for_model(self, child_model, dummy_input, hidden = None, blacklist=set(), model_name=None):
+    def map_for_model(self, child_model, dummy_input, blacklist=set(), model_name=None):
         """
         @ child_model: model to warm start
         @ dummpy_input: randomly generated input to infer the shape of model
@@ -444,20 +444,9 @@ class Oort(object):
 
         # dump the model into onnx format
         onnx_model_name = os.path.join(self.args.exe_path, str(self.current_mapping_id)+".onnx")
-        if hidden is None:
-            torch.onnx.export(child_model, dummy_input, onnx_model_name, 
-                        export_params=True, verbose=0, training=1, do_constant_folding=False)
-        else:
-            with torch.no_grad():
-                output, hidden = child_model(dummy_input, hidden)
-                torch.onnx.export(child_model, (dummy_input, hidden), onnx_model_name,
-                            export_params=True, verbose=0, training=1, 
-                            do_constant_folding=False, 
-                            input_names=['dummy_input'],
-                            output_names=['output'],
-                            dynamic_axes={'dummy_input': [0], 'output': [0]})
-
-
+        torch.onnx.export(child_model, dummy_input, onnx_model_name, 
+                    export_params=True, verbose=0, training=1, do_constant_folding=False)
+        
         child, child_onnx = self.load_model_meta(onnx_model_name)
         child.graph['model_id'] = str(self.current_mapping_id)
 
@@ -584,6 +573,6 @@ def test():
     print("\n\nMatched {} layers".format(num_of_matched))
 
 
-#test()
+test()
 #test_fake()
 

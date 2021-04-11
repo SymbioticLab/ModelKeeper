@@ -1,0 +1,24 @@
+A C++ implementation of Distributed Directed Minimum Spanning Tree
+
+####################################
+how to use:
+1. make
+2. ./bin/MST data/test.in
+
+####################################
+test data (i.e. data/test.in) format:
+num_nodes num_edges
+edge0_start_nodeID edge0_end_nodeID edge0_weight
+edge1_start_nodeID edge1_end_nodeID edge1_weight
+...
+edge{num_edges-1}_start_nodeID edge{num_edges-1}_end_nodeID edge{num_edges-1}_weight
+where num_nodes is the number of nodes in the graph, and num_edges is the number of edges
+then following num_edges line each represents an edge
+for edge i, edge{i}_start_nodeID is the ID of starting node of this edge, edge{i}_weight is the weight of this edge
+attention that nodeID starts from 0
+
+####################################
+output format:
+for each test case, output contains 2 lines
+the first line is the result produced by the simulation of the distributed algorithm
+the second line is the result produced by the centralized algorithm
