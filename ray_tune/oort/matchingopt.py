@@ -14,7 +14,7 @@ import ctypes
 import json
 
 # Call C backend
-clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'oort/backend/bin/matcher.so'))
+clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'backend/bin/matcher.so'))
 clib_matcher.get_matching_score.restype = ctypes.c_double
 
 sys.setrecursionlimit(10000)
@@ -140,12 +140,11 @@ class MatchingOperator(object):
         self.match_res = None
 
         self.childidx_order = topological_sorting(self.child)
-        self.child_bases = {cidx:self.child.nodes[cidx]['attr'] for j, cidx in enumerate(self.childidx_order)}
 
         self.init_child_index()
 
         child_exe_file = self.child.graph['model_id'] + '_' + self.parent.graph['model_id'] + '.json'
-        child_exe_file = os.path.join(os.path.dirname(__file__), 'oort/backend/bin/', child_exe_file)
+        child_exe_file = os.path.join(os.path.dirname(__file__), 'backend/bin/', child_exe_file)
 
         # call C lib to get mapping
         self.dump_meta_json(child_exe_file)
@@ -158,6 +157,7 @@ class MatchingOperator(object):
             self.match_res = self.read_mapping_json(child_ans_file)
             os.remove(child_ans_file)
 
+        #logging.info(f"align_child takes {time.time() - start_time} sec")
         return self.match_score
 
     def alignmentStrings(self):
@@ -206,7 +206,7 @@ class MatchingOperator(object):
         with open(child_ans_file) as fin:
             ans = json.load(fin)
 
-        backGrphIdx, backStrIdx = {}, {}
+        backGrphIdx, backStrIdx = collections.defaultdict(list), collections.defaultdict(list)
 
         # parse information
         for key in ans['backParentIdx']:

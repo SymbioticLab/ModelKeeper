@@ -4,7 +4,13 @@ import pickle
 
 master_port = 6379 #random.randint(11000, 60000)
 redis_port = 12345 #random.randint(11000, 60000)
-master_node = 'gpu-cn001'
+master_node = 'gpu-cn004'
+
+vm_gpus = {}
+per_vm_gpu = 4
+per_vm_cpu = 40
+vm_gpus['gpu-cn008']=3
+vm_gpus['gpu-cn013']=3
 
 master_ip = "10.246.6." + str(int(master_node[-3:]) + 90) + ":"+str(master_port)
 
@@ -13,9 +19,9 @@ ray_conf['master_node'] = master_node
 ray_conf['master_port'] = master_port
 ray_conf['master_ip'] = master_ip
 
+
 with open('ray_cluster.conf', 'wb') as fout:
     pickle.dump(ray_conf, fout)
-
 
 
 os.system("bhosts > vms")
@@ -91,15 +97,15 @@ for w in range(1, numOfWorkers + 1):
 
     del avaiVms[_vm]
 
-    assignVm = ''#\n#BSUB -m "{}"\n'.format(_vm)
-    runCmd = template + assignVm + '\n#BSUB -J ' + jobName + '\n#BSUB -e ' + fileName + '.e\n'  + '#BSUB -o '+ fileName + '.o\n#BSUB -R "select[ngpus>0] rusage[ngpus_excl_p=1]" \n';
-    runCmd += f'\nray stop \nray start --address="{master_ip}" --redis-password="5241590000000000" --num-cpus=10 --num-gpus=1 \nsleep 24h\n'
+    assignVm = '\n#BSUB -m "{}"\n'.format(_vm)
+    runCmd = template + assignVm + '\n#BSUB -J ' + jobName + '\n#BSUB -e ' + fileName + '.e\n'  + '#BSUB -o '+ fileName + '.o\n';
+    runCmd += f'\nray stop \nray start --address="{master_ip}" --redis-password="5241590000000000" --num-cpus={per_vm_cpu} --num-gpus={vm_gpus.get(_vm, per_vm_gpu)} \nsleep 240h\n'
 
     with open('worker' + str(w) + '.lsf', 'w') as fout:
         fout.writelines(runCmd)
 
 # deal with ps
-rawCmdPs = f"\nray stop \nray start --head --num-cpus=1 --num-gpus=0 --redis-port={master_port} --redis-shard-ports={master_port+1} --node-manager-port={redis_port} --object-manager-port={redis_port+1} \nsleep 24h\n"
+rawCmdPs = f"\nray stop \nray start --head --num-cpus=1 --num-gpus=0 --redis-port={master_port} --redis-shard-ports={master_port+1} --node-manager-port={redis_port} --object-manager-port={redis_port+1} \nsleep 240h\n"
 
 with open('master.lsf', 'w') as fout:
     scriptPS = template_server + '\n#BSUB -J master\n#BSUB -e master.e\n#BSUB -o master.o\n' + '#BSUB -m "'+master_node+'"\n\n' + rawCmdPs

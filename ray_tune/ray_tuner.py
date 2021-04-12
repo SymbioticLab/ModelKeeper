@@ -113,7 +113,7 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
     
     """
     model.to(device).eval()
-    correct = 0
+    correct = 0.
     total = 0   
     with torch.no_grad():
         for data, target in data_loader:
@@ -125,7 +125,8 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
             correct += (predicted == target).sum().item()
     accuracy = correct / total
     model.to(device='cpu')
-    return accuracy, loss
+
+    return accuracy, loss.item()
 
 def get_data_loaders():
 
@@ -271,30 +272,23 @@ class TrainModel(tune.Trainable):
     """
 
     def _setup(self, config):
+        time.sleep(2+np.random.rand(1)[0] * 3)
+
         os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3" 
         self.logger = self._create_logger()
         use_cuda = torch.cuda.is_available()
 
         device = torch.device('cuda')
-        trial, MAX_TRIAL, flag = 0, 3, True
-
-        while trial < MAX_TRIAL and flag:
-            if use_cuda:
-                for i in range(3, -1, -1):
-                    try:
-                        device = torch.device('cuda:'+str(i))
-                        torch.cuda.set_device(i)
-                        self.logger.info(f'End up with cuda device {torch.rand(1).to(device=device)}')
-                        flag = False
-                        break
-                    except Exception as e:
-                        pass
-
-                time.sleep(np.random.rand(1)[0] * 3)
-
-            trial += 1
-
-        assert (trial < MAX_TRIAL)
+        
+        if use_cuda:
+            for i in range(3, -1, -1):
+                try:
+                    device = torch.device('cuda:'+str(i))
+                    torch.cuda.set_device(i)
+                    self.logger.info(f'End up with cuda device {torch.rand(1).to(device=device)}')
+                    break
+                except Exception as e:
+                    pass
 
         torch.manual_seed(0)
         torch.cuda.manual_seed_all(0)
@@ -333,6 +327,7 @@ class TrainModel(tune.Trainable):
             else:
                 weights, num_of_matched, parent_name = mapper.map_for_model(self.model, torch.rand(8, 3, 32, 32), 
                                                             model_name=self.model_name)
+            del mapper
 
             parent_acc = parent_layers = 0
 
@@ -421,7 +416,6 @@ class TrainModel(tune.Trainable):
 
         with open(os.path.join(zoo_path, self.model_name), 'wb') as fout:
             pickle.dump(self.history, fout)
-            #pickle.dump(self.model, fout)
 
         if self.use_oort:
             self.model.eval()
@@ -584,17 +578,17 @@ if __name__ == "__main__":
             #scheduler=sched,
             queue_trials=True,
             #stop={"training_epoch": 1},
-            stop=TrialPlateauStopper(metric='mean_accuracy', mode='max', std=4e-3,
-                            num_results=GRACE_PERIOD+2, grace_period=GRACE_PERIOD),#{"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},
+            stop={"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},#TrialPlateauStopper(metric='mean_accuracy', mode='max', std=4e-3,
+                            #num_results=GRACE_PERIOD+2, grace_period=GRACE_PERIOD),#{"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},
             resources_per_trial={
                 "cpu": CPU_RESOURCES_PER_TRIAL,
                 "gpu": GPU_RESOURCES_PER_TRIAL
             },
             #num_samples=args.num_models,
             verbose=3,
-            checkpoint_at_end=True,
-            checkpoint_freq=1,
-            max_failures=3,
+            checkpoint_at_end=False,
+            checkpoint_freq=10000,
+            max_failures=1,
             config=CONFIG,
         )
 
