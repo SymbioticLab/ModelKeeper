@@ -8,6 +8,9 @@ plot/
 *.so
 *.png
 data/
+/build/
+/dist/
+/oort_backend.chu_liu_edmonds.egg-info/
 
 # Distribution / packaging
 .Python

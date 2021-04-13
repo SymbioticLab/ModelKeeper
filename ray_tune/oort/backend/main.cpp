@@ -21,10 +21,11 @@ int main(int args, char * argv[])
 			int x, y;
 			double dist;
 			fin >> x >> y >> dist;
-			network.addEdge(x, y, dist);
+			network.addEdge(x, y, -dist);
 		}
-		//cout << network.simulateDistribution(0) << endl;	
+		cout << network.simulateDistribution(0) << endl;	
 		cout << network.zhuliu(0) << endl;
 	}
+	cout << "Done ...";
 	return 0;
 }

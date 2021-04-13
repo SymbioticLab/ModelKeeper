@@ -82,15 +82,9 @@ def topological_sorting(graph):
     return ret
 
 class MatchingOperator(object):
-    __matchscore = 1.
-    __mismatchscore = -2.
-    __gap = -1.
 
-    def __init__(self, parent, matchscore=__matchscore, mismatchscore=__mismatchscore, gapscore=__gap):
+    def __init__(self, parent):
 
-        self._mismatchscore = mismatchscore
-        self._matchscore = matchscore
-        self._gap = gapscore
         self.parent       = parent
         self.matchidxs  = None
         self.parentidxs    = None
@@ -150,7 +144,10 @@ class MatchingOperator(object):
         self.dump_meta_json(child_exe_file)
         self.match_score = clib_matcher.get_matching_score(ctypes.c_char_p(bytes(child_exe_file, encoding="utf-8")),
                                                           ctypes.c_bool(read_mapping))
-        os.remove(child_exe_file)
+        try:
+            os.remove(child_exe_file)
+        except Exception as e:
+            pass
 
         if read_mapping:
             child_ans_file = child_exe_file+'_mapping'
@@ -443,7 +440,7 @@ class Oort(object):
         self.current_mapping_id += 1
 
         # dump the model into onnx format
-        onnx_model_name = os.path.join(self.args.exe_path, str(self.current_mapping_id)+".onnx")
+        onnx_model_name = os.path.join(self.args.exe_path, str(self.current_mapping_id)+".onnx_temp")
         if hidden is None:
             torch.onnx.export(child_model, dummy_input, onnx_model_name, 
                         export_params=True, verbose=0, training=1, do_constant_folding=False)

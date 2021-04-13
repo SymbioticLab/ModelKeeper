@@ -272,9 +272,9 @@ class TrainModel(tune.Trainable):
     """
 
     def _setup(self, config):
-        time.sleep(2+np.random.rand(1)[0] * 3)
+        time.sleep(5+np.random.rand(1)[0] * 3)
 
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3" 
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
         self.logger = self._create_logger()
         use_cuda = torch.cuda.is_available()
 
@@ -284,7 +284,7 @@ class TrainModel(tune.Trainable):
             for i in range(3, -1, -1):
                 try:
                     device = torch.device('cuda:'+str(i))
-                    torch.cuda.set_device(i)
+                    #torch.cuda.set_device(i)
                     self.logger.info(f'End up with cuda device {torch.rand(1).to(device=device)}')
                     break
                 except Exception as e:
@@ -578,8 +578,8 @@ if __name__ == "__main__":
             #scheduler=sched,
             queue_trials=True,
             #stop={"training_epoch": 1},
-            stop={"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},#TrialPlateauStopper(metric='mean_accuracy', mode='max', std=4e-3,
-                            #num_results=GRACE_PERIOD+2, grace_period=GRACE_PERIOD),#{"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},
+            stop=TrialPlateauStopper(metric='mean_accuracy', mode='max', std=4e-3,
+                num_results=GRACE_PERIOD+2, grace_period=GRACE_PERIOD),#{"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},
             resources_per_trial={
                 "cpu": CPU_RESOURCES_PER_TRIAL,
                 "gpu": GPU_RESOURCES_PER_TRIAL
@@ -588,7 +588,7 @@ if __name__ == "__main__":
             verbose=3,
             checkpoint_at_end=False,
             checkpoint_freq=10000,
-            max_failures=1,
+            max_failures=3,
             config=CONFIG,
         )
 
