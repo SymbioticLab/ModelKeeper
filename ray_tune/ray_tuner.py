@@ -30,6 +30,7 @@ from random import Random
 from collections import defaultdict, deque
 
 import sys
+from vgg import *
 from ImageNet import ImageNet16
 from oort.config import oort_config
 from oort.matchingopt import Oort
@@ -43,15 +44,18 @@ from thirdparty.splitcross import SplitCrossEntropyLoss
 logging.basicConfig(level=logging.INFO, filename='./ray_log.e', filemode='w')
 logger = logging.getLogger(__name__)
 
-modelidx_base = 1000
+modelidx_base = 0
 
 def GenerateConfig(n, path):
     """
     n : number of models
     path : meta file path
     """
-    fr = open(path,'rb')
-    config_list = pickle.load(fr)
+    if args.task == "v100":
+        config_list = vgg_zoo()
+    else:
+        fr = open(path,'rb')
+        config_list = pickle.load(fr)
 
     rng = Random()
     rng.seed(0)
@@ -151,7 +155,7 @@ def get_data_loaders():
 
     kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
 
-    if args.task == "cv":
+    if args.task == "cv" or args.task == "v100":
         if args.data == 'cifar10':
             train_loader = torch.utils.data.DataLoader(
                 datasets.CIFAR10(args.dataset, train=True, download=True, transform=train_transform),
@@ -309,6 +313,10 @@ class TrainModel(tune.Trainable):
             self.params = list(self.model.parameters()) + list(self.criterion.parameters())
 
             self.optimizer = torch.optim.Adam(self.params, lr=args.lr, weight_decay=args.wdecay)
+        elif args.task == "v100":
+            self.model = VGG(make_layers(conf_list[config['model']][0], k = conf_list[config['model']][1]))
+            self.optimizer = optim.SGD(self.model.parameters(), lr=5e-3, weight_decay=5e-4, momentum=0.9, nesterov=True)  # define optimizer
+            self.criterion = nn.CrossEntropyLoss()  # define loss function  
 
         self.model_name = 'model_' + '_'.join([str(val) for val in config.values()]) + '.pth'
         self.total_layers = 0
@@ -358,7 +366,7 @@ class TrainModel(tune.Trainable):
         start_time = time.time()
 
         training_duration, acc, loss = 0, 0, np.Infinity
-        if args.task == "cv":
+        if args.task == "cv" or args.task == "v100":
             train_cv(self.model, self.optimizer, self.criterion, self.train_loader, self.device, self.scheduler)
             training_duration = time.time() - start_time
             acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
@@ -485,7 +493,7 @@ if __name__ == "__main__":
                         help='how many batches to wait before logging status')
     parser.add_argument('--noise', type=float, default=5e-2,
                         help='noise or no noise 0-1')
-    parser.add_argument('--data', type=str, default='ImageNet16-120')
+    parser.add_argument('--data', type=str, default='cifar10')
     parser.add_argument('--dataset', type=str, default='/gpfs/gpfs0/groups/chowdhury/fanlai/dataset')
     parser.add_argument('--meta', type=str, default='/gpfs/gpfs0/groups/chowdhury/dywsjtu/')
     parser.add_argument(
@@ -526,7 +534,7 @@ if __name__ == "__main__":
     parser.add_argument('--clip', type=float, default=0.25,
                     help='clip')
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
 
 
     torch.manual_seed(args.seed)
@@ -534,6 +542,7 @@ if __name__ == "__main__":
         torch.cuda.manual_seed(args.seed)
 
     conf_list = GenerateConfig(args.num_models, args.meta + args.data + "_config.pkl")
+    print(conf_list, type(conf_list))
 
     # Clear the log dir
     log_dir = f"{os.environ['HOME']}/ray_logs"
@@ -596,6 +605,3 @@ if __name__ == "__main__":
         print("Best config is:", analysis.get_best_config(metric="mean_accuracy"))
     else:
         print("Best config is:", analysis.get_best_config(metric="mean_loss"))
-
-
-

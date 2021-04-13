@@ -13,4 +13,4 @@ rm log.o
 #BSUB -J net2net
 #BSUB -e log.e
 #BSUB -o log.o
-python ray_tuner.py --dataset /gpfs/gpfs0/groups/chowdhury/dywsjtu/dataset/ptb/ --data ptb --task nlp --test-batch-size 60
+python ray_tuner.py --task v100 --zoo_path /gpfs/gpfs0/groups/chowdhury/dywsjtu/model_zoo/v100 --num_models 5
