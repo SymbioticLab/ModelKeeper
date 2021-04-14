@@ -30,7 +30,6 @@ private:
 	int len_parent;
 	int len_child;
 	bool dump_mapping;
-	string json_path;
 
 	double **scores;
 	map<string, vector<int> > backParentIdx;
@@ -44,18 +43,18 @@ private:
 
 public:
 
-	double gen_mapping(string file_path, bool dump_mapping);
+	char* gen_mapping(string json_str, bool dump_mapping);
 
 	// merge k sorted list
 	inline double merge_branch_mapping(vector<vector<node_pair> > lists, vector<int> & parent_list, vector<int> & child_list);
 	inline double cal_score(Node parent_node, Node child_node);
 
-	void read_io(string file_path);
+	void read_io(string json_str);
 	void align_child_parent();
 	void init_score();
-	void dump_trace();
 
 	string encode_hash(int i, int j);
 };
 
 #endif
+

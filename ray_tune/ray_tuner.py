@@ -44,7 +44,7 @@ from thirdparty.splitcross import SplitCrossEntropyLoss
 logging.basicConfig(level=logging.INFO, filename='./ray_log.e', filemode='w')
 logger = logging.getLogger(__name__)
 
-modelidx_base = 0
+modelidx_base = 1150
 
 def GenerateConfig(n, path):
     """
@@ -153,16 +153,18 @@ def get_data_loaders():
 
 
 
-    kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
+    kwargs = {'num_workers': 4, 'pin_memory': True} if args.cuda else {}
 
     if args.task == "cv" or args.task == "v100":
         if args.data == 'cifar10':
+
             train_loader = torch.utils.data.DataLoader(
                 datasets.CIFAR10(args.dataset, train=True, download=True, transform=train_transform),
                 batch_size=args.batch_size, shuffle=True, **kwargs)
             test_loader = torch.utils.data.DataLoader(
                 datasets.CIFAR10(args.dataset, train=False, download=True, transform=test_transform),
                 batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
         elif args.data == 'ImageNet16-120':
             train_data = ImageNet16(os.path.join(args.dataset, 'ImageNet16-120'), True , train_transform, 120)
             test_data  = ImageNet16(os.path.join(args.dataset, 'ImageNet16-120'), False, test_transform, 120)
@@ -318,7 +320,7 @@ class TrainModel(tune.Trainable):
             self.optimizer = optim.SGD(self.model.parameters(), lr=5e-3, weight_decay=5e-4, momentum=0.9, nesterov=True)  # define optimizer
             self.criterion = nn.CrossEntropyLoss()  # define loss function  
 
-        self.model_name = 'model_' + '_'.join([str(val) for val in config.values()]) + '.pth'
+        self.model_name = 'model_' + '_'.join([str(val+150) for val in config.values()]) + '.pth'
         self.total_layers = 0
 
         self.use_oort = True # True
@@ -493,7 +495,7 @@ if __name__ == "__main__":
                         help='how many batches to wait before logging status')
     parser.add_argument('--noise', type=float, default=5e-2,
                         help='noise or no noise 0-1')
-    parser.add_argument('--data', type=str, default='cifar10')
+    parser.add_argument('--data', type=str, default='ImageNet16-120')
     parser.add_argument('--dataset', type=str, default='/gpfs/gpfs0/groups/chowdhury/fanlai/dataset')
     parser.add_argument('--meta', type=str, default='/gpfs/gpfs0/groups/chowdhury/dywsjtu/')
     parser.add_argument(
@@ -542,7 +544,7 @@ if __name__ == "__main__":
         torch.cuda.manual_seed(args.seed)
 
     conf_list = GenerateConfig(args.num_models, args.meta + args.data + "_config.pkl")
-    print(conf_list, type(conf_list))
+    #print(conf_list, type(conf_list))
 
     # Clear the log dir
     log_dir = f"{os.environ['HOME']}/ray_logs"

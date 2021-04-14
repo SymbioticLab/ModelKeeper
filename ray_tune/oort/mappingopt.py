@@ -75,38 +75,41 @@ class MappingOperator(object):
         mappings.reverse()
 
         for (parent_layer, child_layer) in mappings:
-            # Get trainable weights
-            parent_w, parent_b = self.get_weights(self.parent, self.parent_weights, parent_layer)
-            child_w, child_b = self.get_weights(self.child, self.child_weights, child_layer)
+            try:
+                # Get trainable weights
+                parent_w, parent_b = self.get_weights(self.parent, self.parent_weights, parent_layer)
+                child_w, child_b = self.get_weights(self.child, self.child_weights, child_layer)
 
-            parent_layer_name = self.parent.nodes[parent_layer]['attr']['layer_name']
-            child_layer_name = self.child.nodes[child_layer]['attr']['layer_name']
+                parent_layer_name = self.parent.nodes[parent_layer]['attr']['layer_name']
+                child_layer_name = self.child.nodes[child_layer]['attr']['layer_name']
 
-            if parent_w is None or child_w is None:
-                logging.debug('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'], 
-                                                    self.child.nodes[child_layer]['attr']['op_type']))
-            else:
-                n_weight, n_bias, mapping_index = widen(parent_w, parent_b, child_w, child_b, noise_factor=5e-2)
+                if parent_w is None or child_w is None:
+                    logging.debug('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'], 
+                                                        self.child.nodes[child_layer]['attr']['op_type']))
+                else:
+                    n_weight, n_bias, mapping_index = widen(parent_w, parent_b, child_w, child_b, noise_factor=5e-2)
 
-                #assert(n_weight.shape == child_w.shape and n_bias.shape == child_b.shape)
+                    #assert(n_weight.shape == child_w.shape and n_bias.shape == child_b.shape)
 
-                self.child_weights[child_layer_name+'.weight'] = n_weight
-                if n_bias is not None:
-                    self.child_weights[child_layer_name+'.bias'] = n_bias
+                    self.child_weights[child_layer_name+'.weight'] = n_weight
+                    if n_bias is not None:
+                        self.child_weights[child_layer_name+'.bias'] = n_bias
 
-                # get its child layers, and override child weights
-                following_layers = self.get_child_layers(self.child, child_layer)
-                for layer in following_layers:
-                    layer_w = self.child_weights[layer+'.weight']
-                    nl_weight = widen_child(layer_w, mapping_index, noise_factor=5e-2)
+                    # get its child layers, and override child weights
+                    following_layers = self.get_child_layers(self.child, child_layer)
+                    for layer in following_layers:
+                        layer_w = self.child_weights[layer+'.weight']
+                        nl_weight = widen_child(layer_w, mapping_index, noise_factor=0)
 
-                    #assert(layer_w.shape == nl_weight.shape)
-                    self.child_weights[layer+'.weight'] = nl_weight
-                
-                self.num_of_matched += 1
-                self.reset_layers.add(child_layer_name)
-                #logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
-                #                                            child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
+                        #assert(layer_w.shape == nl_weight.shape)
+                        self.child_weights[layer+'.weight'] = nl_weight
+                    
+                    self.num_of_matched += 1
+                    self.reset_layers.add(child_layer_name)
+                    #logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
+                    #                                            child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
+            except Exception as e:
+                logging.error(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
 
         logging.debug("\n\nCascading mapping takes {:.2f} sec".format(time.time() - start_time))
 
@@ -149,7 +152,7 @@ class MappingOperator(object):
         for trainable_layer in layer_gaps:
             if layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
                 try:
-                    n_weight, n_bias = deepen(self.child_weights[trainable_layer+'.weight'])
+                    n_weight, n_bias = deepen(self.child_weights[trainable_layer+'.weight'], noise_factor=5e-2)
                     assert(n_weight.shape == self.child_weights[trainable_layer+'.weight'].shape)
                     self.child_weights[trainable_layer+'.weight'] = n_weight
 
@@ -158,7 +161,7 @@ class MappingOperator(object):
                 except Exception as e:
                     logging.debug('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
-        logging.info("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
+        logging.debug("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
 
 
 

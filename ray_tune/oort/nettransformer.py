@@ -57,13 +57,15 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
 
         for i in range(old_width, new_width):
             idx = widen_units[i-old_width]
-            n_weight[i] = n_weight[idx]
+            n_weight[i] = n_weight[idx].copy()
 
             if n_bias is not None:
-                n_bias[i] = n_bias[idx]
+                n_bias[i] = n_bias[idx].copy()
 
-    noise_w = np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
-    n_weight += noise_w
+    n_weight += np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
+    
+    if n_bias is not None:
+        n_bias += np.random.normal(scale=noise_factor*n_bias.std(), size=list(n_bias.shape))
 
     return n_weight, n_bias, widen_units
 
@@ -91,8 +93,7 @@ def widen_child(weight, mapping_index, noise_factor=0):
 
         n_weight.transpose_(0, 1)
         n_weight = n_weight.numpy()
-        noise_w = np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
-        n_weight += noise_w
+        n_weight += np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
 
         return n_weight
     else:
@@ -120,8 +121,8 @@ def deepen(weight, noise_factor=5e-2):
 
     # add noise
     if n_weight is not None:
-        noise_w = np.random.normal(scale=noise_factor, size=list(n_weight.shape))
-        n_weight += noise_w
+        n_weight += np.random.normal(scale=noise_factor, size=list(n_weight.shape))
+        n_bias += np.random.normal(scale=noise_factor, size=list(n_bias.shape))
         return n_weight, n_bias
 
     return weight, n_bias

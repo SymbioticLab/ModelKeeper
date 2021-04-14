@@ -4,14 +4,14 @@ import pickle
 
 master_port = 6379 #random.randint(11000, 60000)
 redis_port = 12345 #random.randint(11000, 60000)
-master_node = 'gpu-cn004'
+master_node = 'gpu-cn014'
 
 vm_gpus = {}
 per_vm_gpu = 4
 per_vm_cpu = 40
-vm_gpus['gpu-cn008']=3
+#vm_gpus['gpu-cn008']=3
 vm_gpus['gpu-cn013']=3
-vm_gpus['gpu-cn006']=3
+#vm_gpus['gpu-cn006']=3
 
 master_ip = "10.246.6." + str(int(master_node[-3:]) + 90) + ":"+str(master_port)
 

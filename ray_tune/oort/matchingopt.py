@@ -15,12 +15,11 @@ import json
 
 # Call C backend
 clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'backend/bin/matcher.so'))
-clib_matcher.get_matching_score.restype = ctypes.c_double
+clib_matcher.get_matching_score.restype = ctypes.c_char_p
 
 sys.setrecursionlimit(10000)
 #logging.basicConfig(filename='logging', level=logging.INFO)
 INS, DEL, MISMATCH, MATCH = [-2, -1, 0, 1]
-
 
 def split_inputs(in_list):
     # input list may contain trainable weights
@@ -128,33 +127,21 @@ class MatchingOperator(object):
 
         # reset all parameters
         self.child = child
-        self.matchidxs = self.parentidxs = None
         self.parentPrevIndicesList = []
         self.childNodeIDtoIndex = {}
-        self.match_res = None
 
         self.childidx_order = topological_sorting(self.child)
 
         self.init_child_index()
 
-        child_exe_file = self.child.graph['model_id'] + '_' + self.parent.graph['model_id'] + '.json'
-        child_exe_file = os.path.join(os.path.dirname(__file__), 'backend/bin/', child_exe_file)
-
         # call C lib to get mapping
-        self.dump_meta_json(child_exe_file)
-        self.match_score = clib_matcher.get_matching_score(ctypes.c_char_p(bytes(child_exe_file, encoding="utf-8")),
-                                                          ctypes.c_bool(read_mapping))
-        try:
-            os.remove(child_exe_file)
-        except Exception as e:
-            pass
+        json_string = self.dump_meta_json()
+        ans_json_str = clib_matcher.get_matching_score(ctypes.c_char_p(bytes(json_string, encoding="utf-8")),
+                                                       ctypes.c_bool(read_mapping))
 
-        if read_mapping:
-            child_ans_file = child_exe_file+'_mapping'
-            self.match_res = self.read_mapping_json(child_ans_file)
-            os.remove(child_ans_file)
+        self.match_score, self.match_res = self.parse_json_str(ans_json_str, read_mapping)
 
-        #logging.info(f"align_child takes {time.time() - start_time} sec")
+        print(f"align_child takes {time.time() - start_time} sec")
         return self.match_score
 
     def alignmentStrings(self):
@@ -190,31 +177,38 @@ class MatchingOperator(object):
 
         return mapping_res, self.match_score
 
-    def dump_meta_json(self, child_exe_file):
+    def dump_meta_json(self):
+        #start_time = time.time()
         self.meta_data['len_child'] = len(self.childidx_order)
         self.meta_data['child'] = {'opts':[self.child.nodes[x]['attr']['op_type'] for x in self.childidx_order],
                                    'dims':[self.child.nodes[x]['attr']['dims'] for x in self.childidx_order],
                                    'parents':[self.childPrevIndicesList[x]  for x in self.childidx_order]}
 
-        with open(child_exe_file, 'w') as f:
-            json.dump(self.meta_data, f)
+        json_str = json.dumps(self.meta_data)
 
-    def read_mapping_json(self, child_ans_file):
-        with open(child_ans_file) as fin:
-            ans = json.load(fin)
+        return json_str
 
-        backGrphIdx, backStrIdx = collections.defaultdict(list), collections.defaultdict(list)
+    def parse_json_str(self, ans_json_str, read_mapping):
+        ans = json.loads(ans_json_str)
 
-        # parse information
-        for key in ans['backParentIdx']:
-            hash_v = key.split('_') 
-            backGrphIdx[int(hash_v[0]), int(hash_v[1])] = ans['backParentIdx'][key]
+        score = ans['score']
+        matches = None
 
-        for key in ans['backChildIdx']:
-            hash_v = key.split('_') 
-            backStrIdx[int(hash_v[0]), int(hash_v[1])] = ans['backChildIdx'][key]
+        if read_mapping:
+            backGrphIdx, backStrIdx = collections.defaultdict(list), collections.defaultdict(list)
 
-        return backGrphIdx, backStrIdx
+            # parse information
+            for key in ans['backParentIdx']:
+                hash_v = key.split('_') 
+                backGrphIdx[int(hash_v[0]), int(hash_v[1])] = ans['backParentIdx'][key]
+
+            for key in ans['backChildIdx']:
+                hash_v = key.split('_') 
+                backStrIdx[int(hash_v[0]), int(hash_v[1])] = ans['backChildIdx'][key]
+
+            matches = [backGrphIdx, backStrIdx]
+
+        return score, matches
 
     def parentPrevIndices(self, node):
         """Return a list of the previous dynamic programming table indices
@@ -563,18 +557,18 @@ def test():
 
     start_time = time.time()
     zoo_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/model_zoo/imagenet120/500_800/cos_lr/random/'
-    zoo_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/torchzoo/shufflenet_v2_x2_0.onnx'
+    #zoo_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/torchzoo/shufflenet_v2_x2_0.onnx'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--zoo_path', type=str, default=zoo_path)
-    parser.add_argument('--num_of_processes', type=int, default=16)
+    parser.add_argument('--num_of_processes', type=int, default=30)
         
     args = parser.parse_args()
 
     mapper = Oort(args)
 
     child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/model_zoo/imagenet120/500_800/cos_lr/random/model_134.pth.onnx'
-    child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/torchzoo/shufflenet_v2_x2_0.onnx'
+    #child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/torchzoo/shufflenet_v2_x2_0.onnx'
     weights, num_of_matched, parent_name = mapper.map_for_onnx(child_onnx_path, blacklist=set([]))
 
 
@@ -583,4 +577,5 @@ def test():
 
 #test()
 #test_fake()
+
 

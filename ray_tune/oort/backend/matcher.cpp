@@ -24,33 +24,38 @@ using json=nlohmann::json;
 using namespace std;
 
 
-double Matcher::gen_mapping(string file_path, bool dump){
-	json_path = file_path;
+char* Matcher::gen_mapping(string json_s, bool dump){
 	dump_mapping = dump;
 
-	read_io(json_path);
+	read_io(json_s);
 	init_score();
 	align_child_parent();
 
+	json json_ans;
+
 	if (dump_mapping) {
-		dump_trace();
+		json_ans = {
+			{"score", scores[len_parent][len_child]},
+			{"backParentIdx", backParentIdx},
+			{"backChildIdx", backChildIdx}
+		};
+	} else {
+		json_ans = {{"score", scores[len_parent][len_child]}};
 	}
 
-	return scores[len_parent][len_child];
+	string ans_str = json_ans.dump();
+
+	char * writable = new char[ans_str.size() + 1];
+	copy(ans_str.begin(), ans_str.end(), writable);
+	writable[ans_str.size()] = '\0'; // don't forget the terminating 0
+
+	return writable;
 }
 
 string Matcher::encode_hash(int i, int j){
 	return to_string(i)+"_"+to_string(j);
 }
 
-void Matcher::dump_trace(){
-	json json_ans;
-	json_ans["backParentIdx"] = backParentIdx;
-	json_ans["backChildIdx"] = backChildIdx;
-
-	ofstream o(json_path+"_mapping");
-	o << json_ans;
-}
 
 void parse_node_info(json metadata, vector<Node> & node_list){
 	json opt_list = metadata["opts"];
@@ -75,10 +80,8 @@ void parse_node_info(json metadata, vector<Node> & node_list){
 }
 
 
-void Matcher::read_io(string file_path){
-	ifstream file_input(file_path);
-    json root;
-    file_input >> root;
+void Matcher::read_io(string json_s){
+    json root = json::parse(json_s);
 
     len_parent = root.at("len_parent").get<int>();
     len_child = root.at("len_child").get<int>();
@@ -271,10 +274,12 @@ void Matcher::align_child_parent(){
 }
 
 extern "C"{
-	double get_matching_score(char file_path[], bool dump_mapping){
-		string path_str(file_path);
+	char* get_matching_score(char json_str[], bool dump_mapping){
+		string json_s(json_str);
 		Matcher mapper;
-		return mapper.gen_mapping(file_path, dump_mapping);
+
+		return mapper.gen_mapping(json_s, dump_mapping);
 	}
 }
+
 
