@@ -121,6 +121,6 @@ def vgg_zoo():
                     temp[j] = int(temp[j]*num)
                     counter += 1
                     for k in k_size:
-                        config_list.append((temp, k))
+                        config_list.append(([t for t in temp], k))
     return config_list
    
