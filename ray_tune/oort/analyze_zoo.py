@@ -25,11 +25,11 @@ def analyze_zoo():
 	import argparse
 
 	start_time = time.time()
-	zoo_path = '/mnt/weight/'
+	zoo_path = '/mnt/nlpbench/'
 
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--zoo_path', type=str, default=zoo_path)	
-	parser.add_argument('--num_of_processes', type=int, default=64)
+	parser.add_argument('--zoo_path', type=str, default=zoo_path)
+	parser.add_argument('--num_of_processes', type=int, default=20)
 
 	args = parser.parse_args()
 	mapper = Oort(args)

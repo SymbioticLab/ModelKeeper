@@ -1,0 +1,15 @@
+import torch
+from vgg import *
+import os
+
+conf_list = vgg_zoo()
+dummy_input = torch.rand(8, 3, 32, 32) #  batch:32; 3 channels; 32 x 32 size
+path = '/mnt/vgg100'
+
+for idx, conf in enumerate(conf_list):
+    model = VGG(make_layers(conf[0], k = conf[1]))
+    torch.onnx.export(model, dummy_input, os.path.join(path, f"model_{idx}.onnx"),
+                        export_params=True, verbose=0, training=1)
+    print(f"Successfully generate {idx}")
+
+print("============")

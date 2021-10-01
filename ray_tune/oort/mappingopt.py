@@ -1,7 +1,7 @@
 import onnx
 from onnx import numpy_helper
 import numpy
-from oort.nettransformer import widen, widen_child, deepen
+from nettransformer import widen, widen_child, deepen
 import logging
 import os
 import collections
@@ -68,9 +68,9 @@ class MappingOperator(object):
         """
            We need to assure the following layers have been assigned,
            such that widening proceeding layers can replicate the right units
-        """ 
+        """
         start_time = time.time()
-        
+
         mappings = self.mapping_indices.copy()
         mappings.reverse()
 
@@ -84,7 +84,7 @@ class MappingOperator(object):
                 child_layer_name = self.child.nodes[child_layer]['attr']['layer_name']
 
                 if parent_w is None or child_w is None:
-                    logging.debug('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'], 
+                    logging.debug('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'],
                                                         self.child.nodes[child_layer]['attr']['op_type']))
                 else:
                     n_weight, n_bias, mapping_index = widen(parent_w, parent_b, child_w, child_b, noise_factor=5e-2)
@@ -103,10 +103,10 @@ class MappingOperator(object):
 
                         #assert(layer_w.shape == nl_weight.shape)
                         self.child_weights[layer+'.weight'] = nl_weight
-                    
+
                     self.num_of_matched += 1
                     self.reset_layers.add(child_layer_name)
-                    #logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'], 
+                    #logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
                     #                                            child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
             except Exception as e:
                 logging.error(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
@@ -147,7 +147,7 @@ class MappingOperator(object):
         [dfs(self.child, node, depth=0) for node in self.child.nodes() if self.child.in_degree(node)==0]
         visited = set()
         [dfs(reversed_graph, node, depth=0) for node in reversed_graph.nodes() if reversed_graph.in_degree(node)==0]
-        
+
         logging.debug("\n")
         for trainable_layer in layer_gaps:
             if layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:

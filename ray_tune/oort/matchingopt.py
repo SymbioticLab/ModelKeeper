@@ -3,7 +3,7 @@ import numpy
 import networkx as nx
 import time, sys, os
 import functools, collections
-from oort.mappingopt import MappingOperator
+from mappingopt import MappingOperator
 import logging
 from onnx import numpy_helper
 import multiprocessing
@@ -28,7 +28,7 @@ def split_inputs(in_list):
 
     for _input in in_list:
         # tensor nodes are numeric by default
-        if _input.isnumeric(): 
+        if _input.isnumeric():
             input_nodes.append(_input)
         # in onnx model, weight comes ahead of other trainable weights
         # in some cases, bias itself may be a tensor
@@ -145,7 +145,7 @@ class MatchingOperator(object):
         return self.match_score
 
     def alignmentStrings(self):
-        return ("\t".join([self.parent.nodes[j]['attr']['name'] if j is not None else "-" for j in self.parentidxs]), 
+        return ("\t".join([self.parent.nodes[j]['attr']['name'] if j is not None else "-" for j in self.parentidxs]),
                 "\t".join([self.child.nodes[i]['attr']['name'] if i is not None else "-" for i in self.matchidxs]),
                 self.match_score)
 
@@ -199,11 +199,11 @@ class MatchingOperator(object):
 
             # parse information
             for key in ans['backParentIdx']:
-                hash_v = key.split('_') 
+                hash_v = key.split('_')
                 backGrphIdx[int(hash_v[0]), int(hash_v[1])] = ans['backParentIdx'][key]
 
             for key in ans['backChildIdx']:
-                hash_v = key.split('_') 
+                hash_v = key.split('_')
                 backStrIdx[int(hash_v[0]), int(hash_v[1])] = ans['backChildIdx'][key]
 
             matches = [backGrphIdx, backStrIdx]
@@ -263,7 +263,7 @@ class MatchingOperator(object):
                 name_aligned = self.child.nodes[curstridx]['attr']['op_type']==self.parent.nodes[curnodeidx]['attr']['op_type']
 
             # we pad a gap
-            name_aligned = name_aligned and (bestj not in nextjs and besti not in nextis) 
+            name_aligned = name_aligned and (bestj not in nextjs and besti not in nextis)
 
             strindexes.append(curstridx if name_aligned else None)
             matches.append(curnodeidx if name_aligned else None)
@@ -298,7 +298,7 @@ class Oort(object):
         self.skip_opts = {'Constant'}
 
     def init_model_zoo(self, zoo_path):
-        if '.onnx' in zoo_path: 
+        if '.onnx' in zoo_path:
             model_paths = [zoo_path]
         else:
             model_paths = [os.path.join(zoo_path, x) for x in os.listdir(zoo_path) \
@@ -346,7 +346,7 @@ class Oort(object):
                 for s in edge_source[input_node]:
                     graph.add_edge(s, idx)
 
-            # register node 
+            # register node
             for out_node in node.output:
                 edge_source[out_node].append(idx)
 
@@ -390,7 +390,7 @@ class Oort(object):
 
         parent_path, mappings, best_score = None, [], float('-inf')
         parent = None
-        
+
         for res in results:
             (p, s) = res.get()
             #logging.info(f"For mapping pair ({model_name}, {p.graph['name']}) score is {s}")
@@ -436,14 +436,14 @@ class Oort(object):
         # dump the model into onnx format
         onnx_model_name = os.path.join(self.args.exe_path, str(self.current_mapping_id)+".onnx_temp")
         if hidden is None:
-            torch.onnx.export(child_model, dummy_input, onnx_model_name, 
+            torch.onnx.export(child_model, dummy_input, onnx_model_name,
                         export_params=True, verbose=0, training=1, do_constant_folding=False)
         else:
             with torch.no_grad():
                 output, hidden = child_model(dummy_input, hidden)
                 torch.onnx.export(child_model, (dummy_input, hidden), onnx_model_name,
-                            export_params=True, verbose=0, training=1, 
-                            do_constant_folding=False, 
+                            export_params=True, verbose=0, training=1,
+                            do_constant_folding=False,
                             input_names=['dummy_input'],
                             output_names=['output'],
                             dynamic_axes={'dummy_input': [0], 'output': [0]})
@@ -562,7 +562,7 @@ def test():
     parser = argparse.ArgumentParser()
     parser.add_argument('--zoo_path', type=str, default=zoo_path)
     parser.add_argument('--num_of_processes', type=int, default=30)
-        
+
     args = parser.parse_args()
 
     mapper = Oort(args)

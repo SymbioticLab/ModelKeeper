@@ -13,6 +13,11 @@ from thirdparty.utils import batchify
 from thirdparty.model import AWDRNNModel
 from thirdparty import data
 from argparse import Namespace
+import multiprocessing
+
+import pickle
+np.random.seed(1)
+
 class RecepieGenerator:
 
     def __init__(
@@ -98,9 +103,7 @@ class RecepieGenerator:
 
         return visited
 
-    def generate_random_recepie(self, seed=None):
-        if seed is not None:
-            np.random.seed(seed)
+    def generate_random_recepie(self, seed=1):
         prev_hidden_nodes = [f'h_prev_{i}' for i in range(self.hidden_tuple_size)]
         base_nodes = ['x'] + prev_hidden_nodes
         
@@ -177,7 +180,7 @@ recepie_generator = RecepieGenerator()
 
 from tqdm import tqdm
 
-max_valid_confs = 100
+max_valid_confs = 500
 all_recepies = []
 rnd_offset = 0
 for hidden_tuple_size in [1, 2, 3]:
@@ -261,22 +264,21 @@ args = Namespace(data=main_args.dataset_path,
 # ntokens = len(corpus.dictionary)
 # print(ntokens)
 
-custom_model = AWDRNNModel('CustomRNN', 
-                               10000, 
-                               args.emsize, 
-                               args.nhid, 
-                               args.nlayers, 
-                               args.dropout, 
-                               args.dropouth, 
-                               args.dropouti, 
-                               args.dropoute, 
-                               args.wdrop, 
-                               args.tied,
-                               recepies[0],
-                               verbose=False)
+# custom_model = AWDRNNModel('CustomRNN', 
+#                                10000, 
+#                                args.emsize, 
+#                                args.nhid, 
+#                                args.nlayers, 
+#                                args.dropout, 
+#                                args.dropouth, 
+#                                args.dropouti, 
+#                                args.dropoute, 
+#                                args.wdrop, 
+#                                args.tied,
+#                                recepies[0],
+#                                verbose=False)
 
-models = []
-for i in tqdm(range(len(recepies))):
+def process_model(dummy_input, idx, conf):
     custom_model = AWDRNNModel('CustomRNN', 
                                10000, 
                                args.emsize, 
@@ -288,8 +290,32 @@ for i in tqdm(range(len(recepies))):
                                args.dropoute, 
                                args.wdrop, 
                                args.tied,
-                               recepies[i],
+                               conf,
                                verbose=False)
-    models.append(custom_model)
+    hidden = custom_model.init_hidden(1)
+    with torch.no_grad():
+      output, hidden = custom_model(dummy_input, hidden)
 
-print(len(models))
+      torch.onnx.export(custom_model, (dummy_input, hidden), os.path.join(path, f"model_{idx+1}.onnx"),
+                  export_params=True, verbose=0, training=1, opset_version=11,
+                  do_constant_folding=False, 
+                  input_names=['dummy_input'],
+                  output_names=['output'],
+                  dynamic_axes={'dummy_input': [0], 'output': [0]})
+    print(f"done {idx}")
+
+
+path = '/mnt/nlpbench/'
+dummy_input = torch.randint(0, 10000, (70, 1))
+
+pool = multiprocessing.Pool(processes=40)
+results = []
+
+for i in range(len(recepies)):
+  results.append(pool.apply_async(process_model, (dummy_input, i, recepies[i])))
+
+pool.close()
+pool.join()
+
+# print(len(models))
+
