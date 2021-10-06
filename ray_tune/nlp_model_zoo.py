@@ -21,7 +21,7 @@ np.random.seed(1)
 class RecepieGenerator:
 
     def __init__(
-        self, 
+        self,
         hidden_tuple_size=2,
         intermediate_vertices=7,
         main_operations = ['linear', 'blend', 'elementwise_prod', 'elementwise_sum'],
@@ -46,22 +46,22 @@ class RecepieGenerator:
         while i < self.hidden_tuple_size + self.intermediate_vertices:
             op = np.random.choice(self.main_operations, 1, p=self.main_probabilities)[0]
             if op == 'linear':
-                num_connections = np.random.choice(self.linear_connections, 1, 
+                num_connections = np.random.choice(self.linear_connections, 1,
                                                    p=self.linear_connections_probabilities)[0]
                 connection_candidates = base_nodes + activation_nodes
                 if num_connections > len(connection_candidates):
                     num_connections = len(connection_candidates)
-                
+
                 connections = np.random.choice(connection_candidates, num_connections, replace=False)
                 recepie[f'node_{i}'] = {'op':op, 'input':connections}
                 i += 1
-                
+
                 # after linear force add activation node tied to the new node, if possible (nodes budget)
                 op = np.random.choice(self.activations, 1, p=self.activation_probabilities)[0]
                 recepie[f'node_{i}'] = {'op':op, 'input':[f'node_{i - 1}']}
                 activation_nodes.append(f'node_{i}')
                 i += 1
-                
+
             elif op in ['blend', 'elementwise_prod', 'elementwise_sum']:
                 # inputs must exclude x
                 if op == 'blend':
@@ -78,11 +78,11 @@ class RecepieGenerator:
         new_hiddens_map = {}
         for k in np.random.choice(list(recepie.keys()), self.hidden_tuple_size, replace=False):
             new_hiddens_map[k] = f'h_new_{len(new_hiddens_map)}'
-            
+
         for k in new_hiddens_map:
             recepie[new_hiddens_map[k]] = recepie[k]
             del recepie[k]
-            
+
         for k in recepie:
             recepie[k]['input'] = [new_hiddens_map.get(x, x) for x in recepie[k]['input']]
 
@@ -106,7 +106,7 @@ class RecepieGenerator:
     def generate_random_recepie(self, seed=1):
         prev_hidden_nodes = [f'h_prev_{i}' for i in range(self.hidden_tuple_size)]
         base_nodes = ['x'] + prev_hidden_nodes
-        
+
         recepie = {}
         self._generate_redundant_graph(recepie, base_nodes)
         self._create_hidden_nodes(recepie)
@@ -138,21 +138,21 @@ class RecepieGenerator:
             recepie = {
                 'i':{'op':'linear', 'input':['x', 'h_prev_0']},
                 'i_act':{'op':'activation_tanh', 'input':['i']},
-                
+
                 'j':{'op':'linear', 'input':['x', 'h_prev_0']},
                 'j_act':{'op':'activation_sigm', 'input':['j']},
-                
+
                 'f':{'op':'linear', 'input':['x', 'h_prev_0']},
                 'f_act':{'op':'activation_sigm', 'input':['f']},
-                
+
                 'o':{'op':'linear', 'input':['x', 'h_prev_0']},
                 'o_act':{'op':'activation_tanh', 'input':['o']},
-                
+
                 'h_new_1_part1':{'op':'elementwise_prod', 'input':['f_act', 'h_prev_1']},
                 'h_new_1_part2':{'op':'elementwise_prod', 'input':['i_act', 'j_act']},
-                
+
                 'h_new_1':{'op':'elementwise_sum', 'input':['h_new_1_part1', 'h_new_1_part2']},
-                
+
                 'h_new_1_act':{'op':'activation_tanh', 'input':['h_new_1']},
                 'h_new_0':{'op':'elementwise_prod', 'input':['h_new_1_act', 'o_act']}
             }
@@ -160,14 +160,14 @@ class RecepieGenerator:
             recepie = {
                 'r':{'op':'linear', 'input':['x', 'h_prev_0']},
                 'r_act':{'op':'activation_sigm', 'input':['r']},
-                
+
                 'z':{'op':'linear', 'input':['x', 'h_prev_0']},
                 'z_act':{'op':'activation_sigm', 'input':['z']},
-                
+
                 'rh':{'op':'elementwise_prod', 'input':['r_act', 'h_prev_0']},
                 'h_tilde':{'op':'linear', 'input':['x', 'rh']},
                 'h_tilde_act':{'op':'activation_tanh', 'input':['h_tilde']},
-                
+
                 'h_new_0':{'op':'blend', 'input':['z_act', 'h_prev_0', 'h_tilde_act']}
             }
         else:
@@ -176,87 +176,6 @@ class RecepieGenerator:
 
 
 
-recepie_generator = RecepieGenerator()
-
-from tqdm import tqdm
-
-max_valid_confs = 500
-all_recepies = []
-rnd_offset = 0
-for hidden_tuple_size in [1, 2, 3]:
-    for intermediate_elements in [7, 14, 21]:
-        recepie_generator = RecepieGenerator(hidden_tuple_size, intermediate_elements)
-        N = 200
-        valid_seeds = []
-        for i in tqdm(range(N)):
-            recepie, sanity_check = recepie_generator.generate_random_recepie(i + rnd_offset)
-            if sanity_check:
-                valid_seeds.append(i)
-        for i in valid_seeds[:max_valid_confs]:
-            recepie, sanity_check = recepie_generator.generate_random_recepie(i + rnd_offset)
-            all_recepies.append(recepie)
-        rnd_offset += N
-json_recepies = [json.dumps(x) for x in all_recepies]
-print(len(json_recepies))
-
-
-recepies = list(set(json_recepies))
-print(len(recepies))
-
-import argparse
-
-parser = argparse.ArgumentParser(description='PyTorch Custom RNN Language Model')
-
-parser.add_argument('--dataset_path', type=str, default='data/ptb',
-                    help='location of the data corpus')
-parser.add_argument('--logs_path', type=str, default='tmp',
-                    help='path to logs folder')
-parser.add_argument('--recepies_list_path', type=str, default='data/recepies_example.json',
-                    help='list of models recepies')
-parser.add_argument('--epochs', type=int, default=50,
-                    help='number of epochs to train')
-parser.add_argument('--emsize', type=int, default=400,
-                    help='emsize')
-parser.add_argument('--nhid', type=int, default=600,
-                    help='nhid')
-parser.add_argument('--nlayers', type=int, default=3,
-                    help='nlayers')
-parser.add_argument('--dropout', type=float, default=0.4,
-                    help='dropout')
-parser.add_argument('--dropouth', type=float, default=0.25,
-                    help='dropouth')
-parser.add_argument('--dropouti', type=float, default=0.4,
-                    help='dropouti')
-parser.add_argument('--dropoute', type=float, default=0.1,
-                    help='dropoute')
-parser.add_argument('--wdrop', type=float, default=0.5,
-                    help='wdrop')
-parser.add_argument('--experiment_id', type=int,
-                    help='some specific id of the experiment')
-
-main_args = parser.parse_args()
-args = Namespace(data=main_args.dataset_path,
-                     cuda=True,
-                     batch_size=20,
-                     model='CustomRNN',
-                     emsize=main_args.emsize,
-                     nhid=main_args.nhid, 
-                     nlayers=main_args.nlayers,
-                     dropout=main_args.dropout,
-                     dropouth=main_args.dropouth,
-                     dropouti=main_args.dropouti,
-                     dropoute=main_args.dropoute,
-                     wdrop=main_args.wdrop,
-                     tied=True,
-                     bptt=70,
-                     lr=1e-3,
-                     wdecay=1.2e-6,
-                     epochs=main_args.epochs,
-                     alpha=2,
-                     beta=1,
-                     log_interval=200,
-                     clip=0.25,
-                     eval_batch_size = 50)
 
 # corpus = data.Corpus(args.data)
 # cuda = 'cuda'
@@ -264,31 +183,31 @@ args = Namespace(data=main_args.dataset_path,
 # ntokens = len(corpus.dictionary)
 # print(ntokens)
 
-# custom_model = AWDRNNModel('CustomRNN', 
-#                                10000, 
-#                                args.emsize, 
-#                                args.nhid, 
-#                                args.nlayers, 
-#                                args.dropout, 
-#                                args.dropouth, 
-#                                args.dropouti, 
-#                                args.dropoute, 
-#                                args.wdrop, 
+# custom_model = AWDRNNModel('CustomRNN',
+#                                10000,
+#                                args.emsize,
+#                                args.nhid,
+#                                args.nlayers,
+#                                args.dropout,
+#                                args.dropouth,
+#                                args.dropouti,
+#                                args.dropoute,
+#                                args.wdrop,
 #                                args.tied,
 #                                recepies[0],
 #                                verbose=False)
 
 def process_model(dummy_input, idx, conf):
-    custom_model = AWDRNNModel('CustomRNN', 
-                               10000, 
-                               args.emsize, 
-                               args.nhid, 
-                               args.nlayers, 
-                               args.dropout, 
-                               args.dropouth, 
-                               args.dropouti, 
-                               args.dropoute, 
-                               args.wdrop, 
+    custom_model = AWDRNNModel('CustomRNN',
+                               10000,
+                               args.emsize,
+                               args.nhid,
+                               args.nlayers,
+                               args.dropout,
+                               args.dropouth,
+                               args.dropouti,
+                               args.dropoute,
+                               args.wdrop,
                                args.tied,
                                conf,
                                verbose=False)
@@ -297,25 +216,129 @@ def process_model(dummy_input, idx, conf):
       output, hidden = custom_model(dummy_input, hidden)
 
       torch.onnx.export(custom_model, (dummy_input, hidden), os.path.join(path, f"model_{idx+1}.onnx"),
-                  export_params=True, verbose=0, training=1, opset_version=11,
-                  do_constant_folding=False, 
+                  export_params=True, verbose=0, training=0, opset_version=13,
+                  do_constant_folding=True,
                   input_names=['dummy_input'],
                   output_names=['output'],
                   dynamic_axes={'dummy_input': [0], 'output': [0]})
     print(f"done {idx}")
 
 
-path = '/mnt/nlpbench/'
+
+path = '/mnt/nlpbench_s/'
 dummy_input = torch.randint(0, 10000, (70, 1))
 
-pool = multiprocessing.Pool(processes=40)
-results = []
+def generate_nlpbench():
 
-for i in range(len(recepies)):
-  results.append(pool.apply_async(process_model, (dummy_input, i, recepies[i])))
+    recepie_generator = RecepieGenerator()
 
-pool.close()
-pool.join()
+    from tqdm import tqdm
 
+    max_valid_confs = 500
+    all_recepies = []
+    rnd_offset = 0
+    for hidden_tuple_size in [1, 2, 3]:
+        for intermediate_elements in [7, 14, 21]:
+            recepie_generator = RecepieGenerator(hidden_tuple_size, intermediate_elements)
+            N = 200
+            valid_seeds = []
+            for i in tqdm(range(N)):
+                recepie, sanity_check = recepie_generator.generate_random_recepie(i + rnd_offset)
+                if sanity_check:
+                    valid_seeds.append(i)
+            for i in valid_seeds[:max_valid_confs]:
+                recepie, sanity_check = recepie_generator.generate_random_recepie(i + rnd_offset)
+                all_recepies.append(recepie)
+            rnd_offset += N
+    json_recepies = [json.dumps(x) for x in all_recepies]
+    print(len(json_recepies))
+
+
+    recepies = list(set(json_recepies))
+    print(len(recepies))
+
+    import argparse
+
+    parser = argparse.ArgumentParser(description='PyTorch Custom RNN Language Model')
+
+    parser.add_argument('--dataset_path', type=str, default='data/ptb',
+                        help='location of the data corpus')
+    parser.add_argument('--logs_path', type=str, default='tmp',
+                        help='path to logs folder')
+    parser.add_argument('--recepies_list_path', type=str, default='data/recepies_example.json',
+                        help='list of models recepies')
+    parser.add_argument('--epochs', type=int, default=50,
+                        help='number of epochs to train')
+    parser.add_argument('--emsize', type=int, default=400,
+                        help='emsize')
+    parser.add_argument('--nhid', type=int, default=600,
+                        help='nhid')
+    parser.add_argument('--nlayers', type=int, default=3,
+                        help='nlayers')
+    parser.add_argument('--dropout', type=float, default=0.4,
+                        help='dropout')
+    parser.add_argument('--dropouth', type=float, default=0.25,
+                        help='dropouth')
+    parser.add_argument('--dropouti', type=float, default=0.4,
+                        help='dropouti')
+    parser.add_argument('--dropoute', type=float, default=0.1,
+                        help='dropoute')
+    parser.add_argument('--wdrop', type=float, default=0.5,
+                        help='wdrop')
+    parser.add_argument('--experiment_id', type=int,
+                        help='some specific id of the experiment')
+
+    main_args = parser.parse_args()
+    args = Namespace(data=main_args.dataset_path,
+                         cuda=True,
+                         batch_size=20,
+                         model='CustomRNN',
+                         emsize=main_args.emsize,
+                         nhid=main_args.nhid,
+                         nlayers=main_args.nlayers,
+                         dropout=main_args.dropout,
+                         dropouth=main_args.dropouth,
+                         dropouti=main_args.dropouti,
+                         dropoute=main_args.dropoute,
+                         wdrop=main_args.wdrop,
+                         tied=True,
+                         bptt=70,
+                         lr=1e-3,
+                         wdecay=1.2e-6,
+                         epochs=main_args.epochs,
+                         alpha=2,
+                         beta=1,
+                         log_interval=200,
+                         clip=0.25,
+                         eval_batch_size = 50)
+    pool = multiprocessing.Pool(processes=40)
+    results = []
+
+    for i in range(10):
+      results.append(pool.apply_async(process_model, (dummy_input, i, recepies[i])))
+
+    pool.close()
+    pool.join()
+
+def generate_bert():
+    from transformers import BertTokenizer, BertModel
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    custom_model = BertModel.from_pretrained("bert-base-uncased")
+    text = "Replace me by any text you'd like."
+    (input_ids, token_type_ids, attention_mask) = tokenizer(text, return_tensors='pt')
+    dummy_input = (input_ids, token_type_ids, attention_mask)
+    # print(type(encoded_input))
+    # print(len(encoded_input))
+    #dummy_input, hidden = **encoded_input
+    #output = model(**encoded_input)
+
+    torch.onnx.export(custom_model, (input_ids, token_type_ids, attention_mask), os.path.join(path, f"bert.onnx"),
+          export_params=True, verbose=0, training=0, )
+    # opset_version=13,
+    #       do_constant_folding=True,
+    #       input_names=["input_ids", "token_type_ids", "attention_mask"],)
+          #output_names=['output'],)
+          #dynamic_axes={"input_ids": [0], "token_type_ids": [0], "attention_mask": [0], 'output': [0]})
 # print(len(models))
 
+generate_bert()

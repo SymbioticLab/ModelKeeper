@@ -11,11 +11,11 @@ __all__ = [
 
 class VGG(nn.Module):
     '''
-    VGG model 
+    VGG model
     '''
     def __init__(self, features):
         super(VGG, self).__init__()
-        self.features, self.classifier = features 
+        self.features, self.classifier = features
          # Initialize weights
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -60,7 +60,7 @@ cfg = {
     'A': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
     'B': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
     'D': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
-    'E': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 
+    'E': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M',
           512, 512, 512, 512, 'M'],
 }
 
@@ -112,15 +112,14 @@ def vgg_zoo():
     init = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
     filter_num = [1.25, 1.5, 1.75, 2]
     k_size = [3, 5]
-    
+
     counter = 0
     for num in filter_num:
-        temp = [i for i in init]   
-        for j in range(len(init)):  
-            if temp[j] != "M":   
+        temp = [i for i in init]
+        for j in range(len(init)):
+            if temp[j] != "M":
                     temp[j] = int(temp[j]*num)
                     counter += 1
                     for k in k_size:
                         config_list.append(([t for t in temp], k))
     return config_list
-   

@@ -25,11 +25,11 @@ def analyze_zoo():
 	import argparse
 
 	start_time = time.time()
-	zoo_path = '/mnt/nlpbench/'
+	zoo_path = '/mnt/nlpbench_s/'
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--zoo_path', type=str, default=zoo_path)
-	parser.add_argument('--num_of_processes', type=int, default=20)
+	parser.add_argument('--num_of_processes', type=int, default=30)
 
 	args = parser.parse_args()
 	mapper = Oort(args)
@@ -41,7 +41,7 @@ def analyze_zoo():
 		child.graph['model_id'] = str(idx)
 
 		# find the best mapping from the zoo
-		parent, mappings, best_score = mapper.get_best_mapping(child, set([]), model_name)
+		parent, mappings, best_score = mapper.get_best_mapping(child, set([]), model_name, return_weight=False)
 
 		gc.collect()
 

@@ -8,8 +8,9 @@ path = '/mnt/vgg100'
 
 for idx, conf in enumerate(conf_list):
     model = VGG(make_layers(conf[0], k = conf[1]))
+    sums = sum([p.data.numel() for p in model.parameters()])
     torch.onnx.export(model, dummy_input, os.path.join(path, f"model_{idx}.onnx"),
-                        export_params=True, verbose=0, training=1)
-    print(f"Successfully generate {idx}")
+                    export_params=True, verbose=0, training=1)
+    print(f"Successfully generate {idx}, # of parameters: {sums}")
 
 print("============")

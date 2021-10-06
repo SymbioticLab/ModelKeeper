@@ -374,7 +374,7 @@ class Oort(object):
         return (self.model_zoo[parent_path].parent, mapping_res, score)
 
 
-    def get_best_mapping(self, child, blacklist=set(), model_name=None):
+    def get_best_mapping(self, child, blacklist=set(), model_name=None, return_weight=True):
 
         start_time = time.time()
 
@@ -398,7 +398,7 @@ class Oort(object):
             if s > best_score:
                 parent_path, best_score = p, s
 
-        if parent_path is not None:
+        if parent_path is not None and return_weight:
             mapping_func(self.model_zoo[parent_path], child, read_mapping=True)
             parent, mappings, best_score = self.get_mappings(parent_path)
 
