@@ -7,6 +7,7 @@ from datasets import load_metric
 import pickle
 import torch, os
 from fnmatch import fnmatch
+import inspect
 
 path = '/mnt/transformers/'
 padding_length = 256
@@ -28,7 +29,7 @@ def clean_transfomers():
             if 'PRETRAINED_MODEL_ARCHIVE_LIST = [' in lines[i]:
                 start = i 
 
-            if ']' in lines[i] and start != -1:
+            if ']' in lines[i] and start != -1: 
                 for x in lines[start+1:i]:
                     ans.append(x)
                 start = -1
@@ -69,7 +70,7 @@ def clean_transfomers():
 
     with open('transformers.pkl', 'wb') as fout:
         pickle.dump(ans, fout)
-        
+
 def validate_models():
 
     raw_datasets = load_dataset('imdb')['test'].select(range(1))
@@ -159,24 +160,37 @@ def validate_models():
         for line in unique_ans:
             fout.writelines(line)
 
+def get_args_pair(inputs, _args, _default):
+    arg_inputs = []
+    for idx, _arg in enumerate(_args):
+        arg_inputs.append(inputs.get(_arg, _default[idx]))
+    return tuple(arg_inputs)
+
 def dump_models(file):
     with open(file) as fin:
         lines = fin.readlines()
         model_names = [x.split(':')[0] for x in lines]
 
+    dumped_files = [x for x in os.listdir(path) if len(os.listdir(os.path.join(path, x))) > 0]
+
     for name in model_names:
+        pure_name = name.replace('/', '_')
+
+        if pure_name in dumped_files:
+            continue
+
         tokenizer = AutoTokenizer.from_pretrained(name)
         model = AutoModelForSequenceClassification.from_pretrained(name, num_labels=2)
 
-        pure_name = name.replace('/', '_')
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         model.config.max_length = padding_length
+
 
         try:
             inputs = tokenizer("Hello, my dog is cute", return_tensors='pt')#, padding="max_length", max_length=padding_length)
             
-            input_names = sorted(list(inputs.keys()))
-            dummy_inputs = tuple([inputs[val] for val in input_names])
+            input_names = inspect.getargspec(model.forward).args[1:]#sorted(list(inputs.keys()))
+            dummy_inputs = get_args_pair(inputs, input_names, inspect.getargspec(model.forward).defaults) #tuple([inputs[val] for val in input_names])
 
             try:
                 os.mkdir(os.path.join(path, pure_name))
@@ -192,5 +206,9 @@ def dump_models(file):
             print(f"**** Model {pure_name}  successes ****")
         except Exception as e:
             print(f"==== Model {pure_name} fails, {e} ====")
+            try:
+                os.rmdir(os.path.join(path, pure_name))
+            except Exception as e:
+                pass
 
 dump_models("new_success_seq_cls")
