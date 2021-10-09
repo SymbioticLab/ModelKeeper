@@ -187,8 +187,10 @@ def k_medoids_auto_k(points, distance, spawn, diam_max,
             print('*** {} clusters, diameter too small {:.3f} < {:.3f}\n'.format(mid, diameter, diam_max))
             right = mid 
 
+    diameter, medoids = k_medoids(points, right, **kw)
+
     if verbose:
         print('\n\n*** Diameter ok {:.3f} <= {:.3f}'.format(diameter, diam_max))
-        print('*** Stopping, {} clusters enough ({} points initially)'.format(mid, len(points)))
+        print('*** Stopping, {} clusters enough ({} points initially)'.format(right, len(points)))
 
     return diameter, medoids

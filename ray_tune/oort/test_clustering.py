@@ -34,11 +34,12 @@ def get_dist_matrix(model_pairs):
         for i in range(num_models):
             child_model = models[i]
             dist_matrix[idx][i] = 1.0-model_pairs[model][child_model]/self_score
+            print(model, child_model, model_pairs[model][child_model]/self_score)
 
     return model_ids, dist_matrix 
 
-model_pairs = load_data('/users/fanlai/nasbench201_scores')
-#model_pairs = load_data('/users/fanlai/torchcv_scores')
+#model_pairs = load_data('/users/fanlai/nasbench201_scores')
+model_pairs = load_data('/users/fanlai/torchcv_scores')
 model_ids, dist_matrix = get_dist_matrix(model_pairs)
 
 def distance(a, b):
@@ -47,6 +48,6 @@ def distance(a, b):
 points = list(range(len(model_pairs)))
 #diameter, medoids = k_medoids(points, k=30, distance=distance, spawn=2, max_iterations=10000)
 #print(dist_matrix[0])
-diameter, medoids = k_medoids_auto_k(points, distance=distance, spawn=1000, threads=40, verbose=True, 
-                    diam_max=0.75, start_k=1, max_iterations=500000)
+# diameter, medoids = k_medoids_auto_k(points, distance=distance, spawn=2000, threads=40, verbose=True, 
+#                     diam_max=0.75, start_k=1, max_iterations=500000)
 
