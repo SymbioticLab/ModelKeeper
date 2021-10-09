@@ -9,6 +9,8 @@ except NameError:
 
 import random
 from operator import itemgetter, __eq__
+import multiprocessing
+
 _MAX_ITER = int(1e3)
 random.seed(1)
 
@@ -60,8 +62,8 @@ def _k_medoids_spawn_once(points, k, distance,
 
     # Medoids initialization
     medoids = [Medoid(kernel=p) for p in random.sample(list(points), k)]
-    if verbose:
-        print('* New chosen kernels: {0}'.format([m.kernel for m in medoids]))
+    #if verbose:
+    #    print('* New chosen kernels: {0}'.format([m.kernel for m in medoids]))
 
     for n in range(1, 1 + max_iterations):
         # Resetting medoids
@@ -88,8 +90,8 @@ def _k_medoids_spawn_once(points, k, distance,
             break
 
     diameter = max(m.compute_diameter(distance) for m in medoids)
-    if verbose:
-        print('* Iteration over after {0} steps, max diameter {1}'.format(n, diameter))
+    #if verbose:
+    #    print('* Iteration over after {} steps, max diameter {}'.format(n, diameter))
 
     return diameter, medoids
 
@@ -97,7 +99,8 @@ def _k_medoids_spawn_once(points, k, distance,
 def k_medoids(points, k, distance, spawn,
               equality=__eq__,
               max_iterations=_MAX_ITER,
-              verbose=True):
+              verbose=True,
+              threads=1):
     """
     Same as _k_medoids_spawn_once, but we iterate also the spawning process.
     We keep the minimum of the biggest diameter as a reference for the best spawn.
@@ -111,29 +114,35 @@ def k_medoids(points, k, distance, spawn,
     :returns:         the partition, structured as \
         a list of [kernel of the cluster, [elements in the cluster]]
     """
-    kw = {
-        'points': points,
-        'k': k,
-        'distance': distance,
-        'equality': equality,
-        'max_iterations': max_iterations,
-        'verbose': verbose,
-    }
+
     # Here the result of _k_medoids_spawn_once function is a tuple containing
     # in the second element the diameter of the biggest medoid, so the min
     # function will return the best medoids arrangement, in the sense that the
     # diameter max will be minimum
-    diameter, medoids = min((_k_medoids_spawn_once(**kw) for _ in range(spawn)), key=itemgetter(0))
-    if verbose:
-        print(('~~ Spawn end: min of max diameters {0:.3f} '
-               'for medoids: {1}').format(diameter, medoids))
+    pool = multiprocessing.Pool(processes=threads)
+    best_diameter, best_medoids = float('inf'), None
 
-    return diameter, medoids
+    ans = []
+    for _ in range(spawn):
+        ans.append(pool.apply_async(_k_medoids_spawn_once, 
+                    (points, k, distance, equality, max_iterations, verbose)))
+
+    pool.close()
+    pool.join()
+
+    for res in ans:
+        d, m = res.get()
+        if d < best_diameter:
+            best_diameter, best_medoids = d, m
+
+    return best_diameter, best_medoids
 
 
 def k_medoids_auto_k(points, distance, spawn, diam_max,
                      equality=__eq__,
                      max_iterations=_MAX_ITER,
+                     start_k=1,
+                     threads=1, 
                      verbose=True):
     """
     Same as k_medoids, but we increase the number of clusters until we have a
@@ -159,18 +168,27 @@ def k_medoids_auto_k(points, distance, spawn, diam_max,
         'spawn': spawn,
         'max_iterations': max_iterations,
         'verbose': verbose,
+        'threads': threads,
     }
 
-    for k, _ in enumerate(points, start=1):
-        diameter, medoids = k_medoids(points, k, **kw)
-        if diameter <= diam_max:
-            break
-        if verbose:
-            print('*** Diameter too big {0:.3f} > {1:.3f}'.format(diameter, diam_max))
-            print('*** Now trying {0} clusters\n'.format(k + 1))
+    # Binary search: diameter decreases as # of clusters increases
+    left, right = start_k, len(points)
+    mid = 0
+
+    while left < right:
+        mid = left + (right - left) // 2
+
+        diameter, medoids = k_medoids(points, mid, **kw)
+
+        if diameter > diam_max:
+            print('*** {} clusters, diameter too big {:.3f} > {:.3f}\n'.format(mid, diameter, diam_max))
+            left = mid + 1
+        else:
+            print('*** {} clusters, diameter too small {:.3f} < {:.3f}\n'.format(mid, diameter, diam_max))
+            right = mid 
 
     if verbose:
-        print('*** Diameter ok {0:.3f} <= {1:.3f}'.format(diameter, diam_max))
-        print('*** Stopping, {0} clusters enough ({1} points initially)'.format(k, len(points)))
+        print('\n\n*** Diameter ok {:.3f} <= {:.3f}'.format(diameter, diam_max))
+        print('*** Stopping, {} clusters enough ({} points initially)'.format(mid, len(points)))
 
     return diameter, medoids
