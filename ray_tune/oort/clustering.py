@@ -119,6 +119,9 @@ def k_medoids(points, k, distance, spawn,
     # in the second element the diameter of the biggest medoid, so the min
     # function will return the best medoids arrangement, in the sense that the
     # diameter max will be minimum
+    if len(points) == 0:
+        return float('inf'), []
+        
     pool = multiprocessing.Pool(processes=threads)
     best_diameter, best_medoids = float('inf'), None
 

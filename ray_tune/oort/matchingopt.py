@@ -12,14 +12,16 @@ import heapq
 from multiprocessing import Manager
 import ctypes
 import json
+import concurrent, threading
+
+# Libs for model clustering
+from clustering import k_medoids
 
 # Call C backend
 clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'backend/bin/matcher.so'))
 clib_matcher.get_matching_score.restype = ctypes.c_char_p
 
 sys.setrecursionlimit(10000)
-#logging.basicConfig(filename='logging', level=logging.INFO)
-INS, DEL, MISMATCH, MATCH = [-2, -1, 0, 1]
 
 def split_inputs(in_list):
     # input list may contain trainable weights
@@ -60,11 +62,6 @@ def get_tensor_shapes(model_graph):
     return node_shapes, num_of_trainable_tensors
 
 
-def clip(var):
-    if var < -1.: return -1.
-    if var > 1.: return 1.
-    return var
-
 def topological_sorting(graph):
     """DFS based topological sort to maximize length of each chain"""
     # return list(nx.topological_sort(graph))
@@ -84,9 +81,9 @@ class MatchingOperator(object):
 
     def __init__(self, parent):
 
-        self.parent       = parent
-        self.matchidxs  = None
-        self.parentidxs    = None
+        self.parent = parent
+        self.matchidxs = None
+        self.parentidxs = None
         self.child = None
         self.childidx_order = None
 
@@ -102,6 +99,8 @@ class MatchingOperator(object):
 
         self.match_res = None
         self.meta_data = {}
+
+        self.num_of_nodes = len(self.parentidx_order)
 
         self.init_parent_index()
 
@@ -156,7 +155,7 @@ class MatchingOperator(object):
 
     def get_matching_score(self, child, read_mapping=False):
         score = self.align_child(child=child, read_mapping=read_mapping)
-        return score
+        return score/self.num_of_nodes
 
     def get_mappings(self):
 
@@ -279,9 +278,12 @@ class MatchingOperator(object):
         return strindexes, matches
 
 
-def mapping_func(parent_opt, child, read_mapping=False):
+def mapping_func(parent_opt, child, read_mapping=False, return_child_name=False):
     score = parent_opt.get_matching_score(child=child, read_mapping=read_mapping)
-    return (parent_opt.parent.graph['name'], score) #(self.model_zoo[parent_path].parent, mappings, score)
+
+    if return_child_name:
+        return parent_opt.parent.graph['name'], score, child.graph['name']
+    return parent_opt.parent.graph['name'], score
 
 
 class Oort(object):
@@ -297,6 +299,13 @@ class Oort(object):
         self.current_mapping_id = 0
         self.skip_opts = {'Constant'}
 
+        self.model_clusters = []
+        self.query_model = None
+
+        # Storage of the model pair distance
+        self.distance_store = collections.defaultdict(dict)
+        self.clustering_lock = threading.Lock()
+
     def init_model_zoo(self, zoo_path):
         if '.onnx' in zoo_path:
             model_paths = [zoo_path]
@@ -305,8 +314,57 @@ class Oort(object):
                 if os.path.isfile(os.path.join(zoo_path, x)) and '.onnx' in x]
 
         for idx, model_path in enumerate(model_paths):
-            self.add_to_zoo(model_path, idx)
+            model_graph, model_weight = self.load_model_meta(model_path)
+            model_graph.graph['model_id'] = str(idx)
+            self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
+
             print(f"Added {model_path} to zoo ...")
+
+        # Update model zoo
+        self.update_model_clusters()
+
+    def distance(self, model_a, model_b):
+        return self.distance[model_a][model_b] if model_a != model_b else 0
+
+
+    def update_model_clusters(self, threads=40, num_of_clusters=None, spawn=1e4):
+        """
+            @ threads: number of threads to simulate {spawn} clustering trials
+        """
+        print(f"Clustering {len(self.model_zoo)} models ...")
+
+        def update_offline():
+            with self.clustering_lock:
+                # 1. Update all pairwise distance offline
+                current_zoo_models = list(self.model_zoo.keys())
+                updating_pairs = [(i, j) for i in current_zoo_models for j in current_zoo_models \ 
+                                    if (i not in self.distance or j not in self.distance[i]) and i != j]
+
+                pool = multiprocessing.Pool(processes=threads)
+                results = []
+
+                for (model_a, model_b) in updating_pairs:
+                    results.append(pool.apply_async(mapping_func, 
+                            (self.model_zoo[model_a], self.model_zoo[model_b].graph, False, True)))
+                
+                pool.close()
+                pool.join()
+
+                for res in results:
+                    parent_name, transfer_score, child_name = res.get()
+                    self.distance[parent_name][child_name]  = transfer_score
+
+                if num_of_clusters is None:
+                    num_of_clusters = int(len(self.model_zoo)**0.5)
+
+                diameter, self.model_clusters = k_medoids(current_zoo_models, 
+                                    k=num_of_clusters, distance=self.distance, 
+                                    threads=threads, spawn=spawn, max_iterations=1000)
+
+                print(f"Cluster into {num_of_clusters} clusters, max-diameter {diameter}")
+
+        thread = threading.Thread(target=update_offline)
+        thread.start()
 
 
     def load_model_meta(self, meta_file='sample.onnx'):
@@ -327,6 +385,7 @@ class Oort(object):
         edge_source = collections.defaultdict(list)
 
         opt_dir = collections.defaultdict(int)
+
         for idx, node in enumerate(nodes):
             input_nodes, trainable_weights = split_inputs(node.input)
             opt_dir[node.op_type] += 1
@@ -354,53 +413,130 @@ class Oort(object):
 
 
     def add_to_zoo(self, model_path, idx):
-        try:
-            model_graph, model_weight = self.load_model_meta(model_path)
-            model_graph.graph['model_id'] = str(idx)
-            self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
-        except Exception as e:
-            print(f"Error: {e} for {model_path}")
+        """Register new model to the existing zoo"""
+        if model_path in self.model_zoo:
+            logging.warning(f"{model_path} is already in the zoo")
+        else:
+            try:
+                model_graph, model_weight = self.load_model_meta(model_path)
+                model_graph.graph['model_id'] = str(idx)
+                self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
+
+                # Update model zoo
+                self.update_model_clusters()
+
+            except Exception as e:
+                print(f"Error: {e} for {model_path}")
 
 
     def remove_from_zoo(self, model_path):
         if model_path in self.model_zoo:
             del self.model_zoo[model_path]
+            del self.distance[model_path]
+            for model in self.distance:
+                del self.distance[model][model_path]
+
+            # Update model zoo
+            self.update_model_clusters()
         else:
             logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
 
+        # Update clustering
 
     def get_mappings(self, parent_path):
         mapping_res, score = self.model_zoo[parent_path].get_mappings()
         return (self.model_zoo[parent_path].parent, mapping_res, score)
 
 
-    def get_best_mapping(self, child, blacklist=set(), model_name=None, return_weight=True):
-
-        start_time = time.time()
-
+    def query_scores(self, parents, child, threads=40):
         pool = multiprocessing.Pool(processes=self.args.num_of_processes)
         results = []
 
-        for model_path in self.model_zoo.keys():
-            if model_path not in blacklist:
-                results.append(pool.apply_async(mapping_func, (self.model_zoo[model_path], child)))
-
+        for model_path in parents:
+            results.append(pool.apply_async(self.mapping_func, (self.model_zoo[model_path], child)))
+        
         pool.close()
         pool.join()
+
+        return [res.get() for res in results]
+
+    def mapping_func(self, model, child=None):
+        query_model = self.query_model if child is None else child
+        model_name, transfer_score = mapping_func(self.model_zoo[model], query_model)
+
+        self.distance[model_name][child.graph['name']] = 1.0-transfer_score
+
+        return model_name, transfer_score
+
+
+    def query_best_mapping(self, child, blacklist=set(), 
+                            model_name=None, return_weight=True, 
+                            score_threshold=0.95, timeout=60):
+
+        start_time = time.time()
+        self.query_model = child
+
+        # 1. Pick top-k clusters
+        medoids = [medoid.kernel for medoid in self.model_clusters]
+        medoid_dist = []
+
+        if len(medoids) > 0:
+            self.query_scores(medoids, child, self.args.num_of_processes) 
+            medoid_dist.sort(lambda k:k[1], reverse=True)
+
+        best_score = 0
+        search_models = []
+        # 2. Search inside top-k clusters
+        for cluster, score in medoid_dist:
+            search_models += cluster.elements
+            self_score = self.model_zoo[cluster.kernel].num_of_nodes
+            best_score = max(best_score, score/self_score)
+
+        parent_path, mappings = None, []
+        parent = None
+
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            for model, score in executor.map(self.mapping_func, search_models, timeout=timeout):
+
+                if score > best_score:
+                    parent_path, best_score = model, score
+
+                if best_score >= score_threshold:
+                    executor.shutdown(wait=False)
+                    break
+
+        if parent_path is not None and return_weight:
+            self.mapping_func(self.model_zoo[parent_path], read_mapping=True)
+            parent, mappings, _ = self.get_mappings(parent_path)
+
+        print("takes {:.2f} sec".format(time.time() - start_time))
+        if parent is not None:
+            print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
+                        parent.graph['name'], best_score, time.time() - start_time))
+
+        return parent, mappings, best_score
+
+
+    def get_best_mapping(self, child, blacklist=set(), model_name=None, return_weight=True):
+
+        start_time = time.time()
+        self.query_model = child
+
+        parent_models = [model for model in self.model_zoo.keys() if model not in blacklist]
+        results = self.query_scores(parent_models, child, self.args.num_of_processes)
 
         parent_path, mappings, best_score = None, [], float('-inf')
         parent = None
 
-        for res in results:
-            (p, s) = res.get()
+        for (p, s) in results:
             #logging.info(f"For mapping pair ({model_name}, {p.graph['name']}) score is {s}")
             print(f"For mapping pair ({model_name}, {p}) score is {s}")
             if s > best_score:
                 parent_path, best_score = p, s
 
         if parent_path is not None and return_weight:
-            mapping_func(self.model_zoo[parent_path], child, read_mapping=True)
-            parent, mappings, best_score = self.get_mappings(parent_path)
+            self.mapping_func(self.model_zoo[parent_path], read_mapping=True)
+            parent, mappings, _ = self.get_mappings(parent_path)
 
         print("takes {:.2f} sec".format(time.time() - start_time))
         if parent is not None:
@@ -484,6 +620,7 @@ class Oort(object):
             parent_name = parent.graph['name']
 
         return weights, num_of_matched, parent_name
+
 
 def faked_graph():
     graph = nx.DiGraph(name='faked')

@@ -33,7 +33,7 @@ parser.add_argument('--test-batch-size', type=int, default=224, metavar='N',
                     help='input batch size for testing (default: 1000)')
 parser.add_argument('--epochs', type=int, default=3, metavar='N',
                     help='number of epochs to train (default: 10)')
-parser.add_argument('--lr', type=float, default=0.1, metavar='LR', 
+parser.add_argument('--lr', type=float, default=0.02, metavar='LR',
                     help='learning rate (default: 0.01)') #0.002
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                     help='SGD momentum (default: 0.5)')
@@ -141,9 +141,9 @@ def prefix_warmup(file):
         else:
             break
 
-    # Update learning rate 
+    # Update learning rate
 
-    args.lr *= 0.23 #(1. - idx/c_len)
+    args.lr *= (1. - idx/c_len)
     logging.info(f"Prefix match {idx} layers out of child {p_len}, parent {c_len} layers")
 
 
@@ -163,7 +163,7 @@ def greedy_prefix_warmup(file):
         #logging.info(param.data.shape)
         c_len += 1
 
-    p_idx = 0 
+    p_idx = 0
     cnt = 0
     for cparam in cmodel.parameters():
         for idx, param in enumerate(model.parameters()):
@@ -247,17 +247,16 @@ vgg11_match = '/mnt/vgg/vgg11_cifar10_179.pkl'
 vgg13_match = '/mnt/vgg/vgg13_cifar10_199.pkl'
 
 
-#prefix_warmup(vgg16_match)
+prefix_warmup(vgg11_match)
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=5e-4) #optim.Adam(model.parameters(), lr=args.lr)
 
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=400)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
 
 for epoch in range(args.epoch):
     #adjust_learning_rate(optimizer, epoch)
     train(epoch)
     teacher_accu = test()
-    #scheduler.step()
+    scheduler.step()
 
     if (1+epoch) % 10 == 0:
         dump_model(epoch, optimizer, model)
-
