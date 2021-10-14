@@ -329,7 +329,7 @@ class ModelKeeper(object):
             model_paths = [os.path.join(zoo_path, x) for x in os.listdir(zoo_path) \
                 if os.path.isfile(os.path.join(zoo_path, x)) and '.onnx' in x]
 
-        for idx, model_path in enumerate(model_paths):
+        for model_path in model_paths:
             model_graph, model_weight = self.load_model_meta(model_path)
             model_graph.graph['model_id'] = str(self.zoo_model_id)
 
@@ -385,6 +385,7 @@ class ModelKeeper(object):
         """
         evicted_nodes = set()
 
+        # Scores are not symmetric
         for model_a in models_for_clustering:
             for model_b in models_for_clustering:
                 if model_a != model_b and self.distance[model_a][model_b] < self.args.neigh_threshold and \
@@ -416,7 +417,7 @@ class ModelKeeper(object):
                 current_zoo_models = list(self.model_zoo.keys())
 
             updating_pairs = [(i, j) for i in current_zoo_models for j in current_zoo_models 
-                                if (i not in self.distance or j not in self.distance[i]) and i != j]
+                            if (i not in self.distance or j not in self.distance[i]) and i != j]
 
             pool = multiprocessing.Pool(processes=threads)
             results = []
@@ -433,7 +434,7 @@ class ModelKeeper(object):
                 # Dict is thread-safe in Python
                 self.distance[parent_name][child_name] = 1. - transfer_score
 
-            #  2. Evict neighbors if similarity > threshold (0.9 default) and neigh_acc < node_acc
+            #  2. Evict neighbors if similarity > threshold (0.95 default) and neigh_acc < node_acc
             current_zoo_models = self.evict_neighbors(current_zoo_models)
 
             if num_of_clusters is None:
@@ -570,16 +571,20 @@ class ModelKeeper(object):
             mapping_func(self.model_zoo[parent_path], child, read_mapping=True)
             parent, mappings, _ = self.get_mappings(parent_path)
 
-        print("takes {:.2f} sec".format(time.time() - start_time))
         if parent is not None:
             print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
                         parent.graph['name'], best_score, time.time() - start_time))
+        else:
+            print("Does not find best mapping for {}, takes {:.2f} sec\n\n".format(
+                        child.graph['name'], time.time() - start_time))
 
         return parent, mappings, best_score
 
 
     def get_best_mapping(self, child, blacklist=set(), model_name=None, return_weight=True):
-
+        """
+            Enumerate all possible model pairs. Not as efficient as the clustering one.
+        """
         start_time = time.time()
         self.query_model = child
 
@@ -599,11 +604,12 @@ class ModelKeeper(object):
             mapping_func(self.model_zoo[parent_path], child, read_mapping=True)
             parent, mappings, _ = self.get_mappings(parent_path)
 
-        print("takes {:.2f} sec".format(time.time() - start_time))
         if parent is not None:
             print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
                                 parent.graph['name'], best_score, time.time() - start_time))
-
+        else:
+            print("Does not find best mapping for {}, takes {:.2f} sec\n\n".format(
+                        child.graph['name'], time.time() - start_time))
         return parent, mappings, best_score
 
 
