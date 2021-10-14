@@ -14,6 +14,7 @@ import multiprocessing
 _MAX_ITER = int(1e3)
 random.seed(1)
 
+
 class Medoid(object):
     __slots__ = ['kernel', 'elements']
 
@@ -121,22 +122,16 @@ def k_medoids(points, k, distance, spawn,
     # diameter max will be minimum
     if len(points) == 0:
         return float('inf'), []
-        
-    pool = multiprocessing.Pool(processes=threads)
-    best_diameter, best_medoids = float('inf'), None
 
-    ans = []
-    for _ in range(spawn):
-        ans.append(pool.apply_async(_k_medoids_spawn_once, 
-                    (points, k, distance, equality, max_iterations, verbose)))
+    pool = multiprocessing.Pool(processes=threads)
+
+    ans = [pool.apply_async(_k_medoids_spawn_once, 
+                    (points, k, distance, equality, max_iterations, verbose)) for _ in range(spawn)]
 
     pool.close()
     pool.join()
 
-    for res in ans:
-        d, m = res.get()
-        if d < best_diameter:
-            best_diameter, best_medoids = d, m
+    best_diameter, best_medoids = min([(x.get()) for x in ans], key=lambda k:k[0])
 
     return best_diameter, best_medoids
 
