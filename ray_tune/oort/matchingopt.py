@@ -284,11 +284,17 @@ class MatchingOperator(object):
 
 
 def mapping_func(parent_opt, child, read_mapping=False, return_child_name=False):
-    score = parent_opt.get_matching_score(child=child, read_mapping=read_mapping)
+    parent_name = parent_opt.parent.graph['name']
+
+    try:
+        score = parent_opt.get_matching_score(child=child, read_mapping=read_mapping)
+    except Exception as e:
+        logging.error(f"Mapping {parent_name} to {child.graph['name']} failed as {e}")
+        score = float('-inf')
 
     if return_child_name:
-        return parent_opt.parent.graph['name'], score, child.graph['name']
-    return parent_opt.parent.graph['name'], score
+        return parent_name, score, child.graph['name']
+    return parent_name, score
 
 
 class ModelKeeper(object):
@@ -337,20 +343,21 @@ class ModelKeeper(object):
         self.update_model_clusters()
 
 
-    def add_to_zoo(self, model_path, idx):
+    def add_to_zoo(self, model_path):
         """Register new model to the existing zoo"""
         if model_path in self.model_zoo:
             logging.warning(f"{model_path} is already in the zoo")
         else:
             try:
                 model_graph, model_weight = self.load_model_meta(model_path)
-                model_graph.graph['model_id'] = str(idx)
+                model_graph.graph['model_id'] = str(self.zoo_model_id)
 
                 with self.zoo_lock:
                     self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
 
                 # Update model zoo
                 self.update_model_clusters()
+                self.zoo_model_id += 1
 
             except Exception as e:
                 print(f"Error: {e} for {model_path}")
@@ -372,6 +379,25 @@ class ModelKeeper(object):
                 logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
 
 
+    def evict_neighbors(self, models_for_clustering):
+        """
+            @ models_for_clustering: models considered as parent candidates 
+        """
+        evicted_nodes = set()
+
+        for model_a in models_for_clustering:
+            for model_b in models_for_clustering:
+                if model_a != model_b and self.distance[model_a][model_b] < self.args.neigh_threshold and \
+                    self.distance[model_b][model_a] < self.args.neigh_threshold:
+                    # evict the one w/ lower accuracy
+                    if self.model_zoo[model_a].parent.graph['accuracy'] < self.model_zoo[model_b].parent.graph['accuracy']:
+                        evicted_nodes.add(model_a)
+                    else:
+                        evicted_nodes.add(model_b)
+
+        return [n for n in models_for_clustering if n not in evicted_nodes]
+
+
     def update_model_clusters(self, threads=40, num_of_clusters=None, spawn=10000):
         """
             @ threads: number of threads to simulate {spawn} clustering trials
@@ -385,30 +411,33 @@ class ModelKeeper(object):
         def update_cluster_offline():
             nonlocal num_of_clusters, spawn, threads
 
+            # 1. Update all pairwise distance offline
             with self.zoo_lock:
-                # 1. Update all pairwise distance offline
                 current_zoo_models = list(self.model_zoo.keys())
-                updating_pairs = [(i, j) for i in current_zoo_models for j in current_zoo_models 
-                                    if (i not in self.distance or j not in self.distance[i]) and i != j]
 
-                pool = multiprocessing.Pool(processes=threads)
-                results = []
+            updating_pairs = [(i, j) for i in current_zoo_models for j in current_zoo_models 
+                                if (i not in self.distance or j not in self.distance[i]) and i != j]
 
-                for (model_a, model_b) in updating_pairs:
-                    results.append(pool.apply_async(mapping_func, 
-                            (self.model_zoo[model_a], self.model_zoo[model_b].parent, False, True)))
-                
-                pool.close()
-                pool.join()
+            pool = multiprocessing.Pool(processes=threads)
+            results = []
+
+            for (model_a, model_b) in updating_pairs:
+                results.append(pool.apply_async(mapping_func, 
+                        (self.model_zoo[model_a], self.model_zoo[model_b].parent, False, True)))
+            
+            pool.close()
+            pool.join()
 
             for res in results:
                 parent_name, transfer_score, child_name = res.get()
                 # Dict is thread-safe in Python
                 self.distance[parent_name][child_name] = 1. - transfer_score
 
-            if num_of_clusters is None:
-                num_of_clusters = int(len(self.model_zoo)**0.5)
+            #  2. Evict neighbors if similarity > threshold (0.9 default) and neigh_acc < node_acc
+            current_zoo_models = self.evict_neighbors(current_zoo_models)
 
+            if num_of_clusters is None:
+                num_of_clusters = int(len(current_zoo_models)**0.5)
 
             diameter, self.model_clusters = k_medoids(current_zoo_models, 
                             k=num_of_clusters, distance=get_distance, 
@@ -436,7 +465,7 @@ class ModelKeeper(object):
 
         # construct the computation graph and align their attribution
         nodes = [n for n in onnx_model.graph.node if n.op_type not in self.skip_opts]
-        graph = nx.DiGraph(name=meta_file, num_tensors=num_of_trainable_tensors)
+        graph = nx.DiGraph(name=meta_file, num_tensors=num_of_trainable_tensors, accuracy=100.)
 
         node_ids = dict()
         edge_source = collections.defaultdict(list)
@@ -731,6 +760,7 @@ def test():
     parser = argparse.ArgumentParser()
     parser.add_argument('--zoo_path', type=str, default=zoo_path)
     parser.add_argument('--num_of_processes', type=int, default=30)
+    parser.add_argument('--neigh_threshold', type=float, default=0.05)
 
     args = parser.parse_args()
 
