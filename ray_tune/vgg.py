@@ -16,7 +16,7 @@ class VGG(nn.Module):
     '''
     VGG model 
     '''
-    def __init__(self, features):
+    def __init__(self, features, output=10):
         super(VGG, self).__init__()
         self.features = features
         self.classifier = nn.Sequential(
@@ -26,7 +26,7 @@ class VGG(nn.Module):
             nn.Dropout(),
             nn.Linear(512, 512),
             nn.ReLU(True),
-            nn.Linear(512, 10),
+            nn.Linear(512, output),
         )
          # Initialize weights
         for m in self.modules():
@@ -68,41 +68,41 @@ cfg = {
 }
 
 
-def vgg11():
+def vgg11(output):
     """VGG 11-layer model (configuration "A")"""
-    return VGG(make_layers(cfg['A']))
+    return VGG(make_layers(cfg['A']), output)
 
 
-def vgg11_bn():
+def vgg11_bn(output):
     """VGG 11-layer model (configuration "A") with batch normalization"""
-    return VGG(make_layers(cfg['A'], batch_norm=True))
+    return VGG(make_layers(cfg['A'], batch_norm=True), output)
 
 
-def vgg13():
+def vgg13(output):
     """VGG 13-layer model (configuration "B")"""
-    return VGG(make_layers(cfg['B']))
+    return VGG(make_layers(cfg['B']), output)
 
 
-def vgg13_bn():
+def vgg13_bn(output):
     """VGG 13-layer model (configuration "B") with batch normalization"""
-    return VGG(make_layers(cfg['B'], batch_norm=True))
+    return VGG(make_layers(cfg['B'], batch_norm=True), output)
 
 
-def vgg16():
+def vgg16(output):
     """VGG 16-layer model (configuration "D")"""
-    return VGG(make_layers(cfg['D']))
+    return VGG(make_layers(cfg['D']), output)
 
 
-def vgg16_bn():
+def vgg16_bn(output):
     """VGG 16-layer model (configuration "D") with batch normalization"""
-    return VGG(make_layers(cfg['D'], batch_norm=True))
+    return VGG(make_layers(cfg['D'], batch_norm=True), output)
 
 
-def vgg19():
+def vgg19(output):
     """VGG 19-layer model (configuration "E")"""
-    return VGG(make_layers(cfg['E']))
+    return VGG(make_layers(cfg['E']), output)
 
 
-def vgg19_bn():
+def vgg19_bn(output):
     """VGG 19-layer model (configuration 'E') with batch normalization"""
-    return VGG(make_layers(cfg['E'], batch_norm=True))
+    return VGG(make_layers(cfg['E'], batch_norm=True), output)
