@@ -12,16 +12,12 @@ dependencies:
     - torch
     - torchvision  
     - transformers
-    - scipy==1.4.1
     - matplotlib==3.1.3
-    - pyemd==0.5.1
     - tensorboardX==2.1
-    - python-levenshtein==0.12.0
-    - pandas==1.1.0
     - PyYAML
-    - h5py
     - gdown
-    - sentencepiece
     - ray
     - networkx
     - onnx
+    - paramiko
+    - scp
