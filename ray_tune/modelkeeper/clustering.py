@@ -8,6 +8,7 @@ except NameError:
     pass
 
 import random
+import logging
 from operator import itemgetter, __eq__
 import multiprocessing
 
@@ -121,6 +122,7 @@ def k_medoids(points, k, distance, spawn,
     # function will return the best medoids arrangement, in the sense that the
     # diameter max will be minimum
     if len(points) == 0:
+        logging.error(f"Clustering size can not be zero")
         return float('inf'), []
 
     pool = multiprocessing.Pool(processes=threads)

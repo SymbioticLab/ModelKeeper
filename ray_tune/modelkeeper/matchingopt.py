@@ -1,5 +1,4 @@
 import onnx
-import numpy
 import networkx as nx
 import time, sys, os
 import functools, collections
@@ -8,11 +7,14 @@ import logging
 from onnx import numpy_helper
 import multiprocessing
 import torch
-import heapq
 from multiprocessing import Manager
 import ctypes
 import json
 import concurrent, threading
+import pickle
+import gc
+from itertools import repeat
+import shutil
 
 # Libs for model clustering
 from clustering import k_medoids
@@ -23,7 +25,7 @@ clib_matcher.get_matching_score.restype = ctypes.c_char_p
 
 sys.setrecursionlimit(10000)
 
-distance_lookup = None  
+distance_lookup = None
 
 def get_distance(a, b):
     return distance_lookup[a][b] if a != b else 0.
@@ -145,7 +147,9 @@ class MatchingOperator(object):
 
         self.match_score, self.match_res = self.parse_json_str(ans_json_str, read_mapping)
 
-        print(f"align_child takes {time.time() - start_time} sec")
+        print(f"{self.parent.graph['name']} align_child {self.child.graph['name']} takes {time.time() - start_time} sec, " +
+                f"score: {self.match_score/self.num_of_nodes}")
+
         return self.match_score
 
     def alignmentStrings(self):
@@ -322,79 +326,96 @@ class ModelKeeper(object):
         if args.zoo_path is not None:
             self.init_model_zoo(args.zoo_path)
 
+        self.init_execution_store()
+
     def init_model_zoo(self, zoo_path):
-        if '.onnx' in zoo_path:
-            model_paths = [zoo_path]
-        else:
-            model_paths = [os.path.join(zoo_path, x) for x in os.listdir(zoo_path) \
-                if os.path.isfile(os.path.join(zoo_path, x)) and '.onnx' in x]
+        if os.path.exists(zoo_path):
+            model_paths = [os.path.join(zoo_path, x) for x in os.listdir(zoo_path) if x.endswith('.onnx')]
 
+            self.add_to_zoo(model_paths)
+
+    def init_execution_store(self):
+
+        runtime_stores = [self.args.zoo_path, self.args.zoo_query_path,
+                            self.args.zoo_ans_path, self.args.zoo_register_path]
+
+        for store in runtime_stores:
+            if not os.path.exists(store):
+                os.mkdir(store)
+
+    def clean_execution_store(self):
+        runtime_stores = [self.args.zoo_path, self.args.zoo_query_path,
+                            self.args.zoo_ans_path, self.args.zoo_register_path]
+
+        for store in runtime_stores:
+            if os.path.exists(store):
+                shutil.rmtree(store)
+
+
+    def add_to_zoo(self, model_paths):
+        """Register new model to the existing zoo"""
+        if not isinstance(model_paths, list):
+            model_paths = [model_paths]
+
+        is_update = False
         for model_path in model_paths:
-            model_graph, model_weight = self.load_model_meta(model_path)
-            model_graph.graph['model_id'] = str(self.zoo_model_id)
+            if model_path in self.model_zoo:
+                logging.warning(f"{model_path} is already in the zoo")
+            else:
+                try:
+                    model_graph, model_weight = self.load_model_meta(model_path)
+                    model_graph.graph['model_id'] = str(self.zoo_model_id)
 
-            with self.zoo_lock:
-                self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
-            self.zoo_model_id += 1
+                    with self.zoo_lock:
+                        self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
 
-            print(f"Added {model_path} to zoo ...")
+                    self.zoo_model_id += 1
+                    is_update = True
+
+                    print(f"Added {model_path} to zoo ...")
+                except Exception as e:
+                    print(f"Error: {e} for {model_path}")
 
         # Update model zoo
-        self.update_model_clusters()
-
-
-    def add_to_zoo(self, model_path):
-        """Register new model to the existing zoo"""
-        if model_path in self.model_zoo:
-            logging.warning(f"{model_path} is already in the zoo")
-        else:
-            try:
-                model_graph, model_weight = self.load_model_meta(model_path)
-                model_graph.graph['model_id'] = str(self.zoo_model_id)
-
-                with self.zoo_lock:
-                    self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
-
-                # Update model zoo
-                self.update_model_clusters()
-                self.zoo_model_id += 1
-
-            except Exception as e:
-                print(f"Error: {e} for {model_path}")
+        if is_update:
+            self.update_model_clusters()
 
 
     def remove_from_zoo(self, model_path):
 
-            if model_path in self.model_zoo:
-                with self.zoo_lock:
-                    del self.model_zoo[model_path]
+        if model_path in self.model_zoo:
+            with self.zoo_lock:
+                del self.model_zoo[model_path]
 
-                for model in self.distance:
-                    del self.distance[model][model_path]
-                del self.distance[model_path]
+            for model in self.distance:
+                del self.distance[model][model_path]
+            del self.distance[model_path]
 
-                # Update model zoo asyn
-                self.update_model_clusters()
-            else:
-                logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
+            # Update model zoo asyn
+            self.update_model_clusters()
+        else:
+            logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
 
 
     def evict_neighbors(self, models_for_clustering):
         """
-            @ models_for_clustering: models considered as parent candidates 
+            @ models_for_clustering: models considered as parent candidates
         """
         evicted_nodes = set()
 
         # Scores are not symmetric
         for model_a in models_for_clustering:
             for model_b in models_for_clustering:
-                if model_a != model_b and self.distance[model_a][model_b] < self.args.neigh_threshold and \
-                    self.distance[model_b][model_a] < self.args.neigh_threshold:
-                    # evict the one w/ lower accuracy
-                    if self.model_zoo[model_a].parent.graph['accuracy'] < self.model_zoo[model_b].parent.graph['accuracy']:
-                        evicted_nodes.add(model_a)
-                    else:
-                        evicted_nodes.add(model_b)
+                if model_a not in evicted_nodes and model_b not in evicted_nodes:
+                    if model_a != model_b and self.distance[model_a][model_b] < self.args.neigh_threshold and \
+                        self.distance[model_b][model_a] < self.args.neigh_threshold:
+                        # evict the one w/ lower accuracy
+                        if self.model_zoo[model_a].parent.graph['accuracy'] < self.model_zoo[model_b].parent.graph['accuracy']:
+                            evicted_nodes.add(model_a)
+                        else:
+                            evicted_nodes.add(model_b)
+
+        print(f"Evicting {len(evicted_nodes)} from zoo")
 
         return [n for n in models_for_clustering if n not in evicted_nodes]
 
@@ -405,27 +426,24 @@ class ModelKeeper(object):
         """
         print(f"Clustering {len(self.model_zoo)} models ...")
 
-        # Pickle in threads can not support nested function
-        global distance_lookup
-        distance_lookup = self.distance
+        with self.zoo_lock:
+            current_zoo_models = list(self.model_zoo.keys())
 
         def update_cluster_offline():
-            nonlocal num_of_clusters, spawn, threads
+            global distance_lookup
+            nonlocal num_of_clusters, spawn, threads, current_zoo_models
 
             # 1. Update all pairwise distance offline
-            with self.zoo_lock:
-                current_zoo_models = list(self.model_zoo.keys())
-
-            updating_pairs = [(i, j) for i in current_zoo_models for j in current_zoo_models 
+            updating_pairs = [(i, j) for i in current_zoo_models for j in current_zoo_models
                             if (i not in self.distance or j not in self.distance[i]) and i != j]
 
             pool = multiprocessing.Pool(processes=threads)
             results = []
 
             for (model_a, model_b) in updating_pairs:
-                results.append(pool.apply_async(mapping_func, 
+                results.append(pool.apply_async(mapping_func,
                         (self.model_zoo[model_a], self.model_zoo[model_b].parent, False, True)))
-            
+
             pool.close()
             pool.join()
 
@@ -434,20 +452,24 @@ class ModelKeeper(object):
                 # Dict is thread-safe in Python
                 self.distance[parent_name][child_name] = 1. - transfer_score
 
+            # Pickle in threads can not support nested function
+            distance_lookup = self.distance
+
             #  2. Evict neighbors if similarity > threshold (0.95 default) and neigh_acc < node_acc
             current_zoo_models = self.evict_neighbors(current_zoo_models)
 
             if num_of_clusters is None:
-                num_of_clusters = int(len(current_zoo_models)**0.5)
+                num_of_clusters = max(1, int(len(current_zoo_models)**0.5))
 
-            diameter, self.model_clusters = k_medoids(current_zoo_models, 
-                            k=num_of_clusters, distance=get_distance, 
+            diameter, self.model_clusters = k_medoids(current_zoo_models,
+                            k=num_of_clusters, distance=get_distance,
                             threads=threads, spawn=spawn, max_iterations=1000)
 
-            print(f"Cluster into {num_of_clusters} clusters, max-diameter {diameter}")
+            print(f"Cluster into {num_of_clusters} clusters, max_diameter: {diameter}")
 
         thread = threading.Thread(target=update_cluster_offline)
         thread.start()
+        #update_cluster_offline()
 
 
     def load_model_meta(self, meta_file='sample.onnx'):
@@ -507,7 +529,7 @@ class ModelKeeper(object):
     def query_scores(self, parents, child, threads=40):
         pool = multiprocessing.Pool(processes=threads)
         results = [pool.apply_async(mapping_func, (self.model_zoo[parent], child)) for parent in parents]
-        
+
         pool.close()
         pool.join()
 
@@ -521,11 +543,11 @@ class ModelKeeper(object):
 
     def mapping_func(self, model, child=None):
         query_model = self.query_model if child is None else child
-        return mapping_func(self.model_zoo[model], query_model)
+        return mapping_func(model, query_model)
 
 
-    def query_best_mapping(self, child, blacklist=set(), 
-                            model_name=None, return_weight=True, 
+    def query_best_mapping(self, child, blacklist=set(),
+                            model_name=None, return_weight=True,
                             score_threshold=0.95, timeout=60):
 
         start_time = time.time()
@@ -536,9 +558,9 @@ class ModelKeeper(object):
         medoid_dist = []
 
         if len(medoids) > 0:
-            medoid_dist = self.query_scores(medoids, child, self.args.num_of_processes) 
-            self.model_clusters.sort(lambda k:medoid_dist[k.kernel][1], reverse=True)
-            medoid_dist.sort(lambda k:k[1], reverse=True)
+            medoid_dist = self.query_scores(medoids, child, self.args.num_of_processes)
+            #self.model_clusters.sort(key=lambda k:medoid_dist[k.kernel][1], reverse=True)
+            medoid_dist.sort(key=lambda k:k[1], reverse=True)
 
         best_score = 0
         search_models = []
@@ -547,16 +569,21 @@ class ModelKeeper(object):
         # 2. Search members inside top-k clusters in order
         for top_i in range(len(medoid_dist)):
             cluster, score = medoid_dist[top_i]
-            search_models += [e for e in self.model_clusters[top_i].elements if e != cluster]
+            for cluster_id in self.model_clusters:
+                if cluster_id.kernel == cluster:
+                    search_models += [self.model_zoo[e] for e in self.model_clusters[top_i].elements if e != cluster]
+                    break
 
             if score > best_score:
                 parent_path, best_score = cluster, score
 
             self.distance[cluster][child.graph['name']] = 1.0-score
 
+        print(f"Searching {len(search_models)+len(medoids)} models ...")
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
-            for model, score in executor.map(self.mapping_func, search_models, timeout=timeout):
+            #for model, score in executor.map(self.mapping_func, search_models, timeout=timeout):
+            for model, score in executor.map(mapping_func, search_models, repeat(child), timeout=timeout):
                 if score > best_score:
                     parent_path, best_score = model, score
 
@@ -566,7 +593,6 @@ class ModelKeeper(object):
                     executor.shutdown(wait=False)
                     break
 
-                
         if parent_path is not None and return_weight:
             mapping_func(self.model_zoo[parent_path], child, read_mapping=True)
             parent, mappings, _ = self.get_mappings(parent_path)
@@ -679,11 +705,14 @@ class ModelKeeper(object):
 
 
     def map_for_onnx(self, child_onnx_path, blacklist=set(), model_name=None):
+        """
+        @ input are onnx models
+        """
         child, child_onnx = self.load_model_meta(child_onnx_path)
         child.graph['model_id'] = str(self.current_mapping_id)
 
         # find the best mapping from the zoo
-        parent, mappings, best_score = self.get_best_mapping(child, blacklist, model_name)
+        parent, mappings, best_score = self.query_best_mapping(child, blacklist, model_name)
 
         # overwrite the current model weights
         weights, num_of_matched = None, 0
@@ -696,10 +725,60 @@ class ModelKeeper(object):
             meta_data = {
               "matching_score": best_score,
               "parent_name": parent_name,
-              "parent_acc": parent.graph['accuracy']
+              "parent_acc": parent.graph['accuracy'],
+              'num_of_matched': num_of_matched,
             }
 
         return weights, meta_data
+
+
+    def export_query_res(self, model_name, weights, meta_data):
+        export_path = os.path.join(self.args.zoo_ans_path, model_name)
+        with open(export_path, 'wb') as fout:
+            pickle.dump(weights, fout)
+            pickle.dump(meta_data, fout)
+
+        ans = os.system(f"mv {export_path} {export_path.replace('.onnx', '.out')}")
+
+    def check_register_models(self):
+        new_models = [x for x in os.listdir(self.args.zoo_register_path) if x.endswith('.onnx')]
+        if len(new_models) > 0:
+            for m in new_models:
+                os.system(f'mv {os.path.join(self.args.zoo_register_path, m)} {self.args.zoo_path}')
+            self.add_to_zoo([os.path.join(self.args.zoo_path, m) for m in new_models])
+
+
+    def check_pending_request(self):
+        request_models = [x for x in os.listdir(self.args.zoo_query_path) if x.endswith('.onnx')]
+        if len(request_models) > 0:
+            for m in request_models:
+                model_path = os.path.join(self.args.zoo_query_path, m)
+                weights, meta_data = self.map_for_onnx(model_path, model_name=m)
+
+                self.export_query_res(m, weights, meta_data)
+                os.remove(model_path)
+
+
+    def start(self):
+        start_time = last_heartbeat = time.time()
+
+        while True:
+
+            # Register new models to zoo
+            self.check_register_models()
+
+            # Serve matching query
+            self.check_pending_request()
+
+            # Remove zoo
+            #self.check_remove_request()
+
+            time.sleep(2)
+
+            if time.time() - last_heartbeat > 30:
+                print(f"ModelKeeper has been running {int(time.time() - start_time)} sec ...")
+                last_heartbeat = time.time()
+                gc.collect()
 
 
 def faked_graph():
@@ -770,26 +849,26 @@ def test_fake():
 
 
 def test():
-    import argparse
+    # import argparse
 
-    start_time = time.time()
-    zoo_path = '/mnt/zoo/tests/'
+    # start_time = time.time()
+    # zoo_path = '/mnt/zoo/tests/'
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--zoo_path', type=str, default=zoo_path)
-    parser.add_argument('--num_of_processes', type=int, default=30)
-    parser.add_argument('--neigh_threshold', type=float, default=0.05)
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--zoo_path', type=str, default=zoo_path)
+    # parser.add_argument('--num_of_processes', type=int, default=30)
+    # parser.add_argument('--neigh_threshold', type=float, default=0.05)
 
-    args = parser.parse_args()
-
-    mapper = ModelKeeper(args)
+    # args = parser.parse_args()
+    from config import modelkeeper_config
+    mapper = ModelKeeper(modelkeeper_config)
 
     child_onnx_path = '/mnt/zoo/tests/vgg11.onnx'
     #child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/torchzoo/shufflenet_v2_x2_0.onnx'
-    weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([]))
+    #weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([]))
+    mapper.start()
 
-
-    print("\n\nMatched {} layers".format(num_of_matched))
+    print("\n\nMatching results: \n{}".format(meta_data))
 
     # time.sleep(40)
 

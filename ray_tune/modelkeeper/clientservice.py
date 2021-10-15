@@ -3,6 +3,8 @@ import time
 import pickle
 from paramiko import SSHClient
 from scp import SCPClient
+import logging
+import shutil
 
 class ModelKeeperClient(object):
 
@@ -20,8 +22,13 @@ class ModelKeeperClient(object):
 
         self.execution_path = args.execution_path
 
+        self.create_runtime_store()
         self.connection = self.create_connection()
         self.connection_manager = SCPClient(self.connection.get_transport())
+
+    def create_runtime_store(self):
+        if not os.path.exists(self.execution_path):
+            os.mkdir(self.execution_path)
 
     def create_connection(self):
         connection = SSHClient()
@@ -34,12 +41,12 @@ class ModelKeeperClient(object):
         """
         @ model: assume the model is in onnx format
         """
-        model_name = model_path.split('/')[-1] # xx.onnx
-        ans_model_name = model_name + '.pkl'
+        model_name = model_path.split('/')[-1].replace('.onnx', '')
+        ans_model_name = model_name + '.out'
         local_path = os.path.join(self.execution_path, ans_model_name)
         
         # 1. Upload the model to the modelkeeper pending queue
-        self.register_model_to_zoo(model_path, self.zoo_query_path)
+        self.register_model_to_zoo(model_path, os.path.join(self.zoo_query_path, model_name))
 
         # 2. Ping the host for results
         waiting_duration = 0 
@@ -70,12 +77,14 @@ class ModelKeeperClient(object):
         """
         @ model: upload the model to the ModelKeeper zoo
         """
+
         if zoo_path is None:
-            zoo_path = self.zoo_register_path
+            zoo_path = os.path.join(self.zoo_register_path, model_path.split('/')[-1].replace('.onnx', ''))
 
         try:
             self.connection_manager.put(model_path, zoo_path)
-            logging.warning(f"Successfully upload model {model_path} to the zoo server")
+            _ = self.connection.exec_command(f"mv {zoo_path} {zoo_path+'.onnx'}")
+            logging.info(f"Successfully upload model {model_path} to the zoo server")
         except Exception as e:
             logging.warning(f"Failed to connect to the zoo host {self.zoo_server}")
         
@@ -97,5 +106,5 @@ class ModelKeeperClient(object):
     def stop(self):
         self.connection_manager.close()
         self.connection.close()
-        os.rmdir(self.execution_path)
+        shutil.rmtree(self.execution_path)
 
