@@ -32,8 +32,8 @@ from collections import defaultdict, deque
 import sys
 from vgg import *
 from ImageNet import ImageNet16
-from oort.config import oort_config
-from oort.matchingopt import Oort
+from modelkeeper.config import modelkeeper_config
+from modelkeeper.matchingopt import ModelKeeper
 
 from thirdparty.utils import batchify
 from thirdparty.model import AWDRNNModel
@@ -315,19 +315,23 @@ class TrainModel(tune.Trainable):
             self.params = list(self.model.parameters()) + list(self.criterion.parameters())
 
             self.optimizer = torch.optim.Adam(self.params, lr=args.lr, weight_decay=args.wdecay)
+
         elif args.task == "v100":
             self.model = VGG(make_layers(conf_list[config['model']][0], k = conf_list[config['model']][1]))
             self.optimizer = optim.SGD(self.model.parameters(), lr=5e-3, weight_decay=5e-4, momentum=0.9, nesterov=True)  # define optimizer
             self.criterion = nn.CrossEntropyLoss()  # define loss function  
 
-        self.model_name = 'model_' + '_'.join([str(val+150) for val in config.values()]) + '.pth'
+        self.model_name = 'model_' + '_'.join([str(val) for val in config.values()]) + '.pth'
         self.total_layers = 0
 
         self.use_oort = True # True
-        # Apply Oort to warm start
+        # Apply ModelKeeper to warm start
         if self.use_oort:
             start_matching = time.time()
-            mapper = Oort(oort_config)
+
+            # Create a session to modelkeeper server
+
+            mapper = ModelKeeper(modelkeeper_config)
             self.model.eval()
 
             if args.task == "nlp":
@@ -354,7 +358,7 @@ class TrainModel(tune.Trainable):
                 parent_history = self.get_model_meta(parent_name.replace(".onnx", ''))
                 parent_acc, parent_layers = parent_history['final_acc'], parent_history['weight_layers']
 
-            self.logger.info(f"Oort warm starts {num_of_matched} layers from {parent_name} (Acc: {parent_acc}, Layers: {parent_layers}), total {self.total_layers} layers for {self.model_name} in {int(time.time() - start_matching)} sec")
+            self.logger.info(f"ModelKeeper warm starts {num_of_matched} layers from {parent_name} (Acc: {parent_acc}, Layers: {parent_layers}), total {self.total_layers} layers for {self.model_name} in {int(time.time() - start_matching)} sec")
 
         self.best_acc = 0
         self.best_loss = np.Infinity

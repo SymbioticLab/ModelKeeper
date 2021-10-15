@@ -12,7 +12,7 @@ if sys.platform == "darwin":
     extra_link_args += ['-stdlib=libc++']
 
 setuptools.setup(
-    name             = 'oort_backend.chu_liu_edmonds',
+    name             = 'modelkeeper_backend.chu_liu_edmonds',
     version          = '1.0.1',
     description      = 'Bindings to Chu-Liu-Edmonds algorithm from TurboParser',
     long_description = readme, long_description_content_type = "text/markdown",
@@ -20,9 +20,9 @@ setuptools.setup(
     author_email     = 'straka@ufal.mff.cuni.cz',
     url              = 'https://github.com/ufal/chu_liu_edmonds',
     license          = 'GPLv3',
-    packages         = ['oort_backend'],
+    packages         = ['modelkeeper_backend'],
     ext_modules      = [setuptools.Extension(
-        'oort_backend.chu_liu_edmonds',
+        'modelkeeper_backend.chu_liu_edmonds',
         ['chu_liu_edmonds.pyx', 'chu_liu_edmonds_internal.cpp'],
         language = 'c++',
         extra_compile_args = extra_compile_args,
@@ -36,3 +36,4 @@ setuptools.setup(
         'Topic :: Software Development :: Libraries'
     ]
 )
+

@@ -1,1 +1,0 @@
-gcc matcher.cpp -fPIC -shared -o2 libmatcher.so -std=c++11

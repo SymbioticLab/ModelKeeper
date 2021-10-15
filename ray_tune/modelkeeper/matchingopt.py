@@ -660,16 +660,22 @@ class ModelKeeper(object):
 
         # overwrite the current model weights
         weights, num_of_matched = None, 0
-        parent_name = 'None'
+        parent_name, meta_data = 'None', {}
 
         if parent is not None:
             weights, num_of_matched = self.warm_weights(parent, child, mappings)
             parent_name = parent.graph['name']
 
+            meta_data = {
+              "matching_score": best_score,
+              "parent_name": parent_name,
+              "parent_acc": parent.graph['accuracy']
+            }
+
         # remove the temporary onnx model
         os.remove(onnx_model_name)
 
-        return weights, num_of_matched, parent_name
+        return weights, meta_data
 
 
     def map_for_onnx(self, child_onnx_path, blacklist=set(), model_name=None):
@@ -681,13 +687,19 @@ class ModelKeeper(object):
 
         # overwrite the current model weights
         weights, num_of_matched = None, 0
-        parent_name = 'None'
+        parent_name, meta_data = 'None', {}
 
         if parent is not None:
             weights, num_of_matched = self.warm_weights(parent, child, mappings)
             parent_name = parent.graph['name']
 
-        return weights, num_of_matched, parent_name
+            meta_data = {
+              "matching_score": best_score,
+              "parent_name": parent_name,
+              "parent_acc": parent.graph['accuracy']
+            }
+
+        return weights, meta_data
 
 
 def faked_graph():
@@ -774,7 +786,7 @@ def test():
 
     child_onnx_path = '/mnt/zoo/tests/vgg11.onnx'
     #child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/torchzoo/shufflenet_v2_x2_0.onnx'
-    weights, num_of_matched, parent_name = mapper.map_for_onnx(child_onnx_path, blacklist=set([]))
+    weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([]))
 
 
     print("\n\nMatched {} layers".format(num_of_matched))
@@ -783,5 +795,4 @@ def test():
 
 test()
 #test_fake()
-
 

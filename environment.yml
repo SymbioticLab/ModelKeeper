@@ -24,4 +24,4 @@ dependencies:
     - sentencepiece
     - ray
     - networkx
-
+    - onnx
