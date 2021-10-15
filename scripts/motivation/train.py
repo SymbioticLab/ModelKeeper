@@ -13,6 +13,7 @@ import copy
 import torchvision.models as tormodels
 import pickle
 import logging
+from vgg import *
 
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
                 datefmt='%H:%M:%S',
@@ -24,10 +25,10 @@ logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-parser.add_argument('--model', type=str, default="vgg19")
+parser.add_argument('--model', type=str, default="vgg19_bn")
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 64)')
-parser.add_argument('--epoch', type=int, default=200, metavar='N',
+parser.add_argument('--epoch', type=int, default=300, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=224, metavar='N',
                     help='input batch size for testing (default: 1000)')
@@ -43,8 +44,8 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging status')
-parser.add_argument('--data', type=str, default='cifar10')
-
+parser.add_argument('--data', type=str, default='cifar100')
+parser.add_argument('--weight_decay', type=float, default=5e-4) #0.002
 
 
 args = parser.parse_args()
@@ -63,8 +64,9 @@ normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
 kwargs = {'num_workers': 10, 'pin_memory': True} if args.cuda else {}
 
 train_transform = transforms.Compose(
-             [transforms.RandomCrop(32, padding=4),
+             [#transforms.RandomCrop(32),#, padding=4),
              transforms.RandomHorizontalFlip(),
+             transforms.RandomCrop(32, 4),
               transforms.ToTensor(),
               transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),])
 
@@ -112,7 +114,7 @@ elif args.data == 'imagenet':
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
 
-model = tormodels.__dict__[args.model](num_classes=data_categories[args.data])
+model = eval(f"{args.model}({data_categories[args.data]})")#tormodels.__dict__[args.model](num_classes=data_categories[args.data])
 if args.cuda:
     model.cuda()
 
@@ -191,9 +193,10 @@ def train(epoch):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
-        optimizer.zero_grad()
+    
         output = model(data)
         loss = criterion(output, target)
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
@@ -242,15 +245,15 @@ def dump_model(epoch, optimizer, model):
         pickle.dump(optimizer, fout)
         pickle.dump(model, fout)
 
-vgg16_match = '/mnt/vgg/vgg16_cifar10_199.pkl' #70%: 4, 70%:, 85%: 24, 90%:199
-vgg11_match = '/mnt/vgg/vgg11_cifar10_179.pkl'
-vgg13_match = '/mnt/vgg/vgg13_cifar10_199.pkl'
+# vgg16_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg16_cifar100_289.pkl' #70%: 4, 70%:, 85%: 24, 90%:199
+# vgg11_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg11_cifar100_299.pkl'
+# vgg13_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg13_cifar100_299.pkl'
 
 
-prefix_warmup(vgg11_match)
-optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=5e-4) #optim.Adam(model.parameters(), lr=args.lr)
+#prefix_warmup(vgg16_match)
+optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay) #optim.Adam(model.parameters(), lr=args.lr)
 
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=300)
 
 for epoch in range(args.epoch):
     #adjust_learning_rate(optimizer, epoch)
