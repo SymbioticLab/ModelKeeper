@@ -459,7 +459,7 @@ class ModelKeeper(object):
             current_zoo_models = self.evict_neighbors(current_zoo_models)
 
             if num_of_clusters is None:
-                num_of_clusters = max(1, int(len(current_zoo_models)**0.5))
+                num_of_clusters = int(len(current_zoo_models)**0.5)
 
             diameter, self.model_clusters = k_medoids(current_zoo_models,
                             k=num_of_clusters, distance=get_distance,
@@ -663,7 +663,7 @@ class ModelKeeper(object):
         self.current_mapping_id += 1
 
         # dump the model into onnx format
-        onnx_model_name = os.path.join(self.args.exe_path, str(self.current_mapping_id)+".onnx_temp")
+        onnx_model_name = os.path.join(self.args.zoo_query_path, str(self.current_mapping_id)+".onnx_temp")
         if hidden is None:
             torch.onnx.export(child_model, dummy_input, onnx_model_name,
                         export_params=True, verbose=0, training=1, do_constant_folding=False)
@@ -872,6 +872,6 @@ def test():
 
     # time.sleep(40)
 
-test()
+#test()
 #test_fake()
 

@@ -178,6 +178,31 @@ def greedy_prefix_warmup(file):
 
     logging.info(f"Prefix match {cnt} layers out of child {p_len}, parent {c_len} layers")
 
+
+def modelkeeper(model):
+    import sys
+    sys.path.insert(0,'../../ray_tune/modelkeeper')
+
+    from matchingopt import ModelKeeper
+    from config import modelkeeper_config
+
+    modelkeeper_config.zoo_path = '/mnt/zoo/vgg_zoo'
+    mapper = ModelKeeper(modelkeeper_config)
+    model = model.to(device='cpu')
+
+    dummy_input = torch.rand(8, 3, 32, 32)
+    weights, meta_data = mapper.map_for_model(model, dummy_input)
+
+    for name, p in model.named_parameters():
+        if weights is not None:
+            temp_data = (torch.from_numpy(weights[name])).data
+            assert(temp_data.shape == p.data.shape)
+            p.data = temp_data.to(dtype=p.data.dtype)
+
+    print(f"ModelKeeper mapping meta: \n{meta_data}")
+    #args.lr *= (1.-meta_data['matching_score']+1e-4)
+
+
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 2 every 30 epochs"""
     lr = args.lr * (0.5 ** (epoch // 20))
@@ -193,7 +218,7 @@ def train(epoch):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
-    
+
         output = model(data)
         loss = criterion(output, target)
         optimizer.zero_grad()
@@ -251,9 +276,12 @@ def dump_model(epoch, optimizer, model):
 
 
 #prefix_warmup(vgg16_match)
+modelkeeper(model)
+model = model.to(device=device)
+
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay) #optim.Adam(model.parameters(), lr=args.lr)
 
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=300)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch)
 
 for epoch in range(args.epoch):
     #adjust_learning_rate(optimizer, epoch)

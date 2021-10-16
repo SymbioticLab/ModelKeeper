@@ -1,4 +1,3 @@
-
 import networkx as nx 
 from oort_backend.chu_liu_edmonds import chu_liu_edmonds
 import time
@@ -14,7 +13,7 @@ class GraphOperator(object):
     def max_spanning_tree(self, score_matrix):
         start_time = time.time()
         heads, tree_score = chu_liu_edmonds(score_matrix)
-        print(f"takes {time.time() - start_time} sec")
+        print(f"MST takes {time.time() - start_time} sec")
 
         self.graph = nx.DiGraph()
         self.graph.add_nodes_from(list(range(len(heads))))
@@ -26,11 +25,9 @@ class GraphOperator(object):
                 scores += score_matrix[i, item]
 
         topo_order = sorted(list(nx.line_graph(self.graph)))
-        #print(heads)
-        #print(topo_order)
-        #print(tree_score, scores)
 
         return topo_order, scores
+
 
     def load_graph(self, meta_file): 
 
@@ -91,3 +88,4 @@ def test():
     print(f"Global Optimal: {global_opt}, MST: {mst_score}, Trace Optimal: {trace_opt}, networkx opt: {nx_opt}")
 
 test()
+
