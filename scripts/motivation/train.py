@@ -45,7 +45,7 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging status')
 parser.add_argument('--data', type=str, default='cifar100')
-parser.add_argument('--weight_decay', type=float, default=5e-4) #0.002
+parser.add_argument('--weight_decay', type=float, default=1e-5) 
 
 
 args = parser.parse_args()
@@ -75,6 +75,8 @@ test_transform = transforms.Compose(
               transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
 data_categories = {'cifar10': 10, 'cifar100': 100, 'imagenet': 1000}
+
+
 
 if args.data == 'cifar10':
     train_loader = torch.utils.data.DataLoader(
@@ -113,8 +115,32 @@ elif args.data == 'imagenet':
                         ])),
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
+elif args.data == 'ImageNet16-120':
+    sys.path.insert(0,'../../ray_tune/modelkeeper')
+    from ImageNet import ImageNet16
 
-model = eval(f"{args.model}({data_categories[args.data]})")#tormodels.__dict__[args.model](num_classes=data_categories[args.data])
+
+    mean = [x / 255 for x in [122.68, 116.66, 104.01]]
+    std  = [x / 255 for x in [63.22,  61.26 , 65.09]]
+    lists = [transforms.RandomHorizontalFlip(), transforms.RandomCrop(16, padding=2), 
+            transforms.ToTensor(), transforms.Normalize(mean, std)]
+    train_transform = transforms.Compose(lists)
+    test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
+
+    train_data = ImageNet16('/users/fanlai/ImageNet16-120', True , train_transform, 120)
+    test_data  = ImageNet16('/users/fanlai/ImageNet16-120', False, test_transform, 120)
+    assert len(train_data) == 151700 and len(test_data) == 6000
+    train_loader = torch.utils.data.DataLoader(
+        train_data, batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        test_data, batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+
+try:
+    model = eval(f"{args.model}({data_categories[args.data]})")#
+except Exception as e:
+    model = tormodels.__dict__[args.model](num_classes=data_categories[args.data])
+
 if args.cuda:
     model.cuda()
 
@@ -180,7 +206,7 @@ def greedy_prefix_warmup(file):
 
 
 def modelkeeper(model):
-    import sys
+    import sys 
     sys.path.insert(0,'../../ray_tune/modelkeeper')
 
     from matchingopt import ModelKeeper
@@ -200,7 +226,7 @@ def modelkeeper(model):
             p.data = temp_data.to(dtype=p.data.dtype)
 
     print(f"ModelKeeper mapping meta: \n{meta_data}")
-    #args.lr *= (1.-meta_data['matching_score']+1e-4)
+    args.lr *= (1.-meta_data['matching_score']+1e-4)
 
 
 def adjust_learning_rate(optimizer, epoch):
@@ -218,7 +244,7 @@ def train(epoch):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
-
+    
         output = model(data)
         loss = criterion(output, target)
         optimizer.zero_grad()
@@ -270,13 +296,13 @@ def dump_model(epoch, optimizer, model):
         pickle.dump(optimizer, fout)
         pickle.dump(model, fout)
 
-# vgg16_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg16_cifar100_289.pkl' #70%: 4, 70%:, 85%: 24, 90%:199
-# vgg11_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg11_cifar100_299.pkl'
-# vgg13_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg13_cifar100_299.pkl'
+vgg16_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg16_bn_cifar100_299.pkl' #70%: 4, 70%:, 85%: 24, 90%:199
+vgg11_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg11_bn_cifar100_299.pkl'
+vgg13_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg13_bn_cifar100_299.pkl'
 
 
 #prefix_warmup(vgg16_match)
-modelkeeper(model)
+#modelkeeper(model)
 model = model.to(device=device)
 
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay) #optim.Adam(model.parameters(), lr=args.lr)

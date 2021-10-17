@@ -1,5 +1,5 @@
-import networkx as nx 
-from oort_backend.chu_liu_edmonds import chu_liu_edmonds
+import networkx as nx
+from modelkeeper_backend.chu_liu_edmonds import chu_liu_edmonds
 import time
 import pickle
 import numpy as np
@@ -29,11 +29,11 @@ class GraphOperator(object):
         return topo_order, scores
 
 
-    def load_graph(self, meta_file): 
+    def load_graph(self, meta_file):
 
         with open(meta_file) as fin:
             lines = fin.readlines()
-            
+
             [num_nodes, num_edges] = lines[0].strip().split()
             score_matrix = np.full((int(num_nodes), int(num_nodes)), np.nan)
 
