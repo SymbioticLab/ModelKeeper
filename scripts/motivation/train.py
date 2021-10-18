@@ -32,8 +32,6 @@ parser.add_argument('--epoch', type=int, default=300, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=224, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=3, metavar='N',
-                    help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.02, metavar='LR',
                     help='learning rate (default: 0.01)') #0.002
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
@@ -45,7 +43,7 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging status')
 parser.add_argument('--data', type=str, default='cifar100')
-parser.add_argument('--weight_decay', type=float, default=5e-4) #0.002
+parser.add_argument('--weight_decay', type=float, default=1e-4) 
 
 
 args = parser.parse_args()
@@ -64,17 +62,21 @@ normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
 kwargs = {'num_workers': 10, 'pin_memory': True} if args.cuda else {}
 
 train_transform = transforms.Compose(
-             [#transforms.RandomCrop(32),#, padding=4),
-             transforms.RandomHorizontalFlip(),
-             transforms.RandomCrop(32, 4),
+             [transforms.RandomCrop(32, padding=4),
+             transforms.Resize(32),
+              transforms.RandomHorizontalFlip(),
               transforms.ToTensor(),
               transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),])
 
 test_transform = transforms.Compose(
-             [transforms.ToTensor(),
+             [transforms.Resize(32),
+              transforms.ToTensor(),
               transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
-data_categories = {'cifar10': 10, 'cifar100': 100, 'imagenet': 1000}
+imagnet_categories = 300
+data_categories = {'cifar10': 10, 'cifar100': 100, 'imagenet': 1000, 'ImageNet120': imagnet_categories}
+
+
 
 if args.data == 'cifar10':
     train_loader = torch.utils.data.DataLoader(
@@ -113,8 +115,31 @@ elif args.data == 'imagenet':
                         ])),
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
+elif args.data == 'ImageNet120':
+    sys.path.insert(0,'../../ray_tune/')
+    from ImageNet import ImageNet16
 
-model = eval(f"{args.model}({data_categories[args.data]})")#tormodels.__dict__[args.model](num_classes=data_categories[args.data])
+    mean = [x / 255 for x in [122.68, 116.66, 104.01]]
+    std  = [x / 255 for x in [63.22,  61.26 , 65.09]]
+    lists = [transforms.RandomHorizontalFlip(), transforms.RandomCrop(32, padding=2), 
+            transforms.ToTensor(), transforms.Normalize(mean, std)]
+    train_transform = transforms.Compose(lists)
+    test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
+
+    train_data = ImageNet16('/users/fanlai/imagenet32', True , train_transform, size=32, use_num_of_class_only=imagnet_categories)
+    test_data  = ImageNet16('/users/fanlai/imagenet32', False, test_transform, size=32, use_num_of_class_only=imagnet_categories)
+    print(len(train_data), len(test_data))
+    train_loader = torch.utils.data.DataLoader(
+        train_data, batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        test_data, batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+
+try:
+    model = eval(f"{args.model}({data_categories[args.data]})")#
+except Exception as e:
+    model = tormodels.__dict__[args.model](num_classes=data_categories[args.data])
+
 if args.cuda:
     model.cuda()
 
@@ -180,7 +205,7 @@ def greedy_prefix_warmup(file):
 
 
 def modelkeeper(model):
-    import sys
+    import sys 
     sys.path.insert(0,'../../ray_tune/modelkeeper')
 
     from matchingopt import ModelKeeper
@@ -200,12 +225,19 @@ def modelkeeper(model):
             p.data = temp_data.to(dtype=p.data.dtype)
 
     print(f"ModelKeeper mapping meta: \n{meta_data}")
-    #args.lr *= (1.-meta_data['matching_score']+1e-4)
+    args.lr *= (1.-meta_data['matching_score']+1e-4)
 
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 2 every 30 epochs"""
-    lr = args.lr * (0.5 ** (epoch // 20))
+    # lr = args.lr * (0.5 ** (epoch // 20))
+    if epoch < 120:
+        lr = 0.02 
+    elif epoch < 160:
+        lr = 0.004 
+    else:
+        lr = 0.0008
+
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
@@ -218,7 +250,7 @@ def train(epoch):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
-
+    
         output = model(data)
         loss = criterion(output, target)
         optimizer.zero_grad()
@@ -262,7 +294,7 @@ def test():
     logging.info('Test set: Average loss: {:.4f}, Accuracy (Top-1): {}/{} ({:.3f}%), (Top-{}) {:.3f}%'.format(
         test_loss, top_1, test_data_len, 100. * top_1 / test_data_len, k, 100. * top_k / test_data_len))
 
-    return 100. * top_1 / test_data_len
+    return 100. * top_1 / test_data_len, test_loss
 
 def dump_model(epoch, optimizer, model):
     with open(f"./zoo/{args.model}_{args.data}_{epoch}.pkl", 'wb') as fout:
@@ -270,24 +302,23 @@ def dump_model(epoch, optimizer, model):
         pickle.dump(optimizer, fout)
         pickle.dump(model, fout)
 
-# vgg16_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg16_cifar100_289.pkl' #70%: 4, 70%:, 85%: 24, 90%:199
-# vgg11_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg11_cifar100_299.pkl'
-# vgg13_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg13_cifar100_299.pkl'
+vgg16_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg16_bn_cifar100_299.pkl' #70%: 4, 70%:, 85%: 24, 90%:199
+vgg11_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg11_bn_cifar100_299.pkl'
+vgg13_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg13_bn_cifar100_299.pkl'
 
 
 #prefix_warmup(vgg16_match)
-modelkeeper(model)
+#modelkeeper(model)
 model = model.to(device=device)
 
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay) #optim.Adam(model.parameters(), lr=args.lr)
-
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, verbose=True, min_lr=1e-4, factor=0.5) #torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch)
 
 for epoch in range(args.epoch):
     #adjust_learning_rate(optimizer, epoch)
     train(epoch)
-    teacher_accu = test()
-    scheduler.step()
+    test_acc, test_loss = test()
+    scheduler.step(test_loss)
 
     if (1+epoch) % 10 == 0:
         dump_model(epoch, optimizer, model)
