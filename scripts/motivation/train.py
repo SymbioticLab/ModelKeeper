@@ -32,8 +32,6 @@ parser.add_argument('--epoch', type=int, default=300, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=224, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=3, metavar='N',
-                    help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.02, metavar='LR',
                     help='learning rate (default: 0.01)') #0.002
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
@@ -64,9 +62,8 @@ normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
 kwargs = {'num_workers': 10, 'pin_memory': True} if args.cuda else {}
 
 train_transform = transforms.Compose(
-             [#transforms.RandomCrop(32),#, padding=4),
+             [transforms.RandomCrop(32, padding=4),
              transforms.RandomHorizontalFlip(),
-             transforms.RandomCrop(32, 4),
               transforms.ToTensor(),
               transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),])
 
@@ -74,7 +71,8 @@ test_transform = transforms.Compose(
              [transforms.ToTensor(),
               transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
-data_categories = {'cifar10': 10, 'cifar100': 100, 'imagenet': 1000}
+imagnet_categories = 999
+data_categories = {'cifar10': 10, 'cifar100': 100, 'imagenet': 1000, 'ImageNet120': imagnet_categories}
 
 
 
@@ -115,21 +113,20 @@ elif args.data == 'imagenet':
                         ])),
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
-elif args.data == 'ImageNet16-120':
-    sys.path.insert(0,'../../ray_tune/modelkeeper')
+elif args.data == 'ImageNet120':
+    sys.path.insert(0,'../../ray_tune/')
     from ImageNet import ImageNet16
-
 
     mean = [x / 255 for x in [122.68, 116.66, 104.01]]
     std  = [x / 255 for x in [63.22,  61.26 , 65.09]]
-    lists = [transforms.RandomHorizontalFlip(), transforms.RandomCrop(16, padding=2), 
+    lists = [transforms.RandomHorizontalFlip(), transforms.RandomCrop(32, padding=2), 
             transforms.ToTensor(), transforms.Normalize(mean, std)]
     train_transform = transforms.Compose(lists)
     test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
 
-    train_data = ImageNet16('/users/fanlai/ImageNet16-120', True , train_transform, 120)
-    test_data  = ImageNet16('/users/fanlai/ImageNet16-120', False, test_transform, 120)
-    assert len(train_data) == 151700 and len(test_data) == 6000
+    train_data = ImageNet16('/users/fanlai/imagenet32', True , train_transform, size=32, use_num_of_class_only=imagnet_categories)
+    test_data  = ImageNet16('/users/fanlai/imagenet32', False, test_transform, size=32, use_num_of_class_only=imagnet_categories)
+    print(len(train_data), len(test_data))
     train_loader = torch.utils.data.DataLoader(
         train_data, batch_size=args.batch_size, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
@@ -231,7 +228,14 @@ def modelkeeper(model):
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 2 every 30 epochs"""
-    lr = args.lr * (0.5 ** (epoch // 20))
+    # lr = args.lr * (0.5 ** (epoch // 20))
+    if epoch < 120:
+        lr = 0.02 
+    elif epoch < 160:
+        lr = 0.004 
+    else:
+        lr = 0.0008
+
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
@@ -306,7 +310,6 @@ vgg13_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg13_bn_cifar10
 model = model.to(device=device)
 
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay) #optim.Adam(model.parameters(), lr=args.lr)
-
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch)
 
 for epoch in range(args.epoch):

@@ -15,6 +15,7 @@ import pickle
 import gc
 from itertools import repeat
 import shutil
+import random
 
 # Libs for model clustering
 from clustering import k_medoids
@@ -24,7 +25,7 @@ clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), '
 clib_matcher.get_matching_score.restype = ctypes.c_char_p
 
 sys.setrecursionlimit(10000)
-
+random.seed(1)
 distance_lookup = None
 
 def get_distance(a, b):
@@ -381,20 +382,20 @@ class ModelKeeper(object):
             self.update_model_clusters()
 
 
-    def remove_from_zoo(self, model_path):
+    def remove_from_zoo(self, model_paths):
 
-        if model_path in self.model_zoo:
-            with self.zoo_lock:
-                del self.model_zoo[model_path]
+        if not isinstance(model_paths, list):
+            model_paths = [model_paths]
 
-            for model in self.distance:
-                del self.distance[model][model_path]
-            del self.distance[model_path]
+        for model_path in model_paths:
+            if model_path in self.model_zoo:
+                with self.zoo_lock:
+                    del self.model_zoo[model_path]
+            else:
+                logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
 
-            # Update model zoo asyn
-            self.update_model_clusters()
-        else:
-            logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
+        # Update model zoo asyn
+        self.update_model_clusters()
 
 
     def evict_neighbors(self, models_for_clustering):
@@ -437,6 +438,8 @@ class ModelKeeper(object):
             updating_pairs = [(i, j) for i in current_zoo_models for j in current_zoo_models
                             if (i not in self.distance or j not in self.distance[i]) and i != j]
 
+            # Give a chance that every model has some edges
+            random.shuffle(updating_pairs)
             pool = multiprocessing.Pool(processes=threads)
             results = []
 
@@ -740,6 +743,68 @@ class ModelKeeper(object):
 
         ans = os.system(f"mv {export_path} {export_path.replace('.onnx', '.out')}")
 
+
+    def schedule_job_order(self, models, threshold=0., timeout=120):
+        """
+        @ models: names of jobs needed for scheduling. 
+          - These models should have been added to zoo temporarily, and we can evict them once scheduling done
+        @ threshold: disconnect the tree if score < threshold
+        @ return: a list of jobs in scheduling order
+        """
+
+        self.add_to_zoo(models)
+
+        zoo_models = list(self.model_zoo.keys())
+        score_matrix = np.zeros([len(self.model_zoo), len(self.model_zoo)])
+
+        start_time = time.time()
+        graph_complete = False
+
+        while time.time() - start_time < timeout and not graph_complete:
+            graph_complete = True
+
+            for model in zoo_models:
+                for model_b in zoo_models:
+                    if model not in self.distance or model_b not in self.distance[model]:
+                        graph_complete = False
+                        break
+                if not graph_complete:
+                    break
+
+            if not graph_complete:
+                logging.info(f"scheduler is working on matching scores ...")
+                time.sleep(10)
+
+        if not graph_complete:
+            logging.warning(f"Better to have more time for matching scores. Current solution is suboptimal")
+
+        for i, model_a in enumerate(zoo_models):
+            for j, model_b in enumerate(zoo_models):
+                if model_a in self.distance and model_b in self.distance[a]:
+                    score_matrix[i][j] = self.distance[i][j]
+                else:
+                    score_matrix[i][j] = 0
+            # avoid cycle
+            score_matrix[i][i] = np.nan
+
+        self.remove_from_zoo(models)
+
+        from graphopt import GraphOperator
+
+        scheduler = GraphOperator(threshold)
+
+        temp_score_matrix = score_matrix.copy()
+        score_matrix = np.transpose(score_matrix)
+        job_order, mst_score = scheduler.max_spanning_tree(score_matrix)
+        global_opt = scheduler.get_optimal(temp_score_matrix)
+        trace_opt = scheduler.get_trace_optimal(temp_score_matrix)
+
+        logging.info(f"Scheduling: global Optimal: {global_opt}, MST: {mst_score}, Trace Optimal: {trace_opt}")
+
+        model_set = set(models)
+        return [m for m in job_order if zoo_models[m] in model_set]
+
+
     def check_register_models(self):
         new_models = [x for x in os.listdir(self.args.zoo_register_path) if x.endswith('.onnx')]
         if len(new_models) > 0:
@@ -874,4 +939,3 @@ def test():
 
 #test()
 #test_fake()
-
