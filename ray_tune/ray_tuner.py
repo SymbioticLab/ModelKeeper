@@ -32,8 +32,10 @@ from collections import defaultdict, deque
 import sys
 from vgg import *
 from ImageNet import ImageNet16
+
+# ModelKeeper dependency
 from modelkeeper.config import modelkeeper_config
-from modelkeeper.matchingopt import ModelKeeper
+from modelkeeper.clientservice import ModelKeeperClient
 
 from thirdparty.utils import batchify
 from thirdparty.model import AWDRNNModel
@@ -279,22 +281,10 @@ class TrainModel(tune.Trainable):
 
     def _setup(self, config):
         time.sleep(5+np.random.rand(1)[0] * 3)
-
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
         self.logger = self._create_logger()
         use_cuda = torch.cuda.is_available()
 
         device = torch.device('cuda')
-        
-        if use_cuda:
-            for i in range(3, -1, -1):
-                try:
-                    device = torch.device('cuda:'+str(i))
-                    #torch.cuda.set_device(i)
-                    self.logger.info(f'End up with cuda device {torch.rand(1).to(device=device)}')
-                    break
-                except Exception as e:
-                    pass
 
         torch.manual_seed(0)
         torch.cuda.manual_seed_all(0)
@@ -321,7 +311,8 @@ class TrainModel(tune.Trainable):
             self.optimizer = optim.SGD(self.model.parameters(), lr=5e-3, weight_decay=5e-4, momentum=0.9, nesterov=True)  # define optimizer
             self.criterion = nn.CrossEntropyLoss()  # define loss function  
 
-        self.model_name = 'model_' + '_'.join([str(val) for val in config.values()]) + '.pth'
+        self.model_name = 'model_' + '_'.join([str(val) for val in config.values()])
+        self.export_path = self.model_name + '.onnx'
         self.total_layers = 0
 
         self.use_oort = True # True
@@ -330,20 +321,27 @@ class TrainModel(tune.Trainable):
             start_matching = time.time()
 
             # Create a session to modelkeeper server
+            modelkeeper_client = ModelKeeperClient(modelkeeper_config)
 
-            mapper = ModelKeeper(modelkeeper_config)
             self.model.eval()
+            self.model.to(device='cpu')
 
             if args.task == "nlp":
                 dummy_input = torch.randint(0, self.ntokens, (70, args.batch_size))
                 hidden = self.model.init_hidden(args.batch_size)
-                weights, num_of_matched, parent_name = mapper.map_for_model(self.model, dummy_input, hidden, model_name=self.model_name)
+                torch.onnx.export(self.model, (dummy_input, hidden), self.export_path, 
+                                    export_params=True, verbose=0, training=0,
+                                    input_names=['dummy_input'],
+                                    output_names=['output'],
+                                    dynamic_axes={'dummy_input': [0], 'output': [0]}       
+                                )
             else:
-                weights, num_of_matched, parent_name = mapper.map_for_model(self.model, torch.rand(8, 3, 32, 32), 
-                                                            model_name=self.model_name)
-            del mapper
+                dummy_input = torch.rand(2, 3, 32, 32)
+                # export to onnx format
+                torch.onnx.export(self.model, dummy_input, self.export_path,
+                    export_params=True, verbose=0, training=1, do_constant_folding=False)
 
-            parent_acc = parent_layers = 0
+            weights, meta_info = modelkeeper_client.query_for_model(self.export_path)
 
             for name, p in self.model.named_parameters():
                 if weights is not None:
@@ -353,12 +351,9 @@ class TrainModel(tune.Trainable):
 
                 if '.weight' in name:
                     self.total_layers += 1
-            
-            if weights is not None:
-                parent_history = self.get_model_meta(parent_name.replace(".onnx", ''))
-                parent_acc, parent_layers = parent_history['final_acc'], parent_history['weight_layers']
 
-            self.logger.info(f"ModelKeeper warm starts {num_of_matched} layers from {parent_name} (Acc: {parent_acc}, Layers: {parent_layers}), total {self.total_layers} layers for {self.model_name} in {int(time.time() - start_matching)} sec")
+            self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {meta_info}")
+            modelkeeper_client.stop()
 
         self.best_acc = 0
         self.best_loss = np.Infinity
@@ -413,43 +408,37 @@ class TrainModel(tune.Trainable):
         else:
             return {"mean_loss": loss}
 
-    def get_model_meta(self, model_path):
-        self.logger.info(f"Getting model meta {model_path}")
-        with open(model_path, 'rb') as fin:
-            history = pickle.load(fin)
-            return history
-
     def _stop(self):
 
         zoo_path = os.path.join(os.environ['HOME'], 'model_zoo', 'nasbench201')
+        os.makedirs(zoo_path, exist_ok=True)
         self.history['weight_layers'] = self.total_layers
         self.history['final_acc'] = self.history[self.epoch]['acc']
 
         self.model.to(device='cpu')
-        self.model = self.model.to(device='cpu')
+        self.model.eval()
 
-        with open(os.path.join(zoo_path, self.model_name), 'wb') as fout:
+        with open(os.path.join(zoo_path, self.model_name+'.pkl'), 'wb') as fout:
             pickle.dump(self.history, fout)
 
         if self.use_oort:
-            self.model.eval()
-
             if args.task == "nlp":
-                with torch.no_grad():
-                    dummy_input = torch.randint(0, self.ntokens, (70, args.batch_size))
-                    hidden = self.model.init_hidden(args.batch_size)
-                    torch.onnx.export(self.model, (dummy_input, hidden), os.path.join(zoo_path, f"{self.model_name}.temp_onnx"), 
-                                        export_params=True, verbose=0, training=0,
-                                        input_names=['dummy_input'],
-                                        output_names=['output'],
-                                        dynamic_axes={'dummy_input': [0], 'output': [0]}       
-                                    )
+                dummy_input = torch.randint(0, self.ntokens, (70, args.batch_size))
+                hidden = self.model.init_hidden(args.batch_size)
+                torch.onnx.export(self.model, (dummy_input, hidden), self.export_path, 
+                                    export_params=True, verbose=0, training=0,
+                                    input_names=['dummy_input'],
+                                    output_names=['output'],
+                                    dynamic_axes={'dummy_input': [0], 'output': [0]}       
+                                )
             else:
-                torch.onnx.export(self.model, torch.rand(8, 3, 32, 32), os.path.join(zoo_path, f"{self.model_name}.temp_onnx"), 
-                                    export_params=True, verbose=0, training=1)
+                torch.onnx.export(self.model, torch.rand(2, 3, 32, 32), self.export_path, export_params=True, verbose=0, training=1)
 
-            # avoid conflicts
-            os.system(f'mv {os.path.join(zoo_path, f"{self.model_name}.temp_onnx")} {os.path.join(zoo_path, f"{self.model_name}.onnx")}')
+            # register model to the zoo
+            modelkeeper_client = ModelKeeperClient(modelkeeper_config)
+            modelkeeper_client.register_model_to_zoo(self.export_path)
+            modelkeeper_client.stop()
+            os.remove(self.export_path)
 
         self.logger.info(f"Training of {self.model_name} completed ...")
 
@@ -476,6 +465,7 @@ class TrainModel(tune.Trainable):
                         logging.StreamHandler()
                     ])
         return logging.getLogger(__name__)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PyTorch Cifar10 Example")

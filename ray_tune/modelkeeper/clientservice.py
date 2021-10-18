@@ -27,8 +27,7 @@ class ModelKeeperClient(object):
         self.connection_manager = SCPClient(self.connection.get_transport())
 
     def create_runtime_store(self):
-        if not os.path.exists(self.execution_path):
-            os.mkdir(self.execution_path)
+        os.makedirs(self.execution_path, exist_ok=True)
 
     def create_connection(self):
         connection = SSHClient()
@@ -67,6 +66,7 @@ class ModelKeeperClient(object):
             with open(local_path, 'rb') as fin:
                 weights = pickle.load(fin)
                 meta = pickle.load(fin) # {"matching_score", "parent_name", "parent_acc"}
+            os.remove(local_path)
         else:
             print(f"Querying the zoo server times out {timeout} sec")
 
@@ -106,5 +106,5 @@ class ModelKeeperClient(object):
     def stop(self):
         self.connection_manager.close()
         self.connection.close()
-        shutil.rmtree(self.execution_path)
+        #shutil.rmtree(self.execution_path)
 
