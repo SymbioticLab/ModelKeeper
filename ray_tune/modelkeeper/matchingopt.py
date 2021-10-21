@@ -411,10 +411,11 @@ class ModelKeeper(object):
                     if model_a != model_b and self.distance[model_a][model_b] < self.args.neigh_threshold and \
                         self.distance[model_b][model_a] < self.args.neigh_threshold:
                         # evict the one w/ lower accuracy
-                        if self.model_zoo[model_a].parent.graph['accuracy'] < self.model_zoo[model_b].parent.graph['accuracy']:
-                            evicted_nodes.add(model_a)
-                        else:
-                            evicted_nodes.add(model_b)
+                        if self.model_zoo[model_a].parent.graph['accuracy'] != -1 and self.model_zoo[model_b].parent.graph['accuracy'] != -1:
+                            if self.model_zoo[model_a].parent.graph['accuracy'] < self.model_zoo[model_b].parent.graph['accuracy']:
+                                evicted_nodes.add(model_a)
+                            else:
+                                evicted_nodes.add(model_b)
 
         print(f"Evicting {len(evicted_nodes)} from zoo")
 
@@ -475,7 +476,7 @@ class ModelKeeper(object):
         #update_cluster_offline()
 
 
-    def load_model_meta(self, meta_file='sample.onnx'):
+    def load_model_meta(self, meta_file='sample__accuracy.onnx'):
         """
         @ meta_file: input files are onnx. return the weight meta graph of this model
         """
@@ -485,13 +486,17 @@ class ModelKeeper(object):
         # meta file is rather small
         onnx_model = onnx.load(meta_file)
         model_graph = onnx_model.graph
+        if '__' in meta_file:
+            accuracy = float(meta_file.split('__')[-1].split('.')[0])
+        else:
+            accuracy = -1 
 
         # record the shape of each weighted nodes
         node_shapes, num_of_trainable_tensors = get_tensor_shapes(model_graph)
 
         # construct the computation graph and align their attribution
         nodes = [n for n in onnx_model.graph.node if n.op_type not in self.skip_opts]
-        graph = nx.DiGraph(name=meta_file, num_tensors=num_of_trainable_tensors, accuracy=100.)
+        graph = nx.DiGraph(name=meta_file, num_tensors=num_of_trainable_tensors, accuracy=accuracy)
 
         node_ids = dict()
         edge_source = collections.defaultdict(list)

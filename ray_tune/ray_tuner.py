@@ -95,7 +95,6 @@ def train_cv(model, optimizer, criterion, train_loader, device=torch.device("cpu
         loss = criterion(output, target)
         loss.backward()
         optimizer.step()
-        #scheduler.step()
 
     model.to(device='cpu')
 
@@ -119,7 +118,7 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
     
     """
     model.to(device).eval()
-    correct = 0.
+    correct = avg_loss = 0.
     total = 0   
     with torch.no_grad():
         for data, target in data_loader:
@@ -129,23 +128,28 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
             loss = criterion(output, target)
             total += target.size(0)
             correct += (predicted == target).sum().item()
+            avg_loss += loss.item()
+
     accuracy = correct / total
     model.to(device='cpu')
 
-    return accuracy, loss.item()
+    return accuracy, avg_loss/len(data_loader)
 
 def get_data_loaders():
 
     if 'ImageNet' in args.data:
         mean = [x / 255 for x in [122.68, 116.66, 104.01]]
         std  = [x / 255 for x in [63.22,  61.26 , 65.09]]
-        lists = [transforms.RandomHorizontalFlip(), transforms.RandomCrop(16, padding=2), 
-                transforms.ToTensor(), transforms.Normalize(mean, std)]
+        lists = [transforms.RandomHorizontalFlip(),
+                transforms.RandomCrop(32, padding=2), 
+                transforms.ToTensor(), 
+                transforms.Normalize(mean, std)]
         train_transform = transforms.Compose(lists)
         test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
     else:
         train_transform = transforms.Compose(
-                [
+                [transforms.RandomHorizontalFlip(), 
+                transforms.RandomCrop(32, padding=2), 
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
@@ -157,7 +161,7 @@ def get_data_loaders():
 
     kwargs = {'num_workers': 4, 'pin_memory': True} if args.cuda else {}
 
-    if args.task == "cv" or args.task == "v100":
+    if args.task == "nasbench":
         if args.data == 'cifar10':
 
             train_loader = torch.utils.data.DataLoader(
@@ -168,23 +172,15 @@ def get_data_loaders():
                 batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
         elif args.data == 'ImageNet16-120':
-            train_data = ImageNet16(os.path.join(args.dataset, 'ImageNet16-120'), True , train_transform, 120)
-            test_data  = ImageNet16(os.path.join(args.dataset, 'ImageNet16-120'), False, test_transform, 120)
-            assert len(train_data) == 151700 and len(test_data) == 6000
+            train_data = ImageNet16(os.path.join(args.dataset, 'ImageNet16-120'), True , train_transform, 32, 120)
+            test_data  = ImageNet16(os.path.join(args.dataset, 'ImageNet16-120'), False, test_transform, 32, 120)
+            #assert len(train_data) == 151700 and len(test_data) == 6000
             train_loader = torch.utils.data.DataLoader(
                 train_data, batch_size=args.batch_size, shuffle=True, **kwargs)
             test_loader = torch.utils.data.DataLoader(
                 test_data, batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
         return train_loader, test_loader, None
-
-    elif args.task == "nlp":
-        corpus = data.Corpus(args.dataset)
-        cuda = 'cuda'
-        train_loader = batchify(corpus.train, args.batch_size, args, cuda)
-        test_loader = batchify(corpus.test, args.test_batch_size, args, cuda)
-
-        return train_loader, test_loader, len(corpus.dictionary)
 
 
 from ray.tune.stopper import Stopper
@@ -272,6 +268,7 @@ class TrialPlateauStopper(Stopper):
     def stop_all(self):
         return False
 
+
 class TrainModel(tune.Trainable):
     """
     Ray Tune's class-based API for hyperparameter tuning
@@ -280,7 +277,6 @@ class TrainModel(tune.Trainable):
     """
 
     def _setup(self, config):
-        time.sleep(5+np.random.rand(1)[0] * 3)
         self.logger = self._create_logger()
         use_cuda = torch.cuda.is_available()
 
@@ -292,30 +288,19 @@ class TrainModel(tune.Trainable):
         self.device = device if use_cuda else torch.device("cpu")
         self.train_loader, self.test_loader, self.ntokens = get_data_loaders()
 
-        if args.task == "cv":
+        if args.task == "nasbench":
             self.model = get_cell_based_tiny_net(conf_list[config['model']])
-            self.optimizer = optim.SGD(self.model.parameters(), lr=5e-3, weight_decay=5e-4, momentum=0.9, nesterov=True)  # define optimizer
-            self.criterion = nn.CrossEntropyLoss()  # define loss function  
+        else:
+            assert("Have not implemented!")
 
-        elif args.task == "nlp":
-            self.model = AWDRNNModel('CustomRNN', self.ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.dropouth, 
-                               args.dropouti, args.dropoute, args.wdrop, args.tied, conf_list[config['model']], verbose=False)
 
-            self.criterion = SplitCrossEntropyLoss(args.emsize, splits=[], verbose=False)
-            self.params = list(self.model.parameters()) + list(self.criterion.parameters())
-
-            self.optimizer = torch.optim.Adam(self.params, lr=args.lr, weight_decay=args.wdecay)
-
-        elif args.task == "v100":
-            self.model = VGG(make_layers(conf_list[config['model']][0], k = conf_list[config['model']][1]))
-            self.optimizer = optim.SGD(self.model.parameters(), lr=5e-3, weight_decay=5e-4, momentum=0.9, nesterov=True)  # define optimizer
-            self.criterion = nn.CrossEntropyLoss()  # define loss function  
 
         self.model_name = 'model_' + '_'.join([str(val) for val in config.values()])
         self.export_path = self.model_name + '.onnx'
-        self.total_layers = 0
 
         self.use_oort = True # True
+        learning_rate = args.lr
+
         # Apply ModelKeeper to warm start
         if self.use_oort:
             start_matching = time.time()
@@ -326,20 +311,10 @@ class TrainModel(tune.Trainable):
             self.model.eval()
             self.model.to(device='cpu')
 
-            if args.task == "nlp":
-                dummy_input = torch.randint(0, self.ntokens, (70, args.batch_size))
-                hidden = self.model.init_hidden(args.batch_size)
-                torch.onnx.export(self.model, (dummy_input, hidden), self.export_path, 
-                                    export_params=True, verbose=0, training=0,
-                                    input_names=['dummy_input'],
-                                    output_names=['output'],
-                                    dynamic_axes={'dummy_input': [0], 'output': [0]}       
-                                )
-            else:
-                dummy_input = torch.rand(2, 3, 32, 32)
-                # export to onnx format
-                torch.onnx.export(self.model, dummy_input, self.export_path,
-                    export_params=True, verbose=0, training=1, do_constant_folding=False)
+            dummy_input = torch.rand(2, 3, 32, 32)
+            # export to onnx format
+            torch.onnx.export(self.model, dummy_input, self.export_path,
+                export_params=True, verbose=0, training=1, do_constant_folding=False)
 
             weights, meta_info = modelkeeper_client.query_for_model(self.export_path)
 
@@ -349,35 +324,34 @@ class TrainModel(tune.Trainable):
                     assert(temp_data.shape == p.data.shape)
                     p.data = temp_data.to(dtype=p.data.dtype)
 
-                if '.weight' in name:
-                    self.total_layers += 1
-
             self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {meta_info}")
             modelkeeper_client.stop()
 
+            learning_rate *= (1.-meta_info.get('matching_score'))
+
         self.best_acc = 0
         self.best_loss = np.Infinity
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=500*len(self.train_loader), eta_min=1e-3)
         self.epoch = 0
 
+        self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate, weight_decay=5e-4, momentum=0.9)
+        self.criterion = nn.CrossEntropyLoss()
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=5, verbose=True, min_lr=5e-4, factor=0.5)  
+        
         self.logger.info(f"Setup for model {self.model_name} ...")
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
+
 
     def _train(self):
         start_time = time.time()
 
-        training_duration, acc, loss = 0, 0, np.Infinity
-        if args.task == "cv" or args.task == "v100":
+        if args.task == "nasbench":
             train_cv(self.model, self.optimizer, self.criterion, self.train_loader, self.device, self.scheduler)
-            training_duration = time.time() - start_time
-            acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
-        elif args.task == "nlp":
-            train_nlp(self.model, self.optimizer, self.params, self.criterion, self.train_loader, args, self.epoch,self.device)
-            training_duration = time.time() - start_time
-            loss = eval_nlp(self.model, self.criterion, self.test_loader, args.test_batch_size, args, self.device)
+        
+        training_duration = time.time() - start_time
+        acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
+        self.scheduler.step(loss)
 
         self.epoch += 1
-        
         self.history[self.epoch] = {
                     'time': self.history[self.epoch-1]['time']+training_duration,
                     'acc': acc,
@@ -393,50 +367,30 @@ class TrainModel(tune.Trainable):
             is_best = loss < self.best_loss
         self.best_acc = max(acc, self.best_acc)
         self.best_loss = min(loss, self.best_loss)
-        if is_best:
-            try:
-                torch.save({
-                'epoch': self.epoch,
-                'model_state_dict': self.model.state_dict(),
-                'optimizer_state_dict': self.optimizer.state_dict(),
-                }, self.model_name)
-            except Exception as e:
-                self.logger.warning(e)
 
         if METRIC == 'accuracy':
             return {"mean_accuracy": acc}
         else:
             return {"mean_loss": loss}
 
+
     def _stop(self):
 
         zoo_path = os.path.join(os.environ['HOME'], 'model_zoo', 'nasbench201')
         os.makedirs(zoo_path, exist_ok=True)
-        self.history['weight_layers'] = self.total_layers
-        self.history['final_acc'] = self.history[self.epoch]['acc']
+
 
         self.model.to(device='cpu')
         self.model.eval()
 
-        with open(os.path.join(zoo_path, self.model_name+'.pkl'), 'wb') as fout:
-            pickle.dump(self.history, fout)
 
         if self.use_oort:
-            if args.task == "nlp":
-                dummy_input = torch.randint(0, self.ntokens, (70, args.batch_size))
-                hidden = self.model.init_hidden(args.batch_size)
-                torch.onnx.export(self.model, (dummy_input, hidden), self.export_path, 
-                                    export_params=True, verbose=0, training=0,
-                                    input_names=['dummy_input'],
-                                    output_names=['output'],
-                                    dynamic_axes={'dummy_input': [0], 'output': [0]}       
-                                )
-            else:
+            if args.task == "nasbench":
                 torch.onnx.export(self.model, torch.rand(2, 3, 32, 32), self.export_path, export_params=True, verbose=0, training=1)
 
             # register model to the zoo
             modelkeeper_client = ModelKeeperClient(modelkeeper_config)
-            modelkeeper_client.register_model_to_zoo(self.export_path)
+            modelkeeper_client.register_model_to_zoo(self.export_path, accuracy=self.history[self.epoch]['acc'])
             modelkeeper_client.stop()
             os.remove(self.export_path)
 
@@ -448,8 +402,10 @@ class TrainModel(tune.Trainable):
         torch.save(self.model.state_dict(), checkpoint_path)
         return checkpoint_path
 
+
     def _restore(self, checkpoint_path):
         self.model.load_state_dict(torch.load(checkpoint_path))
+
 
     def _create_logger(self):
         log_dir = f"{os.environ['HOME']}/ray_logs"
@@ -469,15 +425,15 @@ class TrainModel(tune.Trainable):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PyTorch Cifar10 Example")
-    parser.add_argument('--batch-size', type=int, default=256, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+    parser.add_argument('--test-batch-size', type=int, default=64, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--num_models', type=int, default=300, metavar='N',
                         help='number of models to train ')
-    parser.add_argument('--lr', type=float, default=1e-3, metavar='LR',
+    parser.add_argument('--lr', type=float, default=1e-2, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='SGD momentum (default: 0.9)')
@@ -490,8 +446,8 @@ if __name__ == "__main__":
     parser.add_argument('--noise', type=float, default=5e-2,
                         help='noise or no noise 0-1')
     parser.add_argument('--data', type=str, default='ImageNet16-120')
-    parser.add_argument('--dataset', type=str, default='/gpfs/gpfs0/groups/chowdhury/fanlai/dataset')
-    parser.add_argument('--meta', type=str, default='/gpfs/gpfs0/groups/chowdhury/dywsjtu/')
+    parser.add_argument('--dataset', type=str, default='/users/fanlai/data')
+    parser.add_argument('--meta', type=str, default='/users/fanlai/data')
     parser.add_argument(
         "--smoke-test", action="store_true", help="Finish quickly for testing")
     parser.add_argument(
@@ -500,35 +456,8 @@ if __name__ == "__main__":
         help="Address of Ray cluster for seamless distributed execution.")
 
     ## nlp branch args
-    parser.add_argument('--task', type=str, default='cv')
-    parser.add_argument('--emsize', type=int, default=400,
-                    help='emsize')
-    parser.add_argument('--nhid', type=int, default=600,
-                        help='nhid')
-    parser.add_argument('--nlayers', type=int, default=3,
-                        help='nlayers')
-    parser.add_argument('--dropout', type=float, default=0.4,
-                        help='dropout')
-    parser.add_argument('--dropouth', type=float, default=0.25,
-                        help='dropouth')
-    parser.add_argument('--dropouti', type=float, default=0.4,
-                        help='dropouti')
-    parser.add_argument('--dropoute', type=float, default=0.1,
-                        help='dropoute')
-    parser.add_argument('--wdrop', type=float, default=0.5,
-                        help='wdrop')
-    parser.add_argument('--alpha', type=float, default=2,
-                        help='alpha')
-    parser.add_argument('--beta', type=float, default=1,
-                        help='beta')
-    parser.add_argument('--bptt', type=float, default=70,
-                        help='bptt')
-    parser.add_argument('--wdecay', type=float, default=1.2e-6,
-                    help='weight decay')
-    parser.add_argument('--tied', action='store_true', default=True,
-                    help='tied')
-    parser.add_argument('--clip', type=float, default=0.25,
-                    help='clip')
+    parser.add_argument('--task', type=str, default='nasbench')
+    
 
     args, unknown = parser.parse_known_args()
 
@@ -538,7 +467,6 @@ if __name__ == "__main__":
         torch.cuda.manual_seed(args.seed)
 
     conf_list = GenerateConfig(args.num_models, args.meta + args.data + "_config.pkl")
-    #print(conf_list, type(conf_list))
 
     # Clear the log dir
     log_dir = f"{os.environ['HOME']}/ray_logs"

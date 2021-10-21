@@ -73,14 +73,14 @@ class ModelKeeperClient(object):
         return weights, meta
 
 
-    def register_model_to_zoo(self, model_path, zoo_path=None):
+    def register_model_to_zoo(self, model_path, zoo_path=None, accuracy=100):
         """
         @ model: upload the model to the ModelKeeper zoo
         """
 
         if zoo_path is None:
             zoo_path = os.path.join(self.zoo_register_path, model_path.split('/')[-1].replace('.onnx', ''))
-
+            zoo_path = zoo_path + f'__{accuracy}' 
         try:
             self.connection_manager.put(model_path, zoo_path)
             _ = self.connection.exec_command(f"mv {zoo_path} {zoo_path+'.onnx'}")
