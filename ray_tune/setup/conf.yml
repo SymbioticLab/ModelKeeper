@@ -1,0 +1,23 @@
+# Configuration file of Ray experiment
+
+# ========== Cluster configuration ========== 
+# ip address of the master
+master_ip: 10.0.0.1
+
+# ip address of each worker:# of available gpus process on each gpu in this node
+worker_ips: 
+    - 10.0.0.1:1
+
+auth:
+    ssh_user: ""
+    ssh_private_key: ~/.ssh/id_rsa
+
+# cmd to run before we can indeed run Ray (in order)
+setup_commands:
+    - source $HOME/anaconda3/bin/activate fedscale
+
+# ========== Additional job configuration ========== 
+# Default parameters are specified in argParser.py, wherein more description of the parameter can be found
+
+job_conf: 
+    - job_name: modelkeeper                   # Generate logs under this folder: log_path/job_name/time_stamp

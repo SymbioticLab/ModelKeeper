@@ -328,6 +328,7 @@ class ModelKeeper(object):
             self.init_model_zoo(args.zoo_path)
 
         self.init_execution_store()
+        self.service_thread = None
 
     def init_model_zoo(self, zoo_path):
         if os.path.exists(zoo_path):
@@ -851,6 +852,20 @@ class ModelKeeper(object):
                 gc.collect()
 
 
+    def start_service(self):
+        self.service_thread = threading.Thread(target=self.start)
+        self.service_thread.setDaemon(True)
+        self.service_thread.start()
+
+    def stop_service(self):
+        try:
+            if self.service_thread.isAlive():
+                self.service_thread._stop()
+        except Exception as e:
+            # Python > 3.4 will throw errors
+            pass
+
+
 def faked_graph():
     graph = nx.DiGraph(name='faked')
     attr1={'dims': [64, 32, 3, 3], 'op_type': 'cov1',}
@@ -944,3 +959,4 @@ def test():
 
 #test()
 #test_fake()
+

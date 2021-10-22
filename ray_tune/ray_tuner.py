@@ -21,17 +21,13 @@ import torchvision.models as models
 from torch.autograd import Variable
 from torchvision import datasets, transforms
 
-
-from nas_201_api import NASBench201API as API
-from models import get_cell_based_tiny_net
-
 import socket
 from random import Random
 from collections import defaultdict, deque
 
 import sys
-from vgg import *
 from ImageNet import ImageNet16
+from models import get_cell_based_tiny_net
 
 # ModelKeeper dependency
 from modelkeeper.config import modelkeeper_config
@@ -298,11 +294,11 @@ class TrainModel(tune.Trainable):
         self.model_name = 'model_' + '_'.join([str(val) for val in config.values()])
         self.export_path = self.model_name + '.onnx'
 
-        self.use_oort = True # True
         learning_rate = args.lr
+        self.use_keeper = args.use_keeper
 
         # Apply ModelKeeper to warm start
-        if self.use_oort:
+        if self.use_keeper:
             start_matching = time.time()
 
             # Create a session to modelkeeper server
@@ -384,7 +380,7 @@ class TrainModel(tune.Trainable):
         self.model.eval()
 
 
-        if self.use_oort:
+        if self.use_keeper:
             if args.task == "nasbench":
                 torch.onnx.export(self.model, torch.rand(2, 3, 32, 32), self.export_path, export_params=True, verbose=0, training=1)
 
@@ -457,16 +453,20 @@ if __name__ == "__main__":
 
     ## nlp branch args
     parser.add_argument('--task', type=str, default='nasbench')
-    
+    parser.add_argument('--use_keeper', type=bool, default=False)
 
     args, unknown = parser.parse_known_args()
+    keeper_service = None 
 
+    if args.use_keeper:
+        keeper_service = ModelKeeper(modelkeeper_config)
+        keeper_service.start_service()
 
     torch.manual_seed(args.seed)
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
-    conf_list = GenerateConfig(args.num_models, args.meta + args.data + "_config.pkl")
+    conf_list = GenerateConfig(args.num_models, os.path.join(args.meta, args.data + "_config.pkl"))
 
     # Clear the log dir
     log_dir = f"{os.environ['HOME']}/ray_logs"
@@ -481,8 +481,8 @@ if __name__ == "__main__":
 
     REDUCTION_FACTOR = 1.000001
     GRACE_PERIOD = 5#4
-    CPU_RESOURCES_PER_TRIAL = 10
-    GPU_RESOURCES_PER_TRIAL = 1
+    CPU_RESOURCES_PER_TRIAL = 1
+    GPU_RESOURCES_PER_TRIAL = 0.5
     METRIC = 'accuracy'  # or 'loss'
 
     CONFIG = {
@@ -529,3 +529,7 @@ if __name__ == "__main__":
         print("Best config is:", analysis.get_best_config(metric="mean_accuracy"))
     else:
         print("Best config is:", analysis.get_best_config(metric="mean_loss"))
+
+    if keeper_service is None:
+        keeper_service.stop_service()
+
