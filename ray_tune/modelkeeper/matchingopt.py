@@ -2,7 +2,6 @@ import onnx
 import networkx as nx
 import time, sys, os
 import functools, collections
-from mappingopt import MappingOperator
 import logging
 from onnx import numpy_helper
 import multiprocessing
@@ -17,6 +16,9 @@ from itertools import repeat
 import shutil
 import random
 
+sys.path.append('./modelkeeper')
+
+from mappingopt import MappingOperator
 # Libs for model clustering
 from clustering import k_medoids
 

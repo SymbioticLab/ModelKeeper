@@ -10,8 +10,8 @@ parser.add_argument('--zoo_ans_path', type=str, default='/mnt/zoo/tests/ans_zoo/
 parser.add_argument('--zoo_register_path', type=str, default='/mnt/zoo/tests/register_zoo/', help='Runtime data store of new pending models')
 
 # Framework configuration
-parser.add_argument('--num_of_processes', type=int, default=4, help='Number of threads used for mapping (~CPU cores)')
-parser.add_argument('--zoo_server', type=str, default='10.0.0.2', help='Server of ModelKeeper')
+parser.add_argument('--num_of_processes', type=int, default=20, help='Number of threads used for mapping (~CPU cores)')
+parser.add_argument('--zoo_server', type=str, default='10.0.0.1', help='Server of ModelKeeper')
 parser.add_argument('--user_name', type=str, default='', help='User name in accessing the ModelKeeper server')
 
 # Parameters

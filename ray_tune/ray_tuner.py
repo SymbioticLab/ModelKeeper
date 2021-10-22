@@ -32,17 +32,13 @@ from models import get_cell_based_tiny_net
 # ModelKeeper dependency
 from modelkeeper.config import modelkeeper_config
 from modelkeeper.clientservice import ModelKeeperClient
+from modelkeeper.matchingopt import ModelKeeper
 
-from thirdparty.utils import batchify
-from thirdparty.model import AWDRNNModel
-from thirdparty.train import train_nlp, eval_nlp
-from thirdparty import data
-from thirdparty.splitcross import SplitCrossEntropyLoss
 
 logging.basicConfig(level=logging.INFO, filename='./ray_log.e', filemode='w')
 logger = logging.getLogger(__name__)
 
-modelidx_base = 1150
+modelidx_base = 0
 
 def GenerateConfig(n, path):
     """
@@ -272,14 +268,17 @@ class TrainModel(tune.Trainable):
     
     """
 
-    def _setup(self, config):
-        self.logger = self._create_logger()
+    def setup(self, config):
+        self.logger = self.creat_my_log()
         use_cuda = torch.cuda.is_available()
 
         device = torch.device('cuda')
+        seed = 1 
 
-        torch.manual_seed(0)
-        torch.cuda.manual_seed_all(0)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        #torch.backends.cudnn.deterministic = True
         
         self.device = device if use_cuda else torch.device("cpu")
         self.train_loader, self.test_loader, self.ntokens = get_data_loaders()
@@ -288,7 +287,6 @@ class TrainModel(tune.Trainable):
             self.model = get_cell_based_tiny_net(conf_list[config['model']])
         else:
             assert("Have not implemented!")
-
 
 
         self.model_name = 'model_' + '_'.join([str(val) for val in config.values()])
@@ -323,7 +321,7 @@ class TrainModel(tune.Trainable):
             self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {meta_info}")
             modelkeeper_client.stop()
 
-            learning_rate *= (1.-meta_info.get('matching_score'))
+            learning_rate *= (1.-meta_info.get('matching_score', 0))
 
         self.best_acc = 0
         self.best_loss = np.Infinity
@@ -337,7 +335,7 @@ class TrainModel(tune.Trainable):
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
 
-    def _train(self):
+    def step(self):
         start_time = time.time()
 
         if args.task == "nasbench":
@@ -370,17 +368,11 @@ class TrainModel(tune.Trainable):
             return {"mean_loss": loss}
 
 
-    def _stop(self):
-
-        zoo_path = os.path.join(os.environ['HOME'], 'model_zoo', 'nasbench201')
-        os.makedirs(zoo_path, exist_ok=True)
-
-
-        self.model.to(device='cpu')
-        self.model.eval()
-
+    def stop(self):
 
         if self.use_keeper:
+            self.model.to(device='cpu')
+            self.model.eval()
             if args.task == "nasbench":
                 torch.onnx.export(self.model, torch.rand(2, 3, 32, 32), self.export_path, export_params=True, verbose=0, training=1)
 
@@ -392,22 +384,12 @@ class TrainModel(tune.Trainable):
 
         self.logger.info(f"Training of {self.model_name} completed ...")
 
-
-    def _save(self, checkpoint_dir):
-        checkpoint_path = os.path.join(checkpoint_dir, self.model_name)
-        torch.save(self.model.state_dict(), checkpoint_path)
-        return checkpoint_path
-
-
-    def _restore(self, checkpoint_path):
-        self.model.load_state_dict(torch.load(checkpoint_path))
-
-
-    def _create_logger(self):
+    def creat_my_log(self):
         log_dir = f"{os.environ['HOME']}/ray_logs"
         if not os.path.isdir(log_dir):
             os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, f'{socket.gethostname()}')
+        host_name = str(socket.gethostname()).split('.')[0]
+        log_path = os.path.join(log_dir, host_name)
 
         logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
                     datefmt='%H:%M:%S',
@@ -441,14 +423,14 @@ if __name__ == "__main__":
                         help='how many batches to wait before logging status')
     parser.add_argument('--noise', type=float, default=5e-2,
                         help='noise or no noise 0-1')
-    parser.add_argument('--data', type=str, default='ImageNet16-120')
+    parser.add_argument('--data', type=str, default='cifar10')
     parser.add_argument('--dataset', type=str, default='/users/fanlai/data')
     parser.add_argument('--meta', type=str, default='/users/fanlai/data')
     parser.add_argument(
         "--smoke-test", action="store_true", help="Finish quickly for testing")
     parser.add_argument(
         "--address",
-        default="localhost:6379",
+        default="10.0.0.1:6379",
         help="Address of Ray cluster for seamless distributed execution.")
 
     ## nlp branch args
@@ -488,7 +470,7 @@ if __name__ == "__main__":
     CONFIG = {
         "model": tune.grid_search(list(range(args.num_models))),
     }
-    ray.init(address="auto")
+    ray.init(address=f"{args.address}")
 
     if METRIC=='accuracy':
         sched = AsyncHyperBandScheduler(time_attr="training_epoch", 
