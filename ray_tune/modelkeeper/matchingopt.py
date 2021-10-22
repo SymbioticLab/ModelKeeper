@@ -59,13 +59,13 @@ def get_tensor_shapes(model_graph):
     num_of_trainable_tensors = 0
 
     if model_graph.initializer:
-        #print("Load from initializer")
+        #logging.info("Load from initializer")
         for init in model_graph.initializer:
             if '.weight' in init.name:
                 num_of_trainable_tensors += 1
             node_shapes[init.name] = tuple(init.dims)
     else:
-        #print("Load from input")
+        #logging.info("Load from input")
         for node in model_graph.input:
             node_shapes[node.name] = tuple([p.dim_value for p in node.type.tensor_type.shape.dim])
 
@@ -150,7 +150,7 @@ class MatchingOperator(object):
 
         self.match_score, self.match_res = self.parse_json_str(ans_json_str, read_mapping)
 
-        print(f"{self.parent.graph['name']} align_child {self.child.graph['name']} takes {time.time() - start_time} sec, " +
+        logging.info(f"{self.parent.graph['name']} align_child {self.child.graph['name']} takes {time.time() - start_time} sec, " +
                 f"score: {self.match_score/self.num_of_nodes}")
 
         return self.match_score
@@ -313,6 +313,7 @@ class ModelKeeper(object):
 
         self.current_mapping_id = 0
         self.zoo_model_id = 0
+        self.mode_threshold = 500 # enable clustering if len(model_zoo) > T
 
         self.model_clusters = []
         self.query_model = None
@@ -376,12 +377,12 @@ class ModelKeeper(object):
                     self.zoo_model_id += 1
                     is_update = True
 
-                    print(f"Added {model_path} to zoo ...")
+                    logging.info(f"Added {model_path} to zoo ...")
                 except Exception as e:
-                    print(f"Error: {e} for {model_path}")
+                    logging.info(f"Error: {e} for {model_path}")
 
         # Update model zoo
-        if is_update:
+        if is_update and self.mode_threshold < len(self.model_zoo):
             self.update_model_clusters()
 
 
@@ -398,7 +399,8 @@ class ModelKeeper(object):
                 logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
 
         # Update model zoo asyn
-        self.update_model_clusters()
+        if self.mode_threshold < len(self.model_zoo):
+            self.update_model_clusters()
 
 
     def evict_neighbors(self, models_for_clustering):
@@ -420,7 +422,7 @@ class ModelKeeper(object):
                             else:
                                 evicted_nodes.add(model_b)
 
-        print(f"Evicting {len(evicted_nodes)} from zoo")
+        logging.info(f"Evicting {len(evicted_nodes)} from zoo")
 
         return [n for n in models_for_clustering if n not in evicted_nodes]
 
@@ -429,7 +431,7 @@ class ModelKeeper(object):
         """
             @ threads: number of threads to simulate {spawn} clustering trials
         """
-        print(f"Clustering {len(self.model_zoo)} models ...")
+        logging.info(f"Clustering {len(self.model_zoo)} models ...")
 
         with self.zoo_lock:
             current_zoo_models = list(self.model_zoo.keys())
@@ -472,7 +474,7 @@ class ModelKeeper(object):
                             k=num_of_clusters, distance=get_distance,
                             threads=threads, spawn=spawn, max_iterations=1000)
 
-            print(f"Cluster into {num_of_clusters} clusters, max_diameter: {diameter}")
+            logging.info(f"Cluster into {num_of_clusters} clusters, max_diameter: {diameter}")
 
         thread = threading.Thread(target=update_cluster_offline)
         thread.start()
@@ -490,7 +492,7 @@ class ModelKeeper(object):
         onnx_model = onnx.load(meta_file)
         model_graph = onnx_model.graph
         if '__' in meta_file:
-            accuracy = float(meta_file.split('__')[-1].split('.')[0])
+            accuracy = float(meta_file.split('__')[-1].split('.onnx')[0])
         else:
             accuracy = -1 
 
@@ -510,7 +512,7 @@ class ModelKeeper(object):
             input_nodes, trainable_weights = split_inputs(node.input)
             opt_dir[node.op_type] += 1
 
-            #print(node.input, trainable_weights)
+            #logging.info(node.input, trainable_weights)
             # add new nodes to graph
             attr = {
                 'dims': [] if not trainable_weights else node_shapes[trainable_weights],
@@ -590,7 +592,7 @@ class ModelKeeper(object):
 
             self.distance[cluster][child.graph['name']] = 1.0-score
 
-        print(f"Searching {len(search_models)+len(medoids)} models ...")
+        logging.info(f"Searching {len(search_models)+len(medoids)} models ...")
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
             #for model, score in executor.map(self.mapping_func, search_models, timeout=timeout):
@@ -609,10 +611,10 @@ class ModelKeeper(object):
             parent, mappings, _ = self.get_mappings(parent_path)
 
         if parent is not None:
-            print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
+            logging.info("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
                         parent.graph['name'], best_score, time.time() - start_time))
         else:
-            print("Does not find best mapping for {}, takes {:.2f} sec\n\n".format(
+            logging.info("Does not find best mapping for {}, takes {:.2f} sec\n\n".format(
                         child.graph['name'], time.time() - start_time))
 
         return parent, mappings, best_score
@@ -633,7 +635,7 @@ class ModelKeeper(object):
 
         for (p, s) in results:
             #logging.info(f"For mapping pair ({model_name}, {p.graph['name']}) score is {s}")
-            print(f"For mapping pair ({model_name}, {p}) score is {s}")
+            logging.info(f"For mapping pair ({model_name}, {p}) score is {s}")
             if s > best_score:
                 parent_path, best_score = p, s
 
@@ -642,10 +644,10 @@ class ModelKeeper(object):
             parent, mappings, _ = self.get_mappings(parent_path)
 
         if parent is not None:
-            print("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
+            logging.info("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
                                 parent.graph['name'], best_score, time.time() - start_time))
         else:
-            print("Does not find best mapping for {}, takes {:.2f} sec\n\n".format(
+            logging.info("Does not find best mapping for {}, takes {:.2f} sec\n\n".format(
                         child.graph['name'], time.time() - start_time))
         return parent, mappings, best_score
 
@@ -657,7 +659,7 @@ class ModelKeeper(object):
         mapper.pad_mapping()
         weights, num_of_matched = mapper.get_mapping_weights()
 
-        print("Mapped {} layers to the child model ({} layers), parent {} layers".format(num_of_matched, child.graph['num_tensors'],
+        logging.info("Mapped {} layers to the child model ({} layers), parent {} layers".format(num_of_matched, child.graph['num_tensors'],
                     parent.graph['num_tensors']))
 
         return weights, num_of_matched
@@ -723,7 +725,10 @@ class ModelKeeper(object):
         child.graph['model_id'] = str(self.current_mapping_id)
 
         # find the best mapping from the zoo
-        parent, mappings, best_score = self.query_best_mapping(child, blacklist, model_name)
+        if len(self.model_zoo) > self.mode_threshold:
+            parent, mappings, best_score = self.query_best_mapping(child, blacklist, model_name)
+        else:
+            parent, mappings, best_score = self.get_best_mapping(child, blacklist, model_name)
 
         # overwrite the current model weights
         weights, num_of_matched = None, 0
@@ -849,7 +854,7 @@ class ModelKeeper(object):
             time.sleep(2)
 
             if time.time() - last_heartbeat > 30:
-                print(f"ModelKeeper has been running {int(time.time() - start_time)} sec ...")
+                logging.info(f"ModelKeeper has been running {int(time.time() - start_time)} sec ...")
                 last_heartbeat = time.time()
                 gc.collect()
 
@@ -919,20 +924,20 @@ def mapping_faked(parent, child_graph):
     opt = MatchingOperator(parent=parent)
     mappings, score = opt.get_mappings(child=child_graph)
 
-    print(opt.alignmentStrings()[0])
-    print("\n\n")
-    print(opt.alignmentStrings()[1])
-    print("\n\n")
-    print(opt.graphStrings()[0])
-    print("\n\n")
-    print(opt.graphStrings()[1])
+    logging.info(opt.alignmentStrings()[0])
+    logging.info("\n\n")
+    logging.info(opt.alignmentStrings()[1])
+    logging.info("\n\n")
+    logging.info(opt.graphStrings()[0])
+    logging.info("\n\n")
+    logging.info(opt.graphStrings()[1])
     return (parent, mappings, score)
 
 def test_fake():
     parent, child = faked_graph(), faked_graph2()
 
     mapper = MatchingOperator(parent=parent)
-    print(mapper.get_mappings(child))
+    logging.info(mapper.get_mappings(child))
 
 
 def test():
@@ -955,7 +960,7 @@ def test():
     #weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([]))
     mapper.start()
 
-    print("\n\nMatching results: \n{}".format(meta_data))
+    logging.info("\n\nMatching results: \n{}".format(meta_data))
 
     # time.sleep(40)
 

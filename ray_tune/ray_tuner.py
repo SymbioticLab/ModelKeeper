@@ -16,7 +16,7 @@ import ray
 from ray import tune
 from ray.tune import track, run_experiments
 from ray.tune.schedulers import AsyncHyperBandScheduler
-
+from ray.tune.stopper import CombinedStopper, MaximumIterationStopper
 import torchvision.models as models
 from torch.autograd import Variable
 from torchvision import datasets, transforms
@@ -122,7 +122,7 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
             correct += (predicted == target).sum().item()
             avg_loss += loss.item()
 
-    accuracy = correct / total
+    accuracy = float(correct) / total
     model.to(device='cpu')
 
     return accuracy, avg_loss/len(data_loader)
@@ -161,6 +161,13 @@ def get_data_loaders():
                 batch_size=args.batch_size, shuffle=True, **kwargs)
             test_loader = torch.utils.data.DataLoader(
                 datasets.CIFAR10(args.dataset, train=False, download=True, transform=test_transform),
+                batch_size=args.test_batch_size, shuffle=True, **kwargs)
+        elif args.data == 'cifar100':
+            train_loader = torch.utils.data.DataLoader(
+                datasets.CIFAR100(args.dataset, train=True, download=True, transform=train_transform),
+                batch_size=args.batch_size, shuffle=True, **kwargs)
+            test_loader = torch.utils.data.DataLoader(
+                datasets.CIFAR100(args.dataset, train=False, download=True, transform=test_transform),
                 batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
         elif args.data == 'ImageNet16-120':
@@ -261,6 +268,53 @@ class TrialPlateauStopper(Stopper):
         return False
 
 
+class BestAccuracyStopper(Stopper):
+    """Early stops the training if validation loss doesn't improve after a given patience."""
+    def __init__(self, patience=10, verbose=False, delta=3e-4, trace_func=logging.info):
+        """
+        Args:
+            patience (int): How long to wait after last time validation loss improved.
+                            Default: 7
+            verbose (bool): If True, prints a message for each validation loss improvement.
+                            Default: False
+            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
+                            Default: 0
+            path (str): Path for the checkpoint to be saved to.
+                            Default: 'checkpoint.pt'
+            trace_func (function): trace print function.
+                            Default: print
+        """
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = np.Inf
+        self.delta = delta
+        self.trace_func = trace_func
+
+    def __call__(self, trial_id: str, result: dict):
+
+        score = result['mean_accuracy']
+
+        if self.best_score is None:
+            self.best_score = score
+            #self.save_checkpoint(val_loss, model)
+        elif score <= self.best_score + self.delta:
+            self.counter += 1
+            self.trace_func(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.counter = 0
+
+        return self.early_stop
+
+    def stop_all(self):
+        return False
+
+
 class TrainModel(tune.Trainable):
     """
     Ray Tune's class-based API for hyperparameter tuning
@@ -329,7 +383,8 @@ class TrainModel(tune.Trainable):
 
         self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate, weight_decay=5e-4, momentum=0.9)
         self.criterion = nn.CrossEntropyLoss()
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=5, verbose=True, min_lr=5e-4, factor=0.5)  
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=5, 
+                        verbose=True, min_lr=5e-4, factor=0.5, threshold=1e-3)  
         
         self.logger.info(f"Setup for model {self.model_name} ...")
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
@@ -343,7 +398,7 @@ class TrainModel(tune.Trainable):
         
         training_duration = time.time() - start_time
         acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
-        self.scheduler.step(loss)
+        self.scheduler.step(acc)
 
         self.epoch += 1
         self.history[self.epoch] = {
@@ -407,11 +462,11 @@ if __name__ == "__main__":
                     help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=64, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=100, metavar='N',
+    parser.add_argument('--epochs', type=int, default=150, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--num_models', type=int, default=300, metavar='N',
                         help='number of models to train ')
-    parser.add_argument('--lr', type=float, default=1e-2, metavar='LR',
+    parser.add_argument('--lr', type=float, default=5e-3, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='SGD momentum (default: 0.9)')
@@ -462,7 +517,7 @@ if __name__ == "__main__":
     TRAINING_EPOCH = 1#32
 
     REDUCTION_FACTOR = 1.000001
-    GRACE_PERIOD = 5#4
+    GRACE_PERIOD = 10#4
     CPU_RESOURCES_PER_TRIAL = 1
     GPU_RESOURCES_PER_TRIAL = 0.5
     METRIC = 'accuracy'  # or 'loss'
@@ -493,13 +548,16 @@ if __name__ == "__main__":
             #scheduler=sched,
             queue_trials=True,
             #stop={"training_epoch": 1},
-            stop=TrialPlateauStopper(metric='mean_accuracy', mode='max', std=4e-3,
-                num_results=GRACE_PERIOD+2, grace_period=GRACE_PERIOD),#{"training_epoch": 1 if args.smoke_test else TRAINING_EPOCH},
+            stop=CombinedStopper(
+                MaximumIterationStopper(max_iter=args.epochs),
+                BestAccuracyStopper(),
+                TrialPlateauStopper(metric='mean_accuracy', mode='max', std=4e-3,
+                num_results=GRACE_PERIOD+2, grace_period=GRACE_PERIOD),
+            ),
             resources_per_trial={
                 "cpu": CPU_RESOURCES_PER_TRIAL,
                 "gpu": GPU_RESOURCES_PER_TRIAL
             },
-            #num_samples=args.num_models,
             verbose=3,
             checkpoint_at_end=False,
             checkpoint_freq=10000,
