@@ -21,4 +21,5 @@ dependencies:
     - onnx
     - paramiko
     - scp
+    - pandas
     - ray[tune]

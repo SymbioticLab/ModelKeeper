@@ -30,6 +30,20 @@ sys.setrecursionlimit(10000)
 random.seed(1)
 distance_lookup = None
 
+
+log_path = './modelkeeper_log'
+with open(log_path, 'w') as fout:
+    pass 
+
+logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
+                datefmt='%H:%M:%S',
+                level=logging.INFO,
+                handlers=[
+                    logging.FileHandler(log_path, mode='a'),
+                    logging.StreamHandler()
+                ])
+
+
 def get_distance(a, b):
     return distance_lookup[a][b] if a != b else 0.
 
@@ -151,7 +165,7 @@ class MatchingOperator(object):
         self.match_score, self.match_res = self.parse_json_str(ans_json_str, read_mapping)
 
         logging.info(f"{self.parent.graph['name']} align_child {self.child.graph['name']} takes {time.time() - start_time} sec, " +
-                f"score: {self.match_score/self.num_of_nodes}")
+                f"score: {self.match_score/self.child.graph['num_tensors']}")
 
         return self.match_score
 
@@ -167,7 +181,7 @@ class MatchingOperator(object):
 
     def get_matching_score(self, child, read_mapping=False):
         score = self.align_child(child=child, read_mapping=read_mapping)
-        return score/self.num_of_nodes
+        return score/child.graph['num_tensors']
 
     def get_mappings(self):
 
@@ -966,4 +980,3 @@ def test():
 
 #test()
 #test_fake()
-

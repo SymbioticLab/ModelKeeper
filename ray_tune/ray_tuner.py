@@ -5,6 +5,7 @@ import pickle
 import argparse
 import logging
 import numpy as np
+import collections
 
 import torch
 import torch.nn as nn
@@ -56,7 +57,7 @@ def GenerateConfig(n, path):
     rng.shuffle(config_list)
 
     return config_list[modelidx_base:modelidx_base+n]
-    #return [config_list[i] for i in random.sample(range(0,len(config_list)), n)] 
+    #return [config_list[i] for i in random.sample(range(0,len(config_list)), n)]
 
 
 
@@ -107,11 +108,11 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
     ---------
     accuracy, loss : tuple
         Accuracy and loss of the evaluated model
-    
+
     """
     model.to(device).eval()
     correct = avg_loss = 0.
-    total = 0   
+    total = 0
     with torch.no_grad():
         for data, target in data_loader:
             data, target = Variable(data.to(device)), Variable(target.to(device))
@@ -133,15 +134,15 @@ def get_data_loaders():
         mean = [x / 255 for x in [122.68, 116.66, 104.01]]
         std  = [x / 255 for x in [63.22,  61.26 , 65.09]]
         lists = [transforms.RandomHorizontalFlip(),
-                transforms.RandomCrop(32, padding=2), 
-                transforms.ToTensor(), 
+                transforms.RandomCrop(32, padding=2),
+                transforms.ToTensor(),
                 transforms.Normalize(mean, std)]
         train_transform = transforms.Compose(lists)
         test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
     else:
         train_transform = transforms.Compose(
-                [transforms.RandomHorizontalFlip(), 
-                transforms.RandomCrop(32, padding=2), 
+                [transforms.RandomHorizontalFlip(),
+                transforms.RandomCrop(32, padding=2),
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
@@ -270,7 +271,7 @@ class TrialPlateauStopper(Stopper):
 
 class BestAccuracyStopper(Stopper):
     """Early stops the training if validation loss doesn't improve after a given patience."""
-    def __init__(self, patience=10, verbose=False, delta=3e-4, trace_func=logging.info):
+    def __init__(self, patience=10, verbose=False, delta=1e-5, trace_func=logging.info):
         """
         Args:
             patience (int): How long to wait after last time validation loss improved.
@@ -286,10 +287,9 @@ class BestAccuracyStopper(Stopper):
         """
         self.patience = patience
         self.verbose = verbose
-        self.counter = 0
-        self.best_score = None
+        self.counter = collections.defaultdict(int)
+        self.best_score = {}
         self.early_stop = False
-        self.val_loss_min = np.Inf
         self.delta = delta
         self.trace_func = trace_func
 
@@ -297,19 +297,19 @@ class BestAccuracyStopper(Stopper):
 
         score = result['mean_accuracy']
 
-        if self.best_score is None:
-            self.best_score = score
+        if trial_id not in self.best_score:
+            self.best_score[trial_id] = score
             #self.save_checkpoint(val_loss, model)
-        elif score <= self.best_score + self.delta:
-            self.counter += 1
-            self.trace_func(f'EarlyStopping counter: {self.counter} out of {self.patience}')
-            if self.counter >= self.patience:
-                self.early_stop = True
+        elif score <= self.best_score[trial_id] + self.delta:
+            self.counter[trial_id] += 1
+            self.trace_func(f'EarlyStopping counter: {self.counter[trial_id]} out of {self.patience}')
+            if self.counter[trial_id] >= self.patience:
+                return True
         else:
-            self.best_score = score
-            self.counter = 0
+            self.best_score[trial_id] = score
+            self.counter[trial_id] = 0
 
-        return self.early_stop
+        return False
 
     def stop_all(self):
         return False
@@ -319,7 +319,7 @@ class TrainModel(tune.Trainable):
     """
     Ray Tune's class-based API for hyperparameter tuning
     Note: See https://ray.readthedocs.io/en/latest/_modules/ray/tune/trainable.html#Trainable
-    
+
     """
 
     def setup(self, config):
@@ -327,13 +327,13 @@ class TrainModel(tune.Trainable):
         use_cuda = torch.cuda.is_available()
 
         device = torch.device('cuda')
-        seed = 1 
+        seed = 1
 
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         #torch.backends.cudnn.deterministic = True
-        
+
         self.device = device if use_cuda else torch.device("cpu")
         self.train_loader, self.test_loader, self.ntokens = get_data_loaders()
 
@@ -375,7 +375,7 @@ class TrainModel(tune.Trainable):
             self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {meta_info}")
             modelkeeper_client.stop()
 
-            learning_rate *= (1.-meta_info.get('matching_score', 0))
+            #learning_rate *= (1.-meta_info.get('matching_score', 0))
 
         self.best_acc = 0
         self.best_loss = np.Infinity
@@ -383,9 +383,9 @@ class TrainModel(tune.Trainable):
 
         self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate, weight_decay=5e-4, momentum=0.9)
         self.criterion = nn.CrossEntropyLoss()
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=5, 
-                        verbose=True, min_lr=5e-4, factor=0.5, threshold=1e-3)  
-        
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=5,
+                        verbose=True, min_lr=5e-4, factor=0.5, threshold=0.01)
+
         self.logger.info(f"Setup for model {self.model_name} ...")
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
@@ -395,7 +395,7 @@ class TrainModel(tune.Trainable):
 
         if args.task == "nasbench":
             train_cv(self.model, self.optimizer, self.criterion, self.train_loader, self.device, self.scheduler)
-        
+
         training_duration = time.time() - start_time
         acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
         self.scheduler.step(acc)
@@ -493,7 +493,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_keeper', type=bool, default=False)
 
     args, unknown = parser.parse_known_args()
-    keeper_service = None 
+    keeper_service = None
 
     if args.use_keeper:
         keeper_service = ModelKeeper(modelkeeper_config)
@@ -517,7 +517,7 @@ if __name__ == "__main__":
     TRAINING_EPOCH = 1#32
 
     REDUCTION_FACTOR = 1.000001
-    GRACE_PERIOD = 10#4
+    GRACE_PERIOD = 7#4
     CPU_RESOURCES_PER_TRIAL = 1
     GPU_RESOURCES_PER_TRIAL = 0.5
     METRIC = 'accuracy'  # or 'loss'
@@ -528,17 +528,17 @@ if __name__ == "__main__":
     ray.init(address=f"{args.address}")
 
     if METRIC=='accuracy':
-        sched = AsyncHyperBandScheduler(time_attr="training_epoch", 
-                                        metric="mean_accuracy", 
-                                        mode='max', 
-                                        reduction_factor=REDUCTION_FACTOR, 
+        sched = AsyncHyperBandScheduler(time_attr="training_epoch",
+                                        metric="mean_accuracy",
+                                        mode='max',
+                                        reduction_factor=REDUCTION_FACTOR,
                                         grace_period=GRACE_PERIOD,
                                         brackets=1)
     else:
-        sched = AsyncHyperBandScheduler(time_attr="training_epoch", 
-                                        metric="mean_loss", 
-                                        mode='min', 
-                                        reduction_factor=REDUCTION_FACTOR, 
+        sched = AsyncHyperBandScheduler(time_attr="training_epoch",
+                                        metric="mean_loss",
+                                        mode='min',
+                                        reduction_factor=REDUCTION_FACTOR,
                                         grace_period=GRACE_PERIOD,
                                         brackets=1)
 
@@ -552,7 +552,7 @@ if __name__ == "__main__":
                 MaximumIterationStopper(max_iter=args.epochs),
                 BestAccuracyStopper(),
                 TrialPlateauStopper(metric='mean_accuracy', mode='max', std=4e-3,
-                num_results=GRACE_PERIOD+2, grace_period=GRACE_PERIOD),
+                num_results=10, grace_period=GRACE_PERIOD),
             ),
             resources_per_trial={
                 "cpu": CPU_RESOURCES_PER_TRIAL,
