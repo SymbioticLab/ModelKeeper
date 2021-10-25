@@ -45,15 +45,15 @@ class OnlineScheduler(TrialScheduler):
         # get submission time
         arrival_time = trial.config.get('config', {}).get('arrival', 0)
         job_name = trial.config.get('config', {}).get('name', None)
-        pending_time = arrival_time - (time.time() - self.start_time) 
+        pending_time = arrival_time - (time.time() - self.start_time)
 
-        logging.info(f"Supposed to submit job {job_name} at {arrival_time}, now is {time.time()-self.start_time}")
+        #logging.info(f"Supposed to submit job {job_name} at {arrival_time}, now is {time.time()-self.start_time}")
         if pending_time > 0:
             time.sleep(pending_time)
 
-        logging.info(f"Submit job {job_name} at {time.time()-self.start_time}, Supposed at {arrival_time}")
+        #logging.info(f"Submit job {job_name} at {time.time()-self.start_time}, Supposed at {arrival_time}")
         return trial
-        
+
         # for trial in trial_runner.get_trials():
         #     if (trial.status == Trial.PENDING
         #             and trial_runner.has_resources_for_trial(trial)):

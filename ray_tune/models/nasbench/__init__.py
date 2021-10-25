@@ -14,9 +14,9 @@ import torch
 # __all__ = ['get_cell_based_tiny_net']
 
 # useful modules
-from models.configure_utils import dict2config
+from .configure_utils import dict2config
 # from models.SharedUtils import change_key
-from models.genotypes import Structure as CellStructure
+from .genotypes import Structure as CellStructure
 
 
 # Cell-based NAS Models

@@ -1,4 +1,4 @@
-name,time
+name,arrival
 ResNet101(),53
 resnet110_cifar10,154
 ShuffleNetV2(net_size=0.5),326

@@ -22,7 +22,7 @@ def gen_trace(model_list):
     models = [x.strip() for x in open(model_list).readlines()]
     random.shuffle(models)
 
-    ans = [['name', 'time']]
+    ans = [['name', 'arrival']]
     for arrival, model in zip(arrival_trace, models):
         ans.append([model, arrival])
 

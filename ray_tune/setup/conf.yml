@@ -6,8 +6,9 @@ master_ip: 10.0.0.1
 
 # ip address of each worker:# of available gpus process on each gpu in this node
 worker_ips: 
-    - 10.0.0.1:1
-    - 10.0.0.2:1
+    - 10.0.0.1:4
+    - 10.0.0.2:4
+    - 10.0.0.3:4
 
 auth:
     ssh_user: ""
@@ -15,7 +16,7 @@ auth:
 
 # cmd to run before we can indeed run Ray (in order)
 setup_commands:
-    - source $HOME/anaconda3/bin/activate fedscale
+    - source $HOME/experiment/anaconda3/bin/activate modelkeeper
 
 # ========== Additional job configuration ========== 
 # Default parameters are specified in argParser.py, wherein more description of the parameter can be found

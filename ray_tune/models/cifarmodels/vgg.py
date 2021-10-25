@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 
-cfg = {
+vggcfg = {
     'VGG11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
     'VGG13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
     'VGG16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
@@ -12,10 +12,10 @@ cfg = {
 
 
 class VGG(nn.Module):
-    def __init__(self, vgg_name, use_bn=False, num_classes=10):
+    def __init__(self, vgg_block, use_bn=False, num_classes=10):
         super(VGG, self).__init__()
         self.use_bn = use_bn
-        self.features = self._make_layers(cfg[vgg_name])
+        self.features = self._make_layers(vggcfg[f"VGG{vgg_block}"])
         self.classifier = nn.Linear(512, num_classes)
 
     def forward(self, x):
@@ -47,4 +47,3 @@ def test():
     print(y.size())
 
 # test()
-
