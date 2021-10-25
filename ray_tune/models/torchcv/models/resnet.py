@@ -1,222 +1,28 @@
 """
-    ResNet for ImageNet-1K, implemented in PyTorch.
+    ResNet for CIFAR/SVHN, implemented in PyTorch.
     Original paper: 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 """
 
-__all__ = ['ResNet', 'resnet10', 'resnet12', 'resnet14', 'resnetbc14b', 'resnet16', 'resnet18_wd4', 'resnet18_wd2',
-           'resnet18_w3d4', 'resnet18', 'resnet26', 'resnetbc26b', 'resnet34', 'resnetbc38b', 'resnet50', 'resnet50b',
-           'resnet101', 'resnet101b', 'resnet152', 'resnet152b', 'resnet200', 'resnet200b', 'ResBlock', 'ResBottleneck',
-           'ResUnit', 'ResInitBlock']
+__all__ = ['CIFARResNet', 'resnet10_cifar10', 'resnet12_cifar10', 'resnet14_cifar10',
+            'resnet20_cifar10', 'resnet20_cifar100', 'resnet20_svhn',
+           'resnet56_cifar10', 'resnet56_cifar100', 'resnet56_svhn',
+           'resnet110_cifar10', 'resnet110_cifar100', 'resnet110_svhn',
+           'resnet164bn_cifar10', 'resnet164bn_cifar100', 'resnet164bn_svhn',
+           'resnet272bn_cifar10', 'resnet272bn_cifar100', 'resnet272bn_svhn',
+           'resnet542bn_cifar10', 'resnet542bn_cifar100', 'resnet542bn_svhn',
+           'resnet1001_cifar10', 'resnet1001_cifar100', 'resnet1001_svhn',
+           'resnet1202_cifar10', 'resnet1202_cifar100', 'resnet1202_svhn']
 
 import os
 import torch.nn as nn
-from .common import conv1x1_block, conv3x3_block, conv7x7_block
+import torch.nn.init as init
+from .common import conv3x3_block
+from .resnet import ResUnit
 
 
-class ResBlock(nn.Module):
+class CIFARResNet(nn.Module):
     """
-    Simple ResNet block for residual path in ResNet unit.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    stride : int or tuple/list of 2 int
-        Strides of the convolution.
-    bias : bool, default False
-        Whether the layer uses a bias vector.
-    use_bn : bool, default True
-        Whether to use BatchNorm layer.
-    """
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 stride,
-                 bias=False,
-                 use_bn=True):
-        super(ResBlock, self).__init__()
-        self.conv1 = conv3x3_block(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            stride=stride,
-            bias=bias,
-            use_bn=use_bn)
-        self.conv2 = conv3x3_block(
-            in_channels=out_channels,
-            out_channels=out_channels,
-            bias=bias,
-            use_bn=use_bn,
-            activation=None)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        return x
-
-
-class ResBottleneck(nn.Module):
-    """
-    ResNet bottleneck block for residual path in ResNet unit.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    stride : int or tuple/list of 2 int
-        Strides of the convolution.
-    padding : int or tuple/list of 2 int, default 1
-        Padding value for the second convolution layer.
-    dilation : int or tuple/list of 2 int, default 1
-        Dilation value for the second convolution layer.
-    conv1_stride : bool, default False
-        Whether to use stride in the first or the second convolution layer of the block.
-    bottleneck_factor : int, default 4
-        Bottleneck factor.
-    """
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 stride,
-                 padding=1,
-                 dilation=1,
-                 conv1_stride=False,
-                 bottleneck_factor=4):
-        super(ResBottleneck, self).__init__()
-        mid_channels = out_channels // bottleneck_factor
-
-        self.conv1 = conv1x1_block(
-            in_channels=in_channels,
-            out_channels=mid_channels,
-            stride=(stride if conv1_stride else 1))
-        self.conv2 = conv3x3_block(
-            in_channels=mid_channels,
-            out_channels=mid_channels,
-            stride=(1 if conv1_stride else stride),
-            padding=padding,
-            dilation=dilation)
-        self.conv3 = conv1x1_block(
-            in_channels=mid_channels,
-            out_channels=out_channels,
-            activation=None)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        return x
-
-
-class ResUnit(nn.Module):
-    """
-    ResNet unit with residual connection.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    stride : int or tuple/list of 2 int
-        Strides of the convolution.
-    padding : int or tuple/list of 2 int, default 1
-        Padding value for the second convolution layer in bottleneck.
-    dilation : int or tuple/list of 2 int, default 1
-        Dilation value for the second convolution layer in bottleneck.
-    bias : bool, default False
-        Whether the layer uses a bias vector.
-    use_bn : bool, default True
-        Whether to use BatchNorm layer.
-    bottleneck : bool, default True
-        Whether to use a bottleneck or simple block in units.
-    conv1_stride : bool, default False
-        Whether to use stride in the first or the second convolution layer of the block.
-    """
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 stride,
-                 padding=1,
-                 dilation=1,
-                 bias=False,
-                 use_bn=True,
-                 bottleneck=True,
-                 conv1_stride=False):
-        super(ResUnit, self).__init__()
-        self.resize_identity = (in_channels != out_channels) or (stride != 1)
-
-        if bottleneck:
-            self.body = ResBottleneck(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                stride=stride,
-                padding=padding,
-                dilation=dilation,
-                conv1_stride=conv1_stride)
-        else:
-            self.body = ResBlock(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                stride=stride,
-                bias=bias,
-                use_bn=use_bn)
-        if self.resize_identity:
-            self.identity_conv = conv1x1_block(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                stride=stride,
-                bias=bias,
-                use_bn=use_bn,
-                activation=None)
-        self.activ = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        if self.resize_identity:
-            identity = self.identity_conv(x)
-        else:
-            identity = x
-        x = self.body(x)
-        x = x + identity
-        x = self.activ(x)
-        return x
-
-
-class ResInitBlock(nn.Module):
-    """
-    ResNet specific initial block.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    """
-    def __init__(self,
-                 in_channels,
-                 out_channels):
-        super(ResInitBlock, self).__init__()
-        self.conv = conv7x7_block(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            stride=2)
-        self.pool = nn.MaxPool2d(
-            kernel_size=3,
-            stride=2,
-            padding=1)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.pool(x)
-        return x
-
-
-class ResNet(nn.Module):
-    """
-    ResNet model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
+    ResNet model for CIFAR from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
@@ -226,29 +32,26 @@ class ResNet(nn.Module):
         Number of output channels for the initial unit.
     bottleneck : bool
         Whether to use a bottleneck or simple block in units.
-    conv1_stride : bool
-        Whether to use stride in the first or the second convolution layer in units.
     in_channels : int, default 3
         Number of input channels.
-    in_size : tuple of two ints, default (224, 224)
+    in_size : tuple of two ints, default (32, 32)
         Spatial size of the expected input image.
-    num_classes : int, default 1000
+    num_classes : int, default 10
         Number of classification classes.
     """
     def __init__(self,
                  channels,
                  init_block_channels,
                  bottleneck,
-                 conv1_stride,
                  in_channels=3,
-                 in_size=(224, 224),
-                 num_classes=1000):
-        super(ResNet, self).__init__()
+                 in_size=(32, 32),
+                 num_classes=10):
+        super(CIFARResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
 
         self.features = nn.Sequential()
-        self.features.add_module("init_block", ResInitBlock(
+        self.features.add_module("init_block", conv3x3_block(
             in_channels=in_channels,
             out_channels=init_block_channels))
         in_channels = init_block_channels
@@ -261,11 +64,11 @@ class ResNet(nn.Module):
                     out_channels=out_channels,
                     stride=stride,
                     bottleneck=bottleneck,
-                    conv1_stride=conv1_stride))
+                    conv1_stride=False))
                 in_channels = out_channels
             self.features.add_module("stage{}".format(i + 1), stage)
         self.features.add_module("final_pool", nn.AvgPool2d(
-            kernel_size=7,
+            kernel_size=8,
             stride=1))
 
         self.output = nn.Linear(
@@ -277,9 +80,9 @@ class ResNet(nn.Module):
     def _init_params(self):
         for name, module in self.named_modules():
             if isinstance(module, nn.Conv2d):
-                nn.init.kaiming_uniform_(module.weight)
+                init.kaiming_uniform_(module.weight)
                 if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
+                    init.constant_(module.bias, 0)
 
     def forward(self, x):
         x = self.features(x)
@@ -288,27 +91,24 @@ class ResNet(nn.Module):
         return x
 
 
-def get_resnet(blocks,
-               bottleneck=None,
-               conv1_stride=True,
-               width_scale=1.0,
-               model_name=None,
-               pretrained=False,
-               root=os.path.join("~", ".torch", "models"),
-               **kwargs):
+def get_resnet_cifar(num_classes,
+                     blocks,
+                     bottleneck,
+                     model_name=None,
+                     pretrained=False,
+                     root=os.path.join("~", ".torch", "models"),
+                     **kwargs):
     """
-    Create ResNet model with specific parameters.
+    Create ResNet model for CIFAR with specific parameters.
 
     Parameters:
     ----------
+    num_classes : int
+        Number of classification classes.
     blocks : int
         Number of blocks.
-    bottleneck : bool, default None
+    bottleneck : bool
         Whether to use a bottleneck or simple block in units.
-    conv1_stride : bool, default True
-        Whether to use stride in the first or the second convolution layer in units.
-    width_scale : float, default 1.0
-        Scale factor for width of layers.
     model_name : str or None, default None
         Model name for loading pretrained model.
     pretrained : bool, default False
@@ -316,64 +116,29 @@ def get_resnet(blocks,
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    if bottleneck is None:
-        bottleneck = (blocks >= 50)
 
-    if blocks == 10:
-        layers = [1, 1, 1, 1]
-    elif blocks == 12:
-        layers = [2, 1, 1, 1]
-    elif blocks == 14 and not bottleneck:
-        layers = [2, 2, 1, 1]
-    elif (blocks == 14) and bottleneck:
-        layers = [1, 1, 1, 1]
-    elif blocks == 16:
-        layers = [2, 2, 2, 1]
-    elif blocks == 18:
-        layers = [2, 2, 2, 2]
-    elif (blocks == 26) and not bottleneck:
-        layers = [3, 3, 3, 3]
-    elif (blocks == 26) and bottleneck:
-        layers = [2, 2, 2, 2]
-    elif blocks == 34:
-        layers = [3, 4, 6, 3]
-    elif (blocks == 38) and bottleneck:
-        layers = [3, 3, 3, 3]
-    elif blocks == 50:
-        layers = [3, 4, 6, 3]
-    elif blocks == 101:
-        layers = [3, 4, 23, 3]
-    elif blocks == 152:
-        layers = [3, 8, 36, 3]
-    elif blocks == 200:
-        layers = [3, 24, 36, 3]
-    else:
-        raise ValueError("Unsupported ResNet with number of blocks: {}".format(blocks))
+    assert (num_classes in [10, 100])
 
     if bottleneck:
-        assert (sum(layers) * 3 + 2 == blocks)
+        assert ((blocks - 2) % 9 == 0)
+        layers = [(blocks - 2) // 9] * 3
     else:
-        assert (sum(layers) * 2 + 2 == blocks)
+        assert ((blocks - 2) % 6 == 0)
+        layers = [(blocks - 2) // 6] * 3
 
-    init_block_channels = 64
-    channels_per_layers = [64, 128, 256, 512]
-
-    if bottleneck:
-        bottleneck_factor = 4
-        channels_per_layers = [ci * bottleneck_factor for ci in channels_per_layers]
+    channels_per_layers = [16, 32, 64]
+    init_block_channels = 16
 
     channels = [[ci] * li for (ci, li) in zip(channels_per_layers, layers)]
 
-    if width_scale != 1.0:
-        channels = [[int(cij * width_scale) if (i != len(channels) - 1) or (j != len(ci) - 1) else cij
-                     for j, cij in enumerate(ci)] for i, ci in enumerate(channels)]
-        init_block_channels = int(init_block_channels * width_scale)
+    if bottleneck:
+        channels = [[cij * 4 for cij in ci] for ci in channels]
 
-    net = ResNet(
+    net = CIFARResNet(
         channels=channels,
         init_block_channels=init_block_channels,
         bottleneck=bottleneck,
-        conv1_stride=conv1_stride,
+        num_classes=num_classes,
         **kwargs)
 
     if pretrained:
@@ -388,314 +153,480 @@ def get_resnet(blocks,
     return net
 
 
-def resnet10(**kwargs):
+
+def resnet10_cifar10(num_classes=10, **kwargs):
     """
-    ResNet-10 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-    It's an experimental model.
+    ResNet-20 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=10, model_name="resnet10", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=10, bottleneck=False, model_name="resnet10_cifar10",
+                            **kwargs)
 
 
-def resnet12(**kwargs):
+def resnet12_cifar10(num_classes=10, **kwargs):
     """
-    ResNet-12 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-    It's an experimental model.
+    ResNet-20 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=12, model_name="resnet12", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=12, bottleneck=False, model_name="resnet12_cifar10",
+                            **kwargs)
 
 
-def resnet14(**kwargs):
+def resnet14_cifar10(num_classes=10, **kwargs):
     """
-    ResNet-14 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-    It's an experimental model.
+    ResNet-20 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=14, model_name="resnet14", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=14, bottleneck=False, model_name="resnet14_cifar10",
+                            **kwargs)
 
 
-def resnetbc14b(**kwargs):
+def resnet20_cifar10(num_classes=10, **kwargs):
     """
-    ResNet-BC-14b model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-    It's an experimental model (bottleneck compressed).
+    ResNet-20 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=14, bottleneck=True, conv1_stride=False, model_name="resnetbc14b", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=20, bottleneck=False, model_name="resnet20_cifar10",
+                            **kwargs)
 
 
-def resnet16(**kwargs):
+def resnet20_cifar100(num_classes=100, **kwargs):
     """
-    ResNet-16 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-    It's an experimental model.
+    ResNet-20 model for CIFAR-100 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 100
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=16, model_name="resnet16", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=20, bottleneck=False, model_name="resnet20_cifar100",
+                            **kwargs)
 
 
-def resnet18_wd4(**kwargs):
+def resnet20_svhn(num_classes=10, **kwargs):
     """
-    ResNet-18 model with 0.25 width scale from 'Deep Residual Learning for Image Recognition,'
-    https://arxiv.org/abs/1512.03385. It's an experimental model.
+    ResNet-20 model for SVHN from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=18, width_scale=0.25, model_name="resnet18_wd4", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=20, bottleneck=False, model_name="resnet20_svhn",
+                            **kwargs)
 
 
-def resnet18_wd2(**kwargs):
+def resnet56_cifar10(num_classes=10, **kwargs):
     """
-    ResNet-18 model with 0.5 width scale from 'Deep Residual Learning for Image Recognition,'
-    https://arxiv.org/abs/1512.03385. It's an experimental model.
+    ResNet-56 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=18, width_scale=0.5, model_name="resnet18_wd2", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=56, bottleneck=False, model_name="resnet56_cifar10",
+                            **kwargs)
 
 
-def resnet18_w3d4(**kwargs):
+def resnet56_cifar100(num_classes=100, **kwargs):
     """
-    ResNet-18 model with 0.75 width scale from 'Deep Residual Learning for Image Recognition,'
-    https://arxiv.org/abs/1512.03385. It's an experimental model.
+    ResNet-56 model for CIFAR-100 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 100
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=18, width_scale=0.75, model_name="resnet18_w3d4", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=56, bottleneck=False, model_name="resnet56_cifar100",
+                            **kwargs)
 
 
-def resnet18(**kwargs):
+def resnet56_svhn(num_classes=10, **kwargs):
     """
-    ResNet-18 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
+    ResNet-56 model for SVHN from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=18, model_name="resnet18", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=56, bottleneck=False, model_name="resnet56_svhn",
+                            **kwargs)
 
 
-def resnet26(**kwargs):
+def resnet110_cifar10(num_classes=10, **kwargs):
     """
-    ResNet-26 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-    It's an experimental model.
+    ResNet-110 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=26, bottleneck=False, model_name="resnet26", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=110, bottleneck=False, model_name="resnet110_cifar10",
+                            **kwargs)
 
 
-def resnetbc26b(**kwargs):
+def resnet110_cifar100(num_classes=100, **kwargs):
     """
-    ResNet-BC-26b model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-    It's an experimental model (bottleneck compressed).
+    ResNet-110 model for CIFAR-100 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 100
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=26, bottleneck=True, conv1_stride=False, model_name="resnetbc26b", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=110, bottleneck=False, model_name="resnet110_cifar100",
+                            **kwargs)
 
 
-def resnet34(**kwargs):
+def resnet110_svhn(num_classes=10, **kwargs):
     """
-    ResNet-34 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
+    ResNet-110 model for SVHN from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=34, model_name="resnet34", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=110, bottleneck=False, model_name="resnet110_svhn",
+                            **kwargs)
 
 
-def resnetbc38b(**kwargs):
+def resnet164bn_cifar10(num_classes=10, **kwargs):
     """
-    ResNet-BC-38b model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-    It's an experimental model (bottleneck compressed).
+    ResNet-164(BN) model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=38, bottleneck=True, conv1_stride=False, model_name="resnetbc38b", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=164, bottleneck=True, model_name="resnet164bn_cifar10",
+                            **kwargs)
 
 
-def resnet50(**kwargs):
+def resnet164bn_cifar100(num_classes=100, **kwargs):
     """
-    ResNet-50 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
+    ResNet-164(BN) model for CIFAR-100 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 100
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=50, model_name="resnet50", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=164, bottleneck=True, model_name="resnet164bn_cifar100",
+                            **kwargs)
 
 
-def resnet50b(**kwargs):
+def resnet164bn_svhn(num_classes=10, **kwargs):
     """
-    ResNet-50 model with stride at the second convolution in bottleneck block from 'Deep Residual Learning for Image
-    Recognition,' https://arxiv.org/abs/1512.03385.
+    ResNet-164(BN) model for SVHN from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=50, conv1_stride=False, model_name="resnet50b", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=164, bottleneck=True, model_name="resnet164bn_svhn",
+                            **kwargs)
 
 
-def resnet101(**kwargs):
+def resnet272bn_cifar10(num_classes=10, **kwargs):
     """
-    ResNet-101 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
+    ResNet-272(BN) model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=101, model_name="resnet101", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=272, bottleneck=True, model_name="resnet272bn_cifar10",
+                            **kwargs)
 
 
-def resnet101b(**kwargs):
+def resnet272bn_cifar100(num_classes=100, **kwargs):
     """
-    ResNet-101 model with stride at the second convolution in bottleneck block from 'Deep Residual Learning for Image
-    Recognition,' https://arxiv.org/abs/1512.03385.
+    ResNet-272(BN) model for CIFAR-100 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 100
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=101, conv1_stride=False, model_name="resnet101b", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=272, bottleneck=True, model_name="resnet272bn_cifar100",
+                            **kwargs)
 
 
-def resnet152(**kwargs):
+def resnet272bn_svhn(num_classes=10, **kwargs):
     """
-    ResNet-152 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
+    ResNet-272(BN) model for SVHN from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=152, model_name="resnet152", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=272, bottleneck=True, model_name="resnet272bn_svhn",
+                            **kwargs)
 
 
-def resnet152b(**kwargs):
+def resnet542bn_cifar10(num_classes=10, **kwargs):
     """
-    ResNet-152 model with stride at the second convolution in bottleneck block from 'Deep Residual Learning for Image
-    Recognition,' https://arxiv.org/abs/1512.03385.
+    ResNet-542(BN) model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=152, conv1_stride=False, model_name="resnet152b", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=542, bottleneck=True, model_name="resnet542bn_cifar10",
+                            **kwargs)
 
 
-def resnet200(**kwargs):
+def resnet542bn_cifar100(num_classes=100, **kwargs):
     """
-    ResNet-200 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-    It's an experimental model.
+    ResNet-542(BN) model for CIFAR-100 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 100
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=200, model_name="resnet200", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=542, bottleneck=True, model_name="resnet542bn_cifar100",
+                            **kwargs)
 
 
-def resnet200b(**kwargs):
+def resnet542bn_svhn(num_classes=10, **kwargs):
     """
-    ResNet-200 model with stride at the second convolution in bottleneck block from 'Deep Residual Learning for Image
-    Recognition,' https://arxiv.org/abs/1512.03385. It's an experimental model.
+    ResNet-542(BN) model for SVHN from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
 
     Parameters:
     ----------
+    num_classes : int, default 10
+        Number of classification classes.
     pretrained : bool, default False
         Whether to load the pretrained weights for model.
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    return get_resnet(blocks=200, conv1_stride=False, model_name="resnet200b", **kwargs)
+    return get_resnet_cifar(num_classes=num_classes, blocks=542, bottleneck=True, model_name="resnet542bn_svhn",
+                            **kwargs)
+
+
+def resnet1001_cifar10(num_classes=10, **kwargs):
+    """
+    ResNet-1001 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
+
+    Parameters:
+    ----------
+    num_classes : int, default 10
+        Number of classification classes.
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    root : str, default '~/.torch/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_cifar(num_classes=num_classes, blocks=1001, bottleneck=True, model_name="resnet1001_cifar10",
+                            **kwargs)
+
+
+def resnet1001_cifar100(num_classes=100, **kwargs):
+    """
+    ResNet-1001 model for CIFAR-100 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
+
+    Parameters:
+    ----------
+    num_classes : int, default 100
+        Number of classification classes.
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    root : str, default '~/.torch/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_cifar(num_classes=num_classes, blocks=1001, bottleneck=True, model_name="resnet1001_cifar100",
+                            **kwargs)
+
+
+def resnet1001_svhn(num_classes=10, **kwargs):
+    """
+    ResNet-1001 model for SVHN from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
+
+    Parameters:
+    ----------
+    num_classes : int, default 10
+        Number of classification classes.
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    root : str, default '~/.torch/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_cifar(num_classes=num_classes, blocks=1001, bottleneck=True, model_name="resnet1001_svhn",
+                            **kwargs)
+
+
+def resnet1202_cifar10(num_classes=10, **kwargs):
+    """
+    ResNet-1202 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
+
+    Parameters:
+    ----------
+    num_classes : int, default 10
+        Number of classification classes.
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    root : str, default '~/.torch/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_cifar(num_classes=num_classes, blocks=1202, bottleneck=False, model_name="resnet1202_cifar10",
+                            **kwargs)
+
+
+def resnet1202_cifar100(num_classes=100, **kwargs):
+    """
+    ResNet-1202 model for CIFAR-100 from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
+
+    Parameters:
+    ----------
+    num_classes : int, default 100
+        Number of classification classes.
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    root : str, default '~/.torch/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_cifar(num_classes=num_classes, blocks=1202, bottleneck=False, model_name="resnet1202_cifar100",
+                            **kwargs)
+
+
+def resnet1202_svhn(num_classes=10, **kwargs):
+    """
+    ResNet-1202 model for SVHN from 'Deep Residual Learning for Image Recognition,'
+    https://arxiv.org/abs/1512.03385.
+
+    Parameters:
+    ----------
+    num_classes : int, default 10
+        Number of classification classes.
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    root : str, default '~/.torch/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_cifar(num_classes=num_classes, blocks=1202, bottleneck=False, model_name="resnet1202_svhn",
+                            **kwargs)
 
 
 def _calc_width(net):
@@ -713,30 +644,33 @@ def _test():
     pretrained = False
 
     models = [
-        resnet10,
-        resnet12,
-        resnet14,
-        resnetbc14b,
-        resnet16,
-        resnet18_wd4,
-        resnet18_wd2,
-        resnet18_w3d4,
-        resnet18,
-        resnet26,
-        resnetbc26b,
-        resnet34,
-        resnetbc38b,
-        resnet50,
-        resnet50b,
-        resnet101,
-        resnet101b,
-        resnet152,
-        resnet152b,
-        resnet200,
-        resnet200b,
+        (resnet20_cifar10, 10),
+        (resnet20_cifar100, 100),
+        (resnet20_svhn, 10),
+        (resnet56_cifar10, 10),
+        (resnet56_cifar100, 100),
+        (resnet56_svhn, 10),
+        (resnet110_cifar10, 10),
+        (resnet110_cifar100, 100),
+        (resnet110_svhn, 10),
+        (resnet164bn_cifar10, 10),
+        (resnet164bn_cifar100, 100),
+        (resnet164bn_svhn, 10),
+        (resnet272bn_cifar10, 10),
+        (resnet272bn_cifar100, 100),
+        (resnet272bn_svhn, 10),
+        (resnet542bn_cifar10, 10),
+        (resnet542bn_cifar100, 100),
+        (resnet542bn_svhn, 10),
+        (resnet1001_cifar10, 10),
+        (resnet1001_cifar100, 100),
+        (resnet1001_svhn, 10),
+        (resnet1202_cifar10, 10),
+        (resnet1202_cifar100, 100),
+        (resnet1202_svhn, 10),
     ]
 
-    for model in models:
+    for model, num_classes in models:
 
         net = model(pretrained=pretrained)
 
@@ -744,33 +678,35 @@ def _test():
         net.eval()
         weight_count = _calc_width(net)
         print("m={}, {}".format(model.__name__, weight_count))
-        assert (model != resnet10 or weight_count == 5418792)
-        assert (model != resnet12 or weight_count == 5492776)
-        assert (model != resnet14 or weight_count == 5788200)
-        assert (model != resnetbc14b or weight_count == 10064936)
-        assert (model != resnet16 or weight_count == 6968872)
-        assert (model != resnet18_wd4 or weight_count == 3937400)
-        assert (model != resnet18_wd2 or weight_count == 5804296)
-        assert (model != resnet18_w3d4 or weight_count == 8476056)
-        assert (model != resnet18 or weight_count == 11689512)
-        assert (model != resnet26 or weight_count == 17960232)
-        assert (model != resnetbc26b or weight_count == 15995176)
-        assert (model != resnet34 or weight_count == 21797672)
-        assert (model != resnetbc38b or weight_count == 21925416)
-        assert (model != resnet50 or weight_count == 25557032)
-        assert (model != resnet50b or weight_count == 25557032)
-        assert (model != resnet101 or weight_count == 44549160)
-        assert (model != resnet101b or weight_count == 44549160)
-        assert (model != resnet152 or weight_count == 60192808)
-        assert (model != resnet152b or weight_count == 60192808)
-        assert (model != resnet200 or weight_count == 64673832)
-        assert (model != resnet200b or weight_count == 64673832)
+        assert (model != resnet20_cifar10 or weight_count == 272474)
+        assert (model != resnet20_cifar100 or weight_count == 278324)
+        assert (model != resnet20_svhn or weight_count == 272474)
+        assert (model != resnet56_cifar10 or weight_count == 855770)
+        assert (model != resnet56_cifar100 or weight_count == 861620)
+        assert (model != resnet56_svhn or weight_count == 855770)
+        assert (model != resnet110_cifar10 or weight_count == 1730714)
+        assert (model != resnet110_cifar100 or weight_count == 1736564)
+        assert (model != resnet110_svhn or weight_count == 1730714)
+        assert (model != resnet164bn_cifar10 or weight_count == 1704154)
+        assert (model != resnet164bn_cifar100 or weight_count == 1727284)
+        assert (model != resnet164bn_svhn or weight_count == 1704154)
+        assert (model != resnet272bn_cifar10 or weight_count == 2816986)
+        assert (model != resnet272bn_cifar100 or weight_count == 2840116)
+        assert (model != resnet272bn_svhn or weight_count == 2816986)
+        assert (model != resnet542bn_cifar10 or weight_count == 5599066)
+        assert (model != resnet542bn_cifar100 or weight_count == 5622196)
+        assert (model != resnet542bn_svhn or weight_count == 5599066)
+        assert (model != resnet1001_cifar10 or weight_count == 10328602)
+        assert (model != resnet1001_cifar100 or weight_count == 10351732)
+        assert (model != resnet1001_svhn or weight_count == 10328602)
+        assert (model != resnet1202_cifar10 or weight_count == 19424026)
+        assert (model != resnet1202_cifar100 or weight_count == 19429876)
+        assert (model != resnet1202_svhn or weight_count == 19424026)
 
-        batch = 4
-        x = torch.randn(batch, 3, 224, 224)
+        x = torch.randn(1, 3, 32, 32)
         y = net(x)
         y.sum().backward()
-        assert (tuple(y.size()) == (batch, 1000))
+        assert (tuple(y.size()) == (1, num_classes))
 
 
 if __name__ == "__main__":

@@ -14,9 +14,9 @@ cfg = {
 class VGG(nn.Module):
     def __init__(self, vgg_name, use_bn=False, num_classes=10):
         super(VGG, self).__init__()
+        self.use_bn = use_bn
         self.features = self._make_layers(cfg[vgg_name])
         self.classifier = nn.Linear(512, num_classes)
-        self.use_bn = use_bn
 
     def forward(self, x):
         out = self.features(x)
@@ -31,7 +31,7 @@ class VGG(nn.Module):
             if x == 'M':
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1),]
+                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1)]
                 if self.use_bn:
                     layers += [nn.BatchNorm2d(x)]
                 layers += [nn.ReLU(inplace=True)]
@@ -47,3 +47,4 @@ def test():
     print(y.size())
 
 # test()
+

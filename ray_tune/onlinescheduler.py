@@ -1,6 +1,11 @@
 
 from ray.tune.schedulers import TrialScheduler
 import time
+import logging
+
+from ray.tune import trial_runner
+from ray.tune.trial import Trial
+from typing import Dict, Optional
 
 class OnlineScheduler(TrialScheduler):
     """Simple scheduler that just runs trials in submission order."""
@@ -38,10 +43,15 @@ class OnlineScheduler(TrialScheduler):
         if trial is None:
             return trial
         # get submission time
-        pending_time = trial.config.get('arrival', 0) - (time.time() - self.start_time) 
+        arrival_time = trial.config.get('config', {}).get('arrival', 0)
+        job_name = trial.config.get('config', {}).get('name', None)
+        pending_time = arrival_time - (time.time() - self.start_time) 
+
+        logging.info(f"Supposed to submit job {job_name} at {arrival_time}, now is {time.time()-self.start_time}")
         if pending_time > 0:
             time.sleep(pending_time)
 
+        logging.info(f"Submit job {job_name} at {time.time()-self.start_time}, Supposed at {arrival_time}")
         return trial
         
         # for trial in trial_runner.get_trials():
