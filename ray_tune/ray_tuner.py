@@ -5,8 +5,8 @@ import pickle
 import argparse
 import logging
 import numpy as np
-import collections
-import pandas
+import collections 
+import pandas 
 import string
 
 import torch
@@ -41,7 +41,7 @@ from modelkeeper.matchingopt import ModelKeeper
 # Imgclsmob zoo
 from models.torchcv.model_provider import get_model as ptcv_get_model
 # Cifar zoo
-from models.cifarmodels import *
+from models.cifarmodels.model_provider import get_cv_model 
 from models.nasbench import get_cell_based_tiny_net
 
 logging.basicConfig(level=logging.INFO, filename='./ray_log.e', filemode='w')
@@ -65,7 +65,7 @@ def GenerateConfig(n, path):
     rng.shuffle(config_list)
 
     return config_list[modelidx_base:modelidx_base+n]
-    #return [config_list[i] for i in random.sample(range(0,len(config_list)), n)]
+    #return [config_list[i] for i in random.sample(range(0,len(config_list)), n)] 
 
 
 
@@ -92,7 +92,7 @@ def train_cv(model, optimizer, criterion, train_loader, device=torch.device("cpu
     for data, target in train_loader:
         data, target = Variable(data.to(device)), Variable(target.to(device))
         optimizer.zero_grad()
-        _, output = model(data)
+        output = model(data)
         loss = criterion(output, target)
         loss.backward()
         optimizer.step()
@@ -116,15 +116,15 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
     ---------
     accuracy, loss : tuple
         Accuracy and loss of the evaluated model
-
+    
     """
     model.to(device).eval()
     correct = avg_loss = 0.
-    total = 0
+    total = 0   
     with torch.no_grad():
         for data, target in data_loader:
             data, target = Variable(data.to(device)), Variable(target.to(device))
-            _, output = model(data)
+            output = model(data)
             _, predicted = torch.max(output.data, 1)
             loss = criterion(output, target)
             total += target.size(0)
@@ -142,15 +142,15 @@ def get_data_loaders():
         mean = [x / 255 for x in [122.68, 116.66, 104.01]]
         std  = [x / 255 for x in [63.22,  61.26 , 65.09]]
         lists = [transforms.RandomHorizontalFlip(),
-                transforms.RandomCrop(32, padding=2),
-                transforms.ToTensor(),
+                transforms.RandomCrop(32, padding=2), 
+                transforms.ToTensor(), 
                 transforms.Normalize(mean, std)]
         train_transform = transforms.Compose(lists)
         test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
     else:
         train_transform = transforms.Compose(
-                [transforms.RandomHorizontalFlip(),
-                transforms.RandomCrop(32, padding=2),
+                [transforms.RandomHorizontalFlip(), 
+                transforms.RandomCrop(32, padding=2), 
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
@@ -199,6 +199,32 @@ def polish_name(model_name):
             updated_name += c
 
     return updated_name.replace('__', '_')
+
+
+def get_str_type(input_str):
+    input_str = input_str.strip()
+
+    if input_str.isdigit():
+        return int(input_str)
+    if input_str == 'True' or input_str == 'False':
+        return eval(input_str)
+    if '.' in input_str:
+        return float(input_str)
+    return str(input_str)
+
+def get_model(temp_model_name):
+    model_type = temp_model_name.split('(')[0].strip()
+    temp_args = [x.strip() for x in temp_model_name.split('(')[1].replace(')','').strip().split(',') if len(x.strip())>0]
+    args_model = {}
+    for pair in temp_args:
+        [_key, _value] = pair.split('=')
+
+        args_model[_key.strip()] = get_str_type(_value)
+        print(_value, type(get_str_type(_value)))
+
+    args_model['name'] = model_type
+    return args_model
+
 
 
 from ray.tune.stopper import Stopper
@@ -337,7 +363,7 @@ class TrainModel(tune.Trainable):
     """
     Ray Tune's class-based API for hyperparameter tuning
     Note: See https://ray.readthedocs.io/en/latest/_modules/ray/tune/trainable.html#Trainable
-
+    
     """
 
     def setup(self, config):
@@ -345,13 +371,13 @@ class TrainModel(tune.Trainable):
         use_cuda = torch.cuda.is_available()
 
         device = torch.device('cuda')
-        seed = 1
+        seed = 1 
 
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         #torch.backends.cudnn.deterministic = True
-
+        
         self.device = device if use_cuda else torch.device("cpu")
         self.train_loader, self.test_loader, self.ntokens = get_data_loaders()
 
@@ -364,12 +390,10 @@ class TrainModel(tune.Trainable):
             num_classes = num_labels[args.data]
 
             if '(' in temp_model_name:
-                if '()' in temp_model_name:
-                    eval_func = temp_model_name.replace(')', f'num_classes={num_classes})')
-                else:
-                    eval_func = temp_model_name.replace(')', f', num_classes={num_classes})')
-                self.logger.info(f"Start to load eval_func #{eval_func}#")
-                self.model = eval(eval_func)
+                args_model = get_model(temp_model_name)
+                args_model['num_classes'] = num_classes
+
+                self.model = get_cv_model(**args_model)
             else:
                 self.model = ptcv_get_model(temp_model_name, pretrained=False, num_classes=num_classes)
         else:
@@ -419,9 +443,9 @@ class TrainModel(tune.Trainable):
 
         self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate, weight_decay=5e-4, momentum=0.9)
         self.criterion = nn.CrossEntropyLoss()
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=5,
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=5, 
                         verbose=True, min_lr=5e-4, factor=0.5, threshold=0.01)
-
+        
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
 
@@ -430,7 +454,7 @@ class TrainModel(tune.Trainable):
 
         #if args.task == "nasbench":
         train_cv(self.model, self.optimizer, self.criterion, self.train_loader, self.device, self.scheduler)
-
+        
         training_duration = time.time() - start_time
         acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
         self.scheduler.step(acc)
@@ -462,7 +486,7 @@ class TrainModel(tune.Trainable):
         self.model.to(device='cpu')
         self.model.eval()
 
-        if self.use_keeper:
+        if self.use_keeper:    
             #if args.task == "nasbench":
             torch.onnx.export(self.model, torch.rand(2, 3, 32, 32), self.export_path, export_params=True, verbose=0, training=1)
 
@@ -534,7 +558,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_keeper', type=bool, default=False)
 
     args, unknown = parser.parse_known_args()
-    keeper_service = None
+    keeper_service = None 
 
     if args.use_keeper:
         keeper_service = ModelKeeper(modelkeeper_config)
@@ -547,10 +571,10 @@ if __name__ == "__main__":
     conf_list = GenerateConfig(args.num_models, os.path.join(args.meta, args.data + "_config.pkl"))
 
     # Clear the log dir
-    log_dir = f"{os.environ['HOME']}/ray_logs"
+    log_dir = f"{os.environ['HOME']}/experiment/ray_logs"
     if not os.path.isdir(log_dir):
         os.makedirs(log_dir, exist_ok=True)
-    os.system(f"rm {os.environ['HOME']}/ray_logs/*")
+    os.system(f"rm {os.environ['HOME']}/experiment/ray_logs/*")
 
     ###################################
     ##  set main configurations here ##
@@ -560,10 +584,10 @@ if __name__ == "__main__":
     REDUCTION_FACTOR = 1.000001
     GRACE_PERIOD = 7#4
     CPU_RESOURCES_PER_TRIAL = 1
-    GPU_RESOURCES_PER_TRIAL = 0.5
+    GPU_RESOURCES_PER_TRIAL = 1
     METRIC = 'accuracy'  # or 'loss'
 
-
+    
     if args.task == "torchcv":
         temp_conf = []
 
@@ -579,17 +603,17 @@ if __name__ == "__main__":
     ray.init(address=f"{args.address}")
 
     if METRIC=='accuracy':
-        sched = AsyncHyperBandScheduler(time_attr="training_epoch",
-                                        metric="mean_accuracy",
-                                        mode='max',
-                                        reduction_factor=REDUCTION_FACTOR,
+        sched = AsyncHyperBandScheduler(time_attr="training_epoch", 
+                                        metric="mean_accuracy", 
+                                        mode='max', 
+                                        reduction_factor=REDUCTION_FACTOR, 
                                         grace_period=GRACE_PERIOD,
                                         brackets=1)
     else:
-        sched = AsyncHyperBandScheduler(time_attr="training_epoch",
-                                        metric="mean_loss",
-                                        mode='min',
-                                        reduction_factor=REDUCTION_FACTOR,
+        sched = AsyncHyperBandScheduler(time_attr="training_epoch", 
+                                        metric="mean_loss", 
+                                        mode='min', 
+                                        reduction_factor=REDUCTION_FACTOR, 
                                         grace_period=GRACE_PERIOD,
                                         brackets=1)
 

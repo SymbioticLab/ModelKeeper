@@ -1,8 +1,19 @@
+DPN26()
+ResNet18()
+se_resnet20()
+MobileNetV2(alpha=0.5)
+VGG(vgg_block=11)
+regnety004
+rir_cifar10
+wrn16_10_cifar10
+xdensenet40_2_k36_bc_cifar10
+ShuffleNetV2(net_size=0.5)
+efficientnet_b0
+msdnet22_cifar10
 DenseNet121()
 DenseNet161()
 DenseNet169()
 DenseNet201()
-DPN26()
 DPN68()
 DPN92()
 DPN98()
@@ -14,7 +25,6 @@ PreActResNet34()
 PreActResNet50()
 PreActResNet101()
 PreActResNet152()
-ResNet18()
 ResNet34()
 ResNet50()
 ResNet101()
@@ -23,7 +33,6 @@ ResNeXt29_2x64d()
 ResNeXt29_4x64d()
 ResNeXt29_8x64d()
 ResNeXt29_32x4d()
-se_resnet20()
 se_resnet32()
 se_resnet56()
 se_preactresnet20()
@@ -31,36 +40,33 @@ se_preactresnet32()
 se_preactresnet56()
 ShuffleNetG2()
 ShuffleNetG3()
-ShuffleNetV2(net_size=0.5)
 ShuffleNetV2(net_size=1)
 ShuffleNetV2(net_size=1.5)
 ShuffleNetV2(net_size=2)
-MobileNetV2(alpha=0.25)
 MobileNetV2(alpha=0.5)
 MobileNetV2(alpha=0.75)
 MobileNetV2(alpha=1)
 MobileNetV2(alpha=1.5)
 MobileNetV2(alpha=2)
-MobileNetV3(model_mode="SMALL", multiplier=0.5)
-MobileNetV3(model_mode="SMALL", multiplier=0.75)
-MobileNetV3(model_mode="SMALL", multiplier=1)
-MobileNetV3(model_mode="SMALL", multiplier=1.25)
-MobileNetV3(model_mode="SMALL", multiplier=1.5)
-MobileNetV3(model_mode="SMALL", multiplier=2)
-MobileNetV3(model_mode="LARGE", multiplier=0.5)
-MobileNetV3(model_mode="LARGE", multiplier=0.75)
-MobileNetV3(model_mode="LARGE", multiplier=1)
-MobileNetV3(model_mode="LARGE", multiplier=1.25)
-MobileNetV3(model_mode="LARGE", multiplier=1.5)
-MobileNetV3(model_mode="LARGE", multiplier=2)
-VGG('VGG11')
-VGG('VGG13')
-VGG('VGG16')
-VGG('VGG19')
-VGG('VGG11', use_bn=True)
-VGG('VGG13', use_bn=True)
-VGG('VGG16', use_bn=True)
-VGG('VGG19', use_bn=True)
+MobileNetV3(is_large=0, multiplier=0.5)
+MobileNetV3(is_large=0, multiplier=0.75)
+MobileNetV3(is_large=0, multiplier=1)
+MobileNetV3(is_large=0, multiplier=1.25)
+MobileNetV3(is_large=0, multiplier=1.5)
+MobileNetV3(is_large=0, multiplier=2)
+MobileNetV3(is_large=1, multiplier=0.5)
+MobileNetV3(is_large=1, multiplier=0.75)
+MobileNetV3(is_large=1, multiplier=1)
+MobileNetV3(is_large=1, multiplier=1.25)
+MobileNetV3(is_large=1, multiplier=1.5)
+MobileNetV3(is_large=1, multiplier=2)
+VGG(vgg_block=13)
+VGG(vgg_block=16)
+VGG(vgg_block=19)
+VGG(vgg_block=11, use_bn=True)
+VGG(vgg_block=13, use_bn=True)
+VGG(vgg_block=16, use_bn=True)
+VGG(vgg_block=19, use_bn=True)
 ror3_110_cifar10
 resnesta18
 efficientnet_b4
@@ -75,14 +81,11 @@ wrn40_8_cifar10
 regnety160
 xdensenet40_2_k24_bc_cifar10
 diapreresnet20_cifar10
-regnety004
-xdensenet40_2_k36_bc_cifar10
 resnext20_32x4d_cifar10
 pyramidnet200_a240_bn_cifar10
 regnety016
 regnety008
 resnext29_16x64d_cifar10
-wrn16_10_cifar10
 seresnet20_cifar10
 regnetx016
 resneta18
@@ -128,10 +131,8 @@ prnet
 efficientnet_b6
 preresnet110_cifar10
 sepreresnet1001_cifar10
-msdnet22_cifar10
 resnesta101
 diaresnet1202_cifar10
-efficientnet_b0
 resnetd152b
 resnet272bn_cifar10
 regnetx004
@@ -150,9 +151,8 @@ resneta50b
 resnetabc14b
 resnesta200
 resnet20_cifar10
-resnet10_cifar10
-resnet12_cifar10
 resnet14_cifar10
+regnety032
 efficientnet_b5
 regnetx120
 resnet56_cifar10
@@ -164,13 +164,11 @@ preresnet56_cifar10
 seresnet1001_cifar10
 resnestabc26
 resnetd101b
-rir_cifar10
 resnet1001_cifar10
 preresnet1001_cifar10
 resnestabc14
 fractalnet_cifar10
 resneta152b
-regnety032
 pyramidnet110_a48_cifar10
 seresnet56_cifar10
 sepreresnet164bn_cifar10

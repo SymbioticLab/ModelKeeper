@@ -3,7 +3,7 @@
     Original paper: 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 """
 
-__all__ = ['CIFARResNet', 'resnet10_cifar10', 'resnet12_cifar10', 'resnet14_cifar10',
+__all__ = ['CIFARResNet', 'resnet14_cifar10',
             'resnet20_cifar10', 'resnet20_cifar100', 'resnet20_svhn',
            'resnet56_cifar10', 'resnet56_cifar100', 'resnet56_svhn',
            'resnet110_cifar10', 'resnet110_cifar100', 'resnet110_svhn',
@@ -154,40 +154,6 @@ def get_resnet_cifar(num_classes,
 
 
 
-def resnet10_cifar10(num_classes=10, **kwargs):
-    """
-    ResNet-20 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-
-    Parameters:
-    ----------
-    num_classes : int, default 10
-        Number of classification classes.
-    pretrained : bool, default False
-        Whether to load the pretrained weights for model.
-    root : str, default '~/.torch/models'
-        Location for keeping the model parameters.
-    """
-    return get_resnet_cifar(num_classes=num_classes, blocks=10, bottleneck=False, model_name="resnet10_cifar10",
-                            **kwargs)
-
-
-def resnet12_cifar10(num_classes=10, **kwargs):
-    """
-    ResNet-20 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
-
-    Parameters:
-    ----------
-    num_classes : int, default 10
-        Number of classification classes.
-    pretrained : bool, default False
-        Whether to load the pretrained weights for model.
-    root : str, default '~/.torch/models'
-        Location for keeping the model parameters.
-    """
-    return get_resnet_cifar(num_classes=num_classes, blocks=12, bottleneck=False, model_name="resnet12_cifar10",
-                            **kwargs)
-
-
 def resnet14_cifar10(num_classes=10, **kwargs):
     """
     ResNet-20 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
@@ -219,6 +185,23 @@ def resnet20_cifar10(num_classes=10, **kwargs):
         Location for keeping the model parameters.
     """
     return get_resnet_cifar(num_classes=num_classes, blocks=20, bottleneck=False, model_name="resnet20_cifar10",
+                            **kwargs)
+
+
+def resnet34_cifar10(num_classes=10, **kwargs):
+    """
+    ResNet-20 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
+
+    Parameters:
+    ----------
+    num_classes : int, default 10
+        Number of classification classes.
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    root : str, default '~/.torch/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_cifar(num_classes=num_classes, blocks=34, bottleneck=False, model_name="resnet34_cifar10",
                             **kwargs)
 
 
@@ -711,4 +694,5 @@ def _test():
 
 if __name__ == "__main__":
     _test()
+
 

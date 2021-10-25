@@ -1,4 +1,5 @@
 from models.cifarmodels.model_provider import get_cv_model
+from models.torchcv.model_provider import get_model as ptcv_get_model
 import torch
 
 def get_str_type(input_str):
@@ -25,12 +26,32 @@ def get_model(temp_model_name):
     args_model['name'] = model_type
     return args_model
 
-tests = ['MobileNetV3(is_large=0, multiplier=0.75)', "MobileNetV3(is_large=1, multiplier=0.75)", "VGG(vgg_block=11)", "ShuffleNetG3()", "ShuffleNetV2(net_size=0.5)"]
+
+tests = ["densenet250_k24_bc_cifar10", "densenet190_k40_bc_cifar10"]
+
 
 for test in tests:
-    args_model = get_model(test)
-    net = get_cv_model(**args_model)
-    print(net(torch.rand(2, 3, 32, 32)))
+    temp_model_name = test 
+    try:
+        if '(' in temp_model_name:
+            args_model = get_model(temp_model_name)
+            #args_model['num_classes'] = num_classes
+
+            model = get_cv_model(**args_model)
+        else:
+            model = ptcv_get_model(temp_model_name, pretrained=False)
+
+        output = model(torch.rand(128, 3, 32, 32))
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1, weight_decay=5e-4, momentum=0.9)
+        criteria = torch.nn.CrossEntropyLoss()
+        loss = criteria(output, torch.zeros(128, dtype=torch.long))
+        loss.backward()
+
+    except Exception as e:
+        print(f"{temp_model_name} failed... {e}" )
+
+    #args_model = get_model(test)
+    #net = get_cv_model(**args_model)
+    
 
 print('done..')
-
