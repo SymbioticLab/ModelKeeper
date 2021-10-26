@@ -5,8 +5,8 @@ import pickle
 import argparse
 import logging
 import numpy as np
-import collections 
-import pandas 
+import collections
+import pandas
 import string
 
 import torch
@@ -41,7 +41,7 @@ from modelkeeper.matchingopt import ModelKeeper
 # Imgclsmob zoo
 from models.torchcv.model_provider import get_model as ptcv_get_model
 # Cifar zoo
-from models.cifarmodels.model_provider import get_cv_model 
+from models.cifarmodels.model_provider import get_cv_model
 from models.nasbench import get_cell_based_tiny_net
 
 logging.basicConfig(level=logging.INFO, filename='./ray_log.e', filemode='w')
@@ -65,7 +65,7 @@ def GenerateConfig(n, path):
     rng.shuffle(config_list)
 
     return config_list[modelidx_base:modelidx_base+n]
-    #return [config_list[i] for i in random.sample(range(0,len(config_list)), n)] 
+    #return [config_list[i] for i in random.sample(range(0,len(config_list)), n)]
 
 
 
@@ -116,11 +116,11 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
     ---------
     accuracy, loss : tuple
         Accuracy and loss of the evaluated model
-    
+
     """
     model.to(device).eval()
     correct = avg_loss = 0.
-    total = 0   
+    total = 0
     with torch.no_grad():
         for data, target in data_loader:
             data, target = Variable(data.to(device)), Variable(target.to(device))
@@ -136,21 +136,21 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
 
     return accuracy, avg_loss/len(data_loader)
 
-def get_data_loaders():
+def get_data_loaders(train_bz, test_bz):
 
     if 'ImageNet' in args.data:
         mean = [x / 255 for x in [122.68, 116.66, 104.01]]
         std  = [x / 255 for x in [63.22,  61.26 , 65.09]]
         lists = [transforms.RandomHorizontalFlip(),
-                transforms.RandomCrop(32, padding=2), 
-                transforms.ToTensor(), 
+                transforms.RandomCrop(32, padding=2),
+                transforms.ToTensor(),
                 transforms.Normalize(mean, std)]
         train_transform = transforms.Compose(lists)
         test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
     else:
         train_transform = transforms.Compose(
-                [transforms.RandomHorizontalFlip(), 
-                transforms.RandomCrop(32, padding=2), 
+                [transforms.RandomHorizontalFlip(),
+                transforms.RandomCrop(32, padding=2),
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
@@ -166,26 +166,26 @@ def get_data_loaders():
 
         train_loader = torch.utils.data.DataLoader(
             datasets.CIFAR10(args.dataset, train=True, download=True, transform=train_transform),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
+            batch_size=train_bz, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(
             datasets.CIFAR10(args.dataset, train=False, download=True, transform=test_transform),
-            batch_size=args.test_batch_size, shuffle=True, **kwargs)
+            batch_size=test_bz, shuffle=True, **kwargs)
     elif args.data == 'cifar100':
         train_loader = torch.utils.data.DataLoader(
             datasets.CIFAR100(args.dataset, train=True, download=True, transform=train_transform),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
+            batch_size=train_bz, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(
             datasets.CIFAR100(args.dataset, train=False, download=True, transform=test_transform),
-            batch_size=args.test_batch_size, shuffle=True, **kwargs)
+            batch_size=test_bz, shuffle=True, **kwargs)
 
     elif args.data == 'ImageNet16-120':
         train_data = ImageNet16(os.path.join(args.dataset, 'ImageNet16-120'), True , train_transform, 32, 120)
         test_data  = ImageNet16(os.path.join(args.dataset, 'ImageNet16-120'), False, test_transform, 32, 120)
         #assert len(train_data) == 151700 and len(test_data) == 6000
         train_loader = torch.utils.data.DataLoader(
-            train_data, batch_size=args.batch_size, shuffle=True, **kwargs)
+            train_data, batch_size=train_bz, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(
-            test_data, batch_size=args.test_batch_size, shuffle=True, **kwargs)
+            test_data, batch_size=test_bz, shuffle=True, **kwargs)
 
     return train_loader, test_loader, None
 
@@ -315,7 +315,7 @@ class TrialPlateauStopper(Stopper):
 
 class BestAccuracyStopper(Stopper):
     """Early stops the training if validation loss doesn't improve after a given patience."""
-    def __init__(self, patience=10, verbose=False, delta=1e-5, trace_func=logging.info):
+    def __init__(self, patience=15, verbose=False, delta=0, trace_func=logging.info):
         """
         Args:
             patience (int): How long to wait after last time validation loss improved.
@@ -363,7 +363,7 @@ class TrainModel(tune.Trainable):
     """
     Ray Tune's class-based API for hyperparameter tuning
     Note: See https://ray.readthedocs.io/en/latest/_modules/ray/tune/trainable.html#Trainable
-    
+
     """
 
     def setup(self, config):
@@ -371,15 +371,15 @@ class TrainModel(tune.Trainable):
         use_cuda = torch.cuda.is_available()
 
         device = torch.device('cuda')
-        seed = 1 
+        seed = 1
 
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         #torch.backends.cudnn.deterministic = True
-        
+
         self.device = device if use_cuda else torch.device("cpu")
-        self.train_loader, self.test_loader, self.ntokens = get_data_loaders()
+        self.train_loader, self.test_loader, self.ntokens = get_data_loaders(args.batch_size, args.test_batch_size)
 
         temp_model_name = config['config']['name']
         if args.task == "nasbench":
@@ -441,20 +441,28 @@ class TrainModel(tune.Trainable):
         self.best_loss = np.Infinity
         self.epoch = 0
 
-        self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate, weight_decay=5e-4, momentum=0.9)
+        self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate, weight_decay=1e-4, momentum=0.9)
         self.criterion = nn.CrossEntropyLoss()
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=5, 
-                        verbose=True, min_lr=5e-4, factor=0.5, threshold=0.01)
-        
+                        verbose=True, min_lr=1e-6, factor=0.2, threshold=0.02)
+
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
 
     def step(self):
         start_time = time.time()
 
-        #if args.task == "nasbench":
-        train_cv(self.model, self.optimizer, self.criterion, self.train_loader, self.device, self.scheduler)
-        
+        # Automatically change batch size if OOM
+        recovery_trials = 3
+        for i in range(1, 1+recovery_trials):
+            try:
+                train_cv(self.model, self.optimizer, self.criterion, self.train_loader, self.device, self.scheduler)
+                break
+            except Exception as e:
+                train_bz = test_bz = max(4, args.batch_size//(i*2))
+                self.logger.info(f"Model {self.model_name} fails {e}, change batch size to {train_bz}")
+                self.train_loader, self.test_loader, self.ntokens = get_data_loaders(train_bz, train_bz)
+
         training_duration = time.time() - start_time
         acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
         self.scheduler.step(acc)
@@ -486,7 +494,7 @@ class TrainModel(tune.Trainable):
         self.model.to(device='cpu')
         self.model.eval()
 
-        if self.use_keeper:    
+        if self.use_keeper:
             #if args.task == "nasbench":
             torch.onnx.export(self.model, torch.rand(2, 3, 32, 32), self.export_path, export_params=True, verbose=0, training=1)
 
@@ -496,15 +504,15 @@ class TrainModel(tune.Trainable):
             modelkeeper_client.stop()
             os.remove(self.export_path)
         else:
-            local_path = './zoo'
+            local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
             os.makedirs(local_path, exist_ok=True)
             with open(os.path.join(local_path, self.export_path), 'wb') as fout:
                 pickle.dump(self.model, fout)
 
-        self.logger.info(f"Training of {self.model_name} completed ...")
+        self.logger.info(f"Training of {self.model_name} completed with {self.history[self.epoch]}")
 
     def creat_my_log(self):
-        log_dir = f"{os.environ['HOME']}/ray_logs"
+        log_dir = f"{os.environ['HOME']}/experiment/ray_logs"
         if not os.path.isdir(log_dir):
             os.makedirs(log_dir, exist_ok=True)
         host_name = str(socket.gethostname()).split('.')[0]
@@ -540,8 +548,6 @@ if __name__ == "__main__":
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
                         help='how many batches to wait before logging status')
-    parser.add_argument('--noise', type=float, default=5e-2,
-                        help='noise or no noise 0-1')
     parser.add_argument('--data', type=str, default='cifar100')
     parser.add_argument('--dataset', type=str, default='/users/fanlai/experiment/data')
     parser.add_argument('--trace', type=str, default='/users/fanlai/experiment/ModelKeeper/ray_tune/workloads/torchcv_list.csv')
@@ -558,7 +564,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_keeper', type=bool, default=False)
 
     args, unknown = parser.parse_known_args()
-    keeper_service = None 
+    keeper_service = None
 
     if args.use_keeper:
         keeper_service = ModelKeeper(modelkeeper_config)
@@ -582,12 +588,12 @@ if __name__ == "__main__":
     TRAINING_EPOCH = 1#32
 
     REDUCTION_FACTOR = 1.000001
-    GRACE_PERIOD = 7#4
+    GRACE_PERIOD = 4#4
     CPU_RESOURCES_PER_TRIAL = 1
     GPU_RESOURCES_PER_TRIAL = 1
     METRIC = 'accuracy'  # or 'loss'
 
-    
+
     if args.task == "torchcv":
         temp_conf = []
 
@@ -603,17 +609,17 @@ if __name__ == "__main__":
     ray.init(address=f"{args.address}")
 
     if METRIC=='accuracy':
-        sched = AsyncHyperBandScheduler(time_attr="training_epoch", 
-                                        metric="mean_accuracy", 
-                                        mode='max', 
-                                        reduction_factor=REDUCTION_FACTOR, 
+        sched = AsyncHyperBandScheduler(time_attr="training_epoch",
+                                        metric="mean_accuracy",
+                                        mode='max',
+                                        reduction_factor=REDUCTION_FACTOR,
                                         grace_period=GRACE_PERIOD,
                                         brackets=1)
     else:
-        sched = AsyncHyperBandScheduler(time_attr="training_epoch", 
-                                        metric="mean_loss", 
-                                        mode='min', 
-                                        reduction_factor=REDUCTION_FACTOR, 
+        sched = AsyncHyperBandScheduler(time_attr="training_epoch",
+                                        metric="mean_loss",
+                                        mode='min',
+                                        reduction_factor=REDUCTION_FACTOR,
                                         grace_period=GRACE_PERIOD,
                                         brackets=1)
 
@@ -626,8 +632,8 @@ if __name__ == "__main__":
             stop=CombinedStopper(
                 MaximumIterationStopper(max_iter=args.epochs),
                 BestAccuracyStopper(),
-                TrialPlateauStopper(metric='mean_accuracy', mode='max', std=4e-3,
-                num_results=10, grace_period=GRACE_PERIOD),
+                TrialPlateauStopper(metric='mean_accuracy', mode='max', std=5e-3,
+                num_results=20, grace_period=GRACE_PERIOD),
             ),
             resources_per_trial={
                 "cpu": CPU_RESOURCES_PER_TRIAL,
