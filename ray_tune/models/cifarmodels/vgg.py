@@ -20,45 +20,29 @@ vggcfg = {
 
 class VGG(nn.Module):
 
-    def __init__(self, vgg_block, use_bn=False, num_class=100):
-        super().__init__()
-        self.features = make_layers(vggcfg[f"VGG{vgg_block}"], use_bn)
-
-        self.classifier = nn.Sequential(
-            nn.Linear(512, 4096),
-            nn.ReLU(inplace=True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(inplace=True),
-            nn.Dropout(),
-            nn.Linear(4096, num_class)
-        )
+    def __init__(self, vgg_block, use_bn=False, num_classes=10):
+        super(VGG, self).__init__()
+        self.use_bn = use_bn
+        self.features = self._make_layers(vggcfg[f"VGG{vgg_block}"])
+        self.classifier = nn.Linear(512, num_classes)
 
     def forward(self, x):
-        output = self.features(x)
-        output = output.view(output.size()[0], -1)
-        output = self.classifier(output)
+        out = self.features(x)
+        out = out.view(out.size(0), -1)
+        out = self.classifier(out)
+        return out
 
-        return output
-
-def make_layers(cfg, batch_norm=False):
-    layers = []
-
-    input_channel = 3
-    for l in cfg:
-        if l == 'M':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-            continue
-
-        layers += [nn.Conv2d(input_channel, l, kernel_size=3, padding=1)]
-
-        if batch_norm:
-            layers += [nn.BatchNorm2d(l)]
-
-        layers += [nn.ReLU(inplace=True)]
-        input_channel = l
-
-    return nn.Sequential(*layers)
-
-
-
+    def _make_layers(self, cfg):
+        layers = []
+        in_channels = 3
+        for x in cfg:
+            if x == 'M':
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+            else:
+                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1)]
+                if self.use_bn:
+                    layers += [nn.BatchNorm2d(x)]
+                layers += [nn.ReLU(inplace=True)]
+                in_channels = x
+        layers += [nn.AvgPool2d(kernel_size=1, stride=1)]
+        return nn.Sequential(*layers)

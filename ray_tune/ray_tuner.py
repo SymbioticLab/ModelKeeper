@@ -315,7 +315,7 @@ class TrialPlateauStopper(Stopper):
 
 class BestAccuracyStopper(Stopper):
     """Early stops the training if validation loss doesn't improve after a given patience."""
-    def __init__(self, patience=15, verbose=False, delta=0, trace_func=logging.info):
+    def __init__(self, patience=10, verbose=False, delta=0, trace_func=logging.info):
         """
         Args:
             patience (int): How long to wait after last time validation loss improved.
@@ -441,10 +441,11 @@ class TrainModel(tune.Trainable):
         self.best_loss = np.Infinity
         self.epoch = 0
 
-        self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate, weight_decay=1e-4, momentum=0.9)
+        self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate,
+                weight_decay=args.weight_decay, momentum=args.momentum)
         self.criterion = nn.CrossEntropyLoss()
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=5, 
-                        verbose=True, min_lr=1e-6, factor=0.2, threshold=0.02)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=4,
+                        verbose=True, min_lr=1e-6, factor=0.5, threshold=0.02)
 
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
@@ -542,6 +543,8 @@ if __name__ == "__main__":
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='SGD momentum (default: 0.9)')
+    parser.add_argument('--weight_decay', type=float, default=5e-4, metavar='M',
+                        help='SGD momentum (default: 0.9)')
     parser.add_argument('--cuda', action='store_true', default=True,
                         help='disables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -632,8 +635,8 @@ if __name__ == "__main__":
             stop=CombinedStopper(
                 MaximumIterationStopper(max_iter=args.epochs),
                 BestAccuracyStopper(),
-                TrialPlateauStopper(metric='mean_accuracy', mode='max', std=5e-3,
-                num_results=20, grace_period=GRACE_PERIOD),
+                TrialPlateauStopper(metric='mean_accuracy', mode='max', std=4e-3,
+                num_results=10, grace_period=GRACE_PERIOD),
             ),
             resources_per_trial={
                 "cpu": CPU_RESOURCES_PER_TRIAL,

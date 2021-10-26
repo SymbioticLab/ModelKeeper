@@ -109,7 +109,7 @@ class BottleneckResidualSEBlock(nn.Module):
 
 class SEResNet(nn.Module):
 
-    def __init__(self, block, block_num, class_num=100):
+    def __init__(self, block, block_num, num_classes=100):
         super().__init__()
 
         self.in_channels = 64
@@ -125,7 +125,7 @@ class SEResNet(nn.Module):
         self.stage3 = self._make_stage(block, block_num[2], 256, 2)
         self.stage4 = self._make_stage(block, block_num[3], 512, 2)
 
-        self.linear = nn.Linear(self.in_channels, class_num)
+        self.linear = nn.Linear(self.in_channels, num_classes)
 
     def forward(self, x):
         x = self.pre(x)
@@ -155,17 +155,17 @@ class SEResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-def seresnet18():
-    return SEResNet(BasicResidualSEBlock, [2, 2, 2, 2])
+def seresnet18(num_classes=100):
+    return SEResNet(BasicResidualSEBlock, [2, 2, 2, 2], num_classes=num_classes)
 
-def seresnet34():
-    return SEResNet(BasicResidualSEBlock, [3, 4, 6, 3])
+def seresnet34(num_classes=100):
+    return SEResNet(BasicResidualSEBlock, [3, 4, 6, 3], num_classes=num_classes)
 
-def seresnet50():
-    return SEResNet(BottleneckResidualSEBlock, [3, 4, 6, 3])
+def seresnet50(num_classes=100):
+    return SEResNet(BottleneckResidualSEBlock, [3, 4, 6, 3], num_classes=num_classes)
 
-def seresnet101():
-    return SEResNet(BottleneckResidualSEBlock, [3, 4, 23, 3])
+def seresnet101(num_classes=100):
+    return SEResNet(BottleneckResidualSEBlock, [3, 4, 23, 3], num_classes=num_classes)
 
-def seresnet152():
-    return SEResNet(BottleneckResidualSEBlock, [3, 8, 36, 3])
+def seresnet152(num_classes=100):
+    return SEResNet(BottleneckResidualSEBlock, [3, 8, 36, 3], num_classes=num_classes)

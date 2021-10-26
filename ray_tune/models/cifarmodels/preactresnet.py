@@ -70,7 +70,7 @@ class PreActBottleNeck(nn.Module):
 
 class PreActResNet(nn.Module):
 
-    def __init__(self, block, num_block, class_num=100):
+    def __init__(self, block, num_block, num_classes=100):
         super().__init__()
         self.input_channels = 64
 
@@ -85,7 +85,7 @@ class PreActResNet(nn.Module):
         self.stage3 = self._make_layers(block, num_block[2], 256, 2)
         self.stage4 = self._make_layers(block, num_block[3], 512, 2)
 
-        self.linear = nn.Linear(self.input_channels, class_num)
+        self.linear = nn.Linear(self.input_channels, num_classes)
 
     def _make_layers(self, block, block_num, out_channels, stride):
         layers = []
@@ -114,18 +114,17 @@ class PreActResNet(nn.Module):
 
         return x
 
-def preactresnet18():
-    return PreActResNet(PreActBasic, [2, 2, 2, 2])
+def preactresnet18(num_classes=100):
+    return PreActResNet(PreActBasic, [2, 2, 2, 2], num_classes=num_classes)
 
-def preactresnet34():
-    return PreActResNet(PreActBasic, [3, 4, 6, 3])
+def preactresnet34(num_classes=100):
+    return PreActResNet(PreActBasic, [3, 4, 6, 3], num_classes=num_classes)
 
-def preactresnet50():
-    return PreActResNet(PreActBottleNeck, [3, 4, 6, 3])
+def preactresnet50(num_classes=100):
+    return PreActResNet(PreActBottleNeck, [3, 4, 6, 3], num_classes=num_classes)
 
-def preactresnet101():
-    return PreActResNet(PreActBottleNeck, [3, 4, 23, 3])
+def preactresnet101(num_classes=100):
+    return PreActResNet(PreActBottleNeck, [3, 4, 23, 3], num_classes=num_classes)
 
-def preactresnet152():
-    return PreActResNet(PreActBottleNeck, [3, 8, 36, 3])
-
+def preactresnet152(num_classes=100):
+    return PreActResNet(PreActBottleNeck, [3, 8, 36, 3], num_classes=num_classes)
