@@ -36,7 +36,7 @@ class ModelKeeperClient(object):
 
         return connection
 
-    def query_for_model(self, model_path, timeout=240):
+    def query_for_model(self, model_path, timeout=1800):
         """
         @ model: assume the model is in onnx format
         """
@@ -68,7 +68,7 @@ class ModelKeeperClient(object):
                 meta = pickle.load(fin) # {"matching_score", "parent_name", "parent_acc"}
             os.remove(local_path)
         else:
-            print(f"Querying the zoo server times out {timeout} sec")
+            logging.info(f"Querying the zoo server times out {timeout} sec")
 
         return weights, meta
 
@@ -80,7 +80,7 @@ class ModelKeeperClient(object):
 
         if zoo_path is None:
             zoo_path = os.path.join(self.zoo_register_path, model_path.split('/')[-1].replace('.onnx', ''))
-            zoo_path = zoo_path + f'__{accuracy}' 
+            zoo_path = zoo_path + f'@{accuracy}' 
         try:
             self.connection_manager.put(model_path, zoo_path)
             _ = self.connection.exec_command(f"mv {zoo_path} {zoo_path+'.onnx'}")
@@ -107,4 +107,5 @@ class ModelKeeperClient(object):
         self.connection_manager.close()
         self.connection.close()
         #shutil.rmtree(self.execution_path)
+
 

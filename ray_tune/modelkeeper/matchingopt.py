@@ -33,7 +33,7 @@ distance_lookup = None
 
 log_path = './modelkeeper_log'
 with open(log_path, 'w') as fout:
-    pass 
+    pass
 
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
                 datefmt='%H:%M:%S',
@@ -360,7 +360,7 @@ class ModelKeeper(object):
 
         for store in runtime_stores:
             if not os.path.exists(store):
-                os.mkdir(store)
+                os.makedirs(store)
 
     def clean_execution_store(self):
         runtime_stores = [self.args.zoo_path, self.args.zoo_query_path,
@@ -505,10 +505,10 @@ class ModelKeeper(object):
         # meta file is rather small
         onnx_model = onnx.load(meta_file)
         model_graph = onnx_model.graph
-        if '__' in meta_file:
-            accuracy = float(meta_file.split('__')[-1].split('.onnx')[0])
+        if '@' in meta_file:
+            accuracy = float(meta_file.split('@')[-1].split('.onnx')[0])
         else:
-            accuracy = -1 
+            accuracy = -1
 
         # record the shape of each weighted nodes
         node_shapes, num_of_trainable_tensors = get_tensor_shapes(model_graph)
@@ -773,7 +773,7 @@ class ModelKeeper(object):
 
     def schedule_job_order(self, models, threshold=0., timeout=120):
         """
-        @ models: names of jobs needed for scheduling. 
+        @ models: names of jobs needed for scheduling.
           - These models should have been added to zoo temporarily, and we can evict them once scheduling done
         @ threshold: disconnect the tree if score < threshold
         @ return: a list of jobs in scheduling order
@@ -844,6 +844,7 @@ class ModelKeeper(object):
         request_models = [x for x in os.listdir(self.args.zoo_query_path) if x.endswith('.onnx')]
         if len(request_models) > 0:
             for m in request_models:
+                logging.info(f"Start to matching for model {m}")
                 model_path = os.path.join(self.args.zoo_query_path, m)
                 weights, meta_data = self.map_for_onnx(model_path, model_name=m)
 

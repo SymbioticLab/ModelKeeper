@@ -198,7 +198,7 @@ def polish_name(model_name):
         else:
             updated_name += c
 
-    return updated_name.replace('__', '_')
+    return updated_name.replace(' ', '_').replace('__', '_')
 
 
 def get_str_type(input_str):
@@ -650,9 +650,9 @@ if __name__ == "__main__":
         )
 
     if METRIC=='accuracy':
-        print("Best config is:", analysis.get_best_config(metric="mean_accuracy"))
+        print("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
     else:
-        print("Best config is:", analysis.get_best_config(metric="mean_loss"))
+        print("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
 
     if keeper_service is None:
         keeper_service.stop_service()
