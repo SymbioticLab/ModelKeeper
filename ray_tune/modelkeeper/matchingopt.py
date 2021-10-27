@@ -181,7 +181,7 @@ class MatchingOperator(object):
 
     def get_matching_score(self, child, read_mapping=False):
         score = self.align_child(child=child, read_mapping=read_mapping)
-        return score/child.graph['num_tensors']
+        return score/len(self.childidx_order)# child.graph['num_tensors']
 
     def get_mappings(self):
 
@@ -980,3 +980,4 @@ def test():
 
 #test()
 #test_fake()
+

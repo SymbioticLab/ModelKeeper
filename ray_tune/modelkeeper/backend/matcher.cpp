@@ -164,6 +164,7 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
 
     set<int> parent_node_set;
 
+    // merge k-sorted lists
     while (queue.size() > 0){
         pair<double, int> temp_pair = queue.top();
         queue.pop();
@@ -176,8 +177,8 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
         if (lists[branch][inbranch].opt == MATCH){
             parent_node = lists[branch][inbranch].parentidx;
 
+            // parent is used before, then move to the next inbranch idx in this branch
             if (parent_node_set.find(parent_node) != parent_node_set.end()){
-                // move to the next inbranch idx in this branch
                 should_match = false;
                 if (inbranch + 1 < lists[branch].size()){
                     inbranch += 1;
