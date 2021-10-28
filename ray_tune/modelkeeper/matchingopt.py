@@ -29,7 +29,8 @@ clib_matcher.get_matching_score.restype = ctypes.c_char_p
 sys.setrecursionlimit(10000)
 random.seed(1)
 distance_lookup = None
-
+SCORE_THRESHOLD = float('-inf')
+THRESHOLD = 0.1 # more than X% layers can be transferred from the parent
 
 log_path = './modelkeeper_log'
 with open(log_path, 'w') as fout:
@@ -515,7 +516,8 @@ class ModelKeeper(object):
 
         # construct the computation graph and align their attribution
         nodes = [n for n in onnx_model.graph.node if n.op_type not in self.skip_opts]
-        graph = nx.DiGraph(name=meta_file, num_tensors=num_of_trainable_tensors, accuracy=accuracy)
+        graph = nx.DiGraph(name=meta_file, num_tensors=num_of_trainable_tensors, accuracy=accuracy,
+                            num_nodes=len(nodes))
 
         node_ids = dict()
         edge_source = collections.defaultdict(list)
@@ -589,7 +591,7 @@ class ModelKeeper(object):
             #self.model_clusters.sort(key=lambda k:medoid_dist[k.kernel][1], reverse=True)
             medoid_dist.sort(key=lambda k:k[1], reverse=True)
 
-        best_score = 0
+        best_score = SCORE_THRESHOLD
         search_models = []
         parent_path = mappings = parent = None
 
@@ -645,7 +647,7 @@ class ModelKeeper(object):
         results = self.query_scores(parent_models, child, self.args.num_of_processes)
 
         parent_path = mappings = parent = None
-        best_score = 0
+        best_score = SCORE_THRESHOLD
 
         for (p, s) in results:
             #logging.info(f"For mapping pair ({model_name}, {p.graph['name']}) score is {s}")
@@ -715,7 +717,7 @@ class ModelKeeper(object):
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
 
-        if parent is not None:
+        if parent is not None and len(mappings) > THRESHOLD * parent.graph['num_nodes']:
             weights, num_of_matched = self.warm_weights(parent, child, mappings)
             parent_name = parent.graph['name']
 
@@ -748,7 +750,7 @@ class ModelKeeper(object):
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
 
-        if parent is not None:
+        if parent is not None and len(mappings) > THRESHOLD * parent.graph['num_nodes']:
             weights, num_of_matched = self.warm_weights(parent, child, mappings)
             parent_name = parent.graph['name']
 
@@ -981,4 +983,5 @@ def test():
 
 #test()
 #test_fake()
+
 

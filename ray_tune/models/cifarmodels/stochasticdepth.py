@@ -12,7 +12,7 @@ from torch.distributions.bernoulli import Bernoulli
 import random
 
 
-class StochasticDepthBasicBlock(torch.jit.ScriptModule):
+class StochasticDepthBasicBlock(nn.Module):
 
     expansion=1
 
@@ -40,7 +40,7 @@ class StochasticDepthBasicBlock(torch.jit.ScriptModule):
         var = torch.bernoulli(torch.tensor(self.p).float())
         return torch.equal(var, torch.tensor(1).float().to(var.device))
 
-    @torch.jit.script_method
+    #@torch.jit.script_method
     def forward(self, x):
 
         if self.training:
@@ -88,7 +88,7 @@ class StochasticDepthBasicBlock(torch.jit.ScriptModule):
         return x
 
 
-class StochasticDepthBottleNeck(torch.jit.ScriptModule):
+class StochasticDepthBottleNeck(nn.Module):
     """Residual block for resnet over 50 layers
 
     """
@@ -120,7 +120,7 @@ class StochasticDepthBottleNeck(torch.jit.ScriptModule):
         var = torch.bernoulli(torch.tensor(self.p).float())
         return torch.equal(var, torch.tensor(1).float().to(var.device))
 
-    @torch.jit.script_method
+    #@torch.jit.script_method
     def forward(self, x):
 
         if self.training:

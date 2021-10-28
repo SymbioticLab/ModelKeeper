@@ -48,14 +48,14 @@ class ModelKeeperClient(object):
         self.register_model_to_zoo(model_path, os.path.join(self.zoo_query_path, model_name))
 
         # 2. Ping the host for results
-        waiting_duration = 0 
+        waiting_duration, heartbeat = 0, 2
         os.system(f'echo > {local_path}')
 
         while waiting_duration < timeout:
             success = self.pull_model_from_zoo(os.path.join(self.zoo_ans_path, ans_model_name), local_path)
             if not success:
-                time.sleep(10)
-                waiting_duration += 10
+                time.sleep(heartbeat)
+                waiting_duration += heartbeat
             else: break
 
         # 3. Remove result file from remote
@@ -107,5 +107,3 @@ class ModelKeeperClient(object):
         self.connection_manager.close()
         self.connection.close()
         #shutil.rmtree(self.execution_path)
-
-
