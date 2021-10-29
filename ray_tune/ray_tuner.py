@@ -43,11 +43,8 @@ from models.torchcv.model_provider import get_model as ptcv_get_model
 # Cifar zoo
 from models.cifarmodels.model_provider import get_cv_model
 from models.nasbench import get_cell_based_tiny_net
+import threading
 
-logging.basicConfig(level=logging.INFO, filename='./ray_log.e', filemode='w')
-logger = logging.getLogger(__name__)
-
-modelidx_base = 0
 
 def GenerateConfig(n, path):
     """
@@ -63,6 +60,8 @@ def GenerateConfig(n, path):
     rng = Random()
     rng.seed(0)
     rng.shuffle(config_list)
+
+    modelidx_base = 0
 
     return config_list[modelidx_base:modelidx_base+n]
     #return [config_list[i] for i in random.sample(range(0,len(config_list)), n)]
@@ -212,6 +211,7 @@ def get_str_type(input_str):
         return float(input_str)
     return str(input_str)
 
+
 def get_model(temp_model_name):
     model_type = temp_model_name.split('(')[0].strip()
     temp_args = [x.strip() for x in temp_model_name.split('(')[1].replace(')','').strip().split(',') if len(x.strip())>0]
@@ -224,7 +224,6 @@ def get_model(temp_model_name):
 
     args_model['name'] = model_type
     return args_model
-
 
 
 from ray.tune.stopper import Stopper
@@ -420,14 +419,14 @@ class TrainModel(tune.Trainable):
             self.model.to(device='cpu')
 
             dummy_input = torch.rand(2, 3, 32, 32)
-            # export to onnx format
+            # export to onnx format; Some models may be slow in onnx
             torch.onnx.export(self.model, dummy_input, self.export_path,
                 export_params=True, verbose=0, training=1, do_constant_folding=False)
 
             weights, meta_info = modelkeeper_client.query_for_model(self.export_path)
 
-            for name, p in self.model.named_parameters():
-                if weights is not None:
+            if weights is not None:
+                for name, p in self.model.named_parameters():
                     temp_data = (torch.from_numpy(weights[name])).data
                     assert(temp_data.shape == p.data.shape)
                     p.data = temp_data.to(dtype=p.data.dtype)
@@ -442,7 +441,7 @@ class TrainModel(tune.Trainable):
         self.epoch = 0
 
         self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate,
-                weight_decay=args.weight_decay, momentum=args.momentum)
+                weight_decay=args.weight_decay, momentum=args.momentum, nesterov=True)
         self.criterion = nn.CrossEntropyLoss()
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=4,
                         verbose=True, min_lr=1e-6, factor=0.5, threshold=0.02)
@@ -473,6 +472,7 @@ class TrainModel(tune.Trainable):
                     'time': self.history[self.epoch-1]['time']+training_duration,
                     'acc': acc,
                     'loss': loss,
+                    'epoch': self.epoch
                 }
 
         self.logger.info(f"Trained model {self.model_name}: epoch {self.epoch}, acc {acc}, loss {loss}")
@@ -495,22 +495,22 @@ class TrainModel(tune.Trainable):
         self.model.to(device='cpu')
         self.model.eval()
 
-        if self.use_keeper:
-            #if args.task == "nasbench":
-            torch.onnx.export(self.model, torch.rand(2, 3, 32, 32), self.export_path, export_params=True, verbose=0, training=1)
+        local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
+        os.makedirs(local_path, exist_ok=True)
+        export_path = os.path.join(local_path, self.export_path)
+        dummy_input = torch.rand((2, 3, 32, 32))
 
-            # register model to the zoo
-            modelkeeper_client = ModelKeeperClient(modelkeeper_config)
-            modelkeeper_client.register_model_to_zoo(self.export_path, accuracy=self.history[self.epoch]['acc'])
-            modelkeeper_client.stop()
-            os.remove(self.export_path)
-        else:
-            local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
-            os.makedirs(local_path, exist_ok=True)
-            with open(os.path.join(local_path, self.export_path), 'wb') as fout:
-                pickle.dump(self.model, fout)
+        with open(export_path, 'wb') as fout:
+            pickle.dump(self.model, fout)
+            pickle.dump(dummy_input, fout)
+
+        if args.use_keeper:
+            # Call the offline API to register the model
+            os.system(f"nohup python {os.environ['HOME']}/experiment/ModelKeeper/ray_tune/keeper_offline.py --model_file={export_path} --accuracy={self.history[self.epoch]['acc']} &")
+            self.logger.info("Call keeper offline register API")
 
         self.logger.info(f"Training of {self.model_name} completed with {self.history[self.epoch]}")
+
 
     def creat_my_log(self):
         log_dir = f"{os.environ['HOME']}/experiment/ray_logs"
@@ -569,7 +569,10 @@ if __name__ == "__main__":
     args, unknown = parser.parse_known_args()
     keeper_service = None
 
+    logging.info(args)
+
     if args.use_keeper:
+        logging.info(modelkeeper_config)
         keeper_service = ModelKeeper(modelkeeper_config)
         keeper_service.start_service()
 
@@ -595,7 +598,6 @@ if __name__ == "__main__":
     CPU_RESOURCES_PER_TRIAL = 1
     GPU_RESOURCES_PER_TRIAL = 1
     METRIC = 'accuracy'  # or 'loss'
-
 
     if args.task == "torchcv":
         temp_conf = []
@@ -650,9 +652,9 @@ if __name__ == "__main__":
         )
 
     if METRIC=='accuracy':
-        print("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
+        logging.info("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
     else:
-        print("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
+        logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
 
     if keeper_service is None:
         keeper_service.stop_service()

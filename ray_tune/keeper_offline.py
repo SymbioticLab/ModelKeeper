@@ -9,6 +9,7 @@ import argparse
 import logging
 import pickle
 import torch
+import time
 
 log_path = './modelkeeper_log'
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
@@ -42,6 +43,6 @@ def register_model(model_file, export_path, accuracy):
 
 args, unknown = parser.parse_known_args()
 
-register_model(args.model_file, args.export_path, args.accuracy)
+logging.info(f"Start to upload {args.model_file}")
+register_model(args.model_file, args.model_file, args.accuracy)
 logging.info(f"Successfully upload model {args.model_file} to the zoo")
-
