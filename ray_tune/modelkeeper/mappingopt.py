@@ -124,11 +124,11 @@ class MappingOperator(object):
         # reverse the graph, and then run DFS to record the gap between warmed layers and next closest one
         start_time = time.time()
         reversed_graph = self.child.reverse(copy=True)
-        layer_gaps = collections.defaultdict(int)
+        
         visited = set()
         num_of_padding = 0
 
-        def dfs(graph, node, depth):
+        def dfs(graph, node, depth, layer_gaps):
             visited.add(node)
             cur_depth = depth
             layer_name, layer_dims = self.child.nodes[node]['attr']['layer_name'], len(self.child.nodes[node]['attr']['dims'])
@@ -136,32 +136,37 @@ class MappingOperator(object):
             # trainable layers
             if layer_dims > 1:
                 cur_depth += 1
-                layer_gaps[layer_name] += cur_depth
+                layer_gaps[layer_name] = max(cur_depth, layer_gaps.get(layer_name, 0))
                 if layer_name in self.reset_layers:
                     cur_depth = 0 # reset the closest warmed layers
 
             for source, target in graph.out_edges(node):
                 if target not in visited:
-                    dfs(graph, target, cur_depth)
+                    dfs(graph, target, cur_depth, layer_gaps)
 
-        [dfs(self.child, node, depth=0) for node in self.child.nodes() if self.child.in_degree(node)==0]
-        visited = set()
-        [dfs(reversed_graph, node, depth=0) for node in reversed_graph.nodes() if reversed_graph.in_degree(node)==0]
+        forward_layer_gaps = collections.defaultdict(int)
+        backward_layer_gaps = collections.defaultdict(int)
 
-        logging.debug("\n")
-        for trainable_layer in layer_gaps:
-            if layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
+        try:
+            [dfs(self.child, node, depth=0, layer_gaps=forward_layer_gaps) for node in self.child.nodes() if self.child.in_degree(node)==0]
+            visited = set()
+            [dfs(reversed_graph, node, depth=0, layer_gaps=backward_layer_gaps) for node in reversed_graph.nodes() if reversed_graph.in_degree(node)==0]
+        except Exception as e:
+            logging.error(f"Error in dfs traverse: {e}")
+
+        for trainable_layer in forward_layer_gaps:
+            if forward_layer_gaps[trainable_layer] + backward_layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
                 try:
                     n_weight, n_bias = deepen(self.child_weights[trainable_layer+'.weight'], noise_factor=5e-2)
                     assert(n_weight.shape == self.child_weights[trainable_layer+'.weight'].shape)
                     self.child_weights[trainable_layer+'.weight'] = n_weight
 
                     num_of_padding += 1
-                    logging.debug("Pad layer {} with gap {}".format(trainable_layer, layer_gaps[trainable_layer]))
+                    logging.info("Pad layer {} with gap {}".format(trainable_layer, forward_layer_gaps[trainable_layer] + backward_layer_gaps[trainable_layer]))
                 except Exception as e:
-                    logging.debug('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
+                    logging.error('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
-        logging.debug("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
+        logging.info("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
 
 
 

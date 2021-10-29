@@ -26,7 +26,7 @@ from clustering import k_medoids
 clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'backend/bin/matcher.so'))
 clib_matcher.get_matching_score.restype = ctypes.c_char_p
 
-sys.setrecursionlimit(10000)
+# sys.setrecursionlimit(10000)
 random.seed(1)
 distance_lookup = None
 SCORE_THRESHOLD = float('-inf')
@@ -90,16 +90,35 @@ def get_tensor_shapes(model_graph):
 def topological_sorting(graph):
     """DFS based topological sort to maximize length of each chain"""
     # return list(nx.topological_sort(graph))
-    visited = set()
+    #visited = set()
     ret = []
+    in_degrees = {n:graph.in_degree(n) for n in graph.nodes if graph.in_degree(n) > 0}
 
-    def dfs(node):
-        visited.add(node)
-        [dfs(edge[1]) for edge in graph.out_edges(node) if edge[1] not in visited]
-        ret.append(node)
+    def dfs_iterative(start_vertex):
+        stack = [start_vertex]
 
-    [dfs(node) for node in graph.nodes() if graph.in_degree(node)==0]
-    ret.reverse()
+        while stack:
+            vertex = stack.pop()
+            ret.append(vertex)
+
+            temp_out = []
+            for edge in graph.out_edges(vertex):
+                if in_degrees[edge[1]] == 1:
+                    temp_out.append(edge[1])
+                    del in_degrees[edge[1]]
+                else:
+                    in_degrees[edge[1]] -= 1 
+
+            stack += temp_out #[edge[1] for edge in graph.out_edges(vertex) if edge[1] not in visited]
+
+    # def dfs(node):
+    #     visited.add(node)
+    #     [dfs(edge[1]) for edge in graph.out_edges(node) if edge[1] not in visited]
+    #     ret.append(node)
+
+    [dfs_iterative(node) for node in graph.nodes() if graph.in_degree(node)==0]
+    assert len(ret) == graph.number_of_nodes()
+    # ret.reverse()
     return ret
 
 class MatchingOperator(object):
@@ -165,8 +184,8 @@ class MatchingOperator(object):
 
         self.match_score, self.match_res = self.parse_json_str(ans_json_str, read_mapping)
 
-        logging.info(f"{self.parent.graph['name']} align_child {self.child.graph['name']} takes {time.time() - start_time} sec, " +
-                f"score: {self.match_score/self.child.graph['num_tensors']}")
+        logging.info(f"{self.parent.graph['name'].split('/')[-1]} align_child {self.child.graph['name'].split('/')[-1]} takes {time.time() - start_time} sec, " +
+                f"score: {round(self.match_score/len(self.childidx_order), 4)}")
 
         return self.match_score
 
@@ -627,10 +646,10 @@ class ModelKeeper(object):
             parent, mappings, _ = self.get_mappings(parent_path)
 
         if parent is not None:
-            logging.info("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
-                        parent.graph['name'], best_score, time.time() - start_time))
+            logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
+                        child.graph['name'], parent.graph['name'], round(best_score,4), time.time() - start_time))
         else:
-            logging.info("Does not find best mapping for {}, takes {:.2f} sec\n\n".format(
+            logging.info("{} does not find best mapping, takes {:.2f} sec\n\n".format(
                         child.graph['name'], time.time() - start_time))
 
         return parent, mappings, best_score
@@ -660,11 +679,12 @@ class ModelKeeper(object):
             parent, mappings, _ = self.get_mappings(parent_path)
 
         if parent is not None:
-            logging.info("Find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
-                                parent.graph['name'], best_score, time.time() - start_time))
+            logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
+                        child.graph['name'], parent.graph['name'], round(best_score,4), time.time() - start_time))
         else:
-            logging.info("Does not find best mapping for {}, takes {:.2f} sec\n\n".format(
+            logging.info("{} does not find best mapping, takes {:.2f} sec\n\n".format(
                         child.graph['name'], time.time() - start_time))
+
         return parent, mappings, best_score
 
 
@@ -759,6 +779,7 @@ class ModelKeeper(object):
               "parent_name": parent_name,
               "parent_acc": parent.graph['accuracy'],
               'num_of_matched': num_of_matched,
+              'parent_layers': parent.graph['num_tensors']
             }
 
         return weights, meta_data
@@ -970,14 +991,19 @@ def test():
 
     # args = parser.parse_args()
     from config import modelkeeper_config
+    zoo_path = '/users/fanlai/experiment/exp_logs/keeper/model_zoo'
+    modelkeeper_config.zoo_path = zoo_path
+
     mapper = ModelKeeper(modelkeeper_config)
 
-    child_onnx_path = '/mnt/zoo/tests/vgg11.onnx'
-    #child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/torchzoo/shufflenet_v2_x2_0.onnx'
-    #weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([]))
-    mapper.start()
+    #child_onnx_path = '/mnt/zoo/tests/vgg11.onnx'
+    models = os.listdir(zoo_path)
 
-    logging.info("\n\nMatching results: \n{}".format(meta_data))
+    for model in models:
+        child_onnx_path = os.path.join(zoo_path, model)
+        weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([child_onnx_path]))
+
+        logging.info("\n\nMatching {}, results: {}\n".format(child_onnx_path, meta_data))
 
     # time.sleep(40)
 

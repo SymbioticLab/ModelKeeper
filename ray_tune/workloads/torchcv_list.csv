@@ -183,7 +183,6 @@ stochastic_depth_resnet152(),31051
 resnesta269,31677
 regnety064,32106
 resneta50b,32466
-prnet,32515
 seresnet542bn_cifar10,32596
 resneta101b,32946
 densenet40_k36_bc_cifar10,34002

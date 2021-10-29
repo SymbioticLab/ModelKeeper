@@ -18,8 +18,8 @@ using json=nlohmann::json;
 #define INS -2
 
 #define _matchscore 1
-#define _mismatchscore -0.75 // may miss better skip/insert, so take (ins+del)/2.0
-#define ins_gap -0.5  // insert identity mapping, insert too many is bad. so slightly negative
+#define _mismatchscore -0.5 // may miss better skip/insert, so take (ins+del)/2.0
+#define ins_gap -0.25  // insert identity mapping, insert too many is bad. so slightly negative
 #define del_gap -1  // lose all information
 
 using namespace std;
@@ -192,7 +192,7 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
 
         if (should_match){
             score += lists[branch][inbranch].val;
-            match_cnt += 1;
+            //match_cnt += 1;
 
             if (dump_mapping) {
                 parent_list.push_back(lists[branch][inbranch].parentidx);
@@ -201,7 +201,7 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
         }
     }
 
-    return score/match_cnt;
+    return score;//match_cnt;
 }
 
 
@@ -270,7 +270,9 @@ void Matcher::align_child_parent(){
             vector<int> parent_list, child_list;
 
             merge_score = merge_branch_mapping(temp_ans, parent_list, child_list);
-            scores[i+1][j+1] = merge_score;
+
+            // treat multi branches as a single chain 
+            scores[i+1][j+1] = merge_score/max(parent_node.parents.size(), child_node.parents.size());
 
             if (dump_mapping){
                 backParentIdx.insert({encode_hash(i+1, j+1), parent_list});
