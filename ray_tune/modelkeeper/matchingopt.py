@@ -31,6 +31,8 @@ random.seed(1)
 distance_lookup = None
 SCORE_THRESHOLD = float('-inf')
 THRESHOLD = 0.1 # more than X% layers can be transferred from the parent
+MAX_MATCH_NODES=1000
+
 
 log_path = './modelkeeper_log'
 with open(log_path, 'w') as fout:
@@ -107,7 +109,7 @@ def topological_sorting(graph):
                     temp_out.append(edge[1])
                     del in_degrees[edge[1]]
                 else:
-                    in_degrees[edge[1]] -= 1 
+                    in_degrees[edge[1]] -= 1
 
             stack += temp_out #[edge[1] for edge in graph.out_edges(vertex) if edge[1] not in visited]
 
@@ -119,7 +121,7 @@ def topological_sorting(graph):
     [dfs_iterative(node) for node in graph.nodes() if graph.in_degree(node)==0]
     assert len(ret) == graph.number_of_nodes()
     # ret.reverse()
-    return ret
+    return ret[:MAX_MATCH_NODES]
 
 class MatchingOperator(object):
 
