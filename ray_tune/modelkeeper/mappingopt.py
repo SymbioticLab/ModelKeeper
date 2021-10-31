@@ -87,7 +87,7 @@ class MappingOperator(object):
                     logging.debug('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'],
                                                         self.child.nodes[child_layer]['attr']['op_type']))
                 else:
-                    n_weight, n_bias, mapping_index = widen(parent_w, parent_b, child_w, child_b, noise_factor=5e-2)
+                    n_weight, n_bias, mapping_index, new_width = widen(parent_w, parent_b, child_w, child_b, noise_factor=5e-2)
 
                     #assert(n_weight.shape == child_w.shape and n_bias.shape == child_b.shape)
 
@@ -99,7 +99,7 @@ class MappingOperator(object):
                     following_layers = self.get_child_layers(self.child, child_layer)
                     for layer in following_layers:
                         layer_w = self.child_weights[layer+'.weight']
-                        nl_weight = widen_child(layer_w, mapping_index, noise_factor=0)
+                        nl_weight = widen_child(layer_w, mapping_index, new_width=new_width, noise_factor=0)
 
                         #assert(layer_w.shape == nl_weight.shape)
                         self.child_weights[layer+'.weight'] = nl_weight
@@ -167,6 +167,5 @@ class MappingOperator(object):
                     logging.error('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
         logging.info("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
-
 
 

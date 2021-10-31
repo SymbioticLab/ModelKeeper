@@ -26,7 +26,7 @@ from clustering import k_medoids
 clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'backend/bin/matcher.so'))
 clib_matcher.get_matching_score.restype = ctypes.c_char_p
 
-# sys.setrecursionlimit(10000)
+sys.setrecursionlimit(10000)
 random.seed(1)
 distance_lookup = None
 SCORE_THRESHOLD = float('-inf')

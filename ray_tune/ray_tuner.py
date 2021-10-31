@@ -656,5 +656,5 @@ if __name__ == "__main__":
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
 
-    if keeper_service is None:
+    if keeper_service is not None:
         keeper_service.stop_service()
