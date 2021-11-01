@@ -449,7 +449,7 @@ class TrainModel(tune.Trainable):
                 weight_decay=args.weight_decay, momentum=args.momentum, nesterov=True)
         self.criterion = nn.CrossEntropyLoss()
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=4,
-                        verbose=True, min_lr=1e-4, factor=0.5, threshold=0.02)
+                        verbose=True, min_lr=1e-3, factor=0.5, threshold=0.01)
 
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
@@ -460,7 +460,7 @@ class TrainModel(tune.Trainable):
         if self.use_keeper and self.meta_info:
             # the first epoch to warm up
             if self.epoch == 0:
-                warm_up_lr = args.lr * max(1e-3, 1.-self.meta_info['num_of_matched']/(1e-3+self.meta_info['parent_layers']))
+                warm_up_lr = args.lr * max(0.1, min(1., 1.-self.meta_info['matching_score']))
                 change_opt_lr(self.optimizer, warm_up_lr)
             # roll back to the original lr
             elif self.epoch == 1:
@@ -608,7 +608,7 @@ if __name__ == "__main__":
     TRAINING_EPOCH = 1#32
 
     REDUCTION_FACTOR = 1.000001
-    GRACE_PERIOD = 4#4
+    GRACE_PERIOD = 6#4
     CPU_RESOURCES_PER_TRIAL = 1
     GPU_RESOURCES_PER_TRIAL = 1
     METRIC = 'accuracy'  # or 'loss'
