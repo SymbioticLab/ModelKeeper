@@ -876,6 +876,8 @@ class ModelKeeper(object):
                 self.export_query_res(m, weights, meta_data)
                 os.remove(model_path)
 
+            gc.collect()
+
 
     def start(self):
         start_time = last_heartbeat = time.time()
@@ -896,8 +898,7 @@ class ModelKeeper(object):
             if time.time() - last_heartbeat > 30:
                 logging.info(f"ModelKeeper has been running {int(time.time() - start_time)} sec ...")
                 last_heartbeat = time.time()
-                gc.collect()
-
+                
 
     def start_service(self):
         self.service_thread = threading.Thread(target=self.start)

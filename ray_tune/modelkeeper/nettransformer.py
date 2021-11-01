@@ -113,7 +113,7 @@ def deepen(weight, noise_factor=5e-2):
 
         for i in range(n_weight.shape[0]):
             if n_weight.dim() == 4:
-                n_weight.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_d, 1).fill_(1)
+                n_weight.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).fill_(1)
             elif n_weight.dim() == 5:
                 n_weight.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).narrow(4, c_wh, 1).fill_(1)
 

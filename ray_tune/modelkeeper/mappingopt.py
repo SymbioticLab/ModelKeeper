@@ -109,7 +109,7 @@ class MappingOperator(object):
                     #logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
                     #                                            child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
             except Exception as e:
-                logging.error(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
+                logging.warning(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
 
         logging.debug("\n\nCascading mapping takes {:.2f} sec".format(time.time() - start_time))
 
@@ -124,7 +124,7 @@ class MappingOperator(object):
         # reverse the graph, and then run DFS to record the gap between warmed layers and next closest one
         start_time = time.time()
         reversed_graph = self.child.reverse(copy=True)
-        
+
         visited = set()
         num_of_padding = 0
 
@@ -164,7 +164,7 @@ class MappingOperator(object):
                     num_of_padding += 1
                     logging.info("Pad layer {} with gap {}".format(trainable_layer, forward_layer_gaps[trainable_layer] + backward_layer_gaps[trainable_layer]))
                 except Exception as e:
-                    logging.error('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
+                    logging.warning('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
         logging.info("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
 
