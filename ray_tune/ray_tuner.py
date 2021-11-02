@@ -45,6 +45,7 @@ from models.cifarmodels.model_provider import get_cv_model
 from models.nasbench import get_cell_based_tiny_net
 import threading
 
+ray.tune.ray_trial_executor.DEFAULT_GET_TIMEOUT = 600
 
 def GenerateConfig(n, path):
     """
@@ -220,10 +221,13 @@ def get_model(temp_model_name):
         [_key, _value] = pair.split('=')
 
         args_model[_key.strip()] = get_str_type(_value)
-        print(_value, type(get_str_type(_value)))
 
     args_model['name'] = model_type
     return args_model
+
+def change_opt_lr(optim, lr):
+    for g in optim.param_groups:
+        g['lr'] = lr
 
 
 from ray.tune.stopper import Stopper
@@ -405,7 +409,6 @@ class TrainModel(tune.Trainable):
         arrival_time = config['config'].get('arrival', 0)
         self.logger.info(f"Setup for model {self.model_name} ..., supposed {arrival_time}")
 
-        learning_rate = args.lr
         self.use_keeper = args.use_keeper
 
         # Apply ModelKeeper to warm start
@@ -423,34 +426,45 @@ class TrainModel(tune.Trainable):
             torch.onnx.export(self.model, dummy_input, self.export_path,
                 export_params=True, verbose=0, training=1, do_constant_folding=False)
 
-            weights, meta_info = modelkeeper_client.query_for_model(self.export_path)
+            weights, self.meta_info = modelkeeper_client.query_for_model(self.export_path)
 
             if weights is not None:
                 for name, p in self.model.named_parameters():
-                    temp_data = (torch.from_numpy(weights[name])).data
-                    assert(temp_data.shape == p.data.shape)
-                    p.data = temp_data.to(dtype=p.data.dtype)
+                    try:
+                        temp_data = (torch.from_numpy(weights[name])).data
+                        assert(temp_data.shape == p.data.shape)
+                        p.data = temp_data.to(dtype=p.data.dtype)
+                    except Exception as e:
+                        self.logger.error(f"Fail to load weight for {self.model_name}, as {e}")
 
-            self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {meta_info}")
+            self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {self.meta_info}")
             modelkeeper_client.stop()
 
-            #learning_rate *= (1.-meta_info.get('matching_score', 0))
 
         self.best_acc = 0
         self.best_loss = np.Infinity
         self.epoch = 0
 
-        self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate,
+        self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr,
                 weight_decay=args.weight_decay, momentum=args.momentum, nesterov=True)
         self.criterion = nn.CrossEntropyLoss()
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=4,
-                        verbose=True, min_lr=1e-6, factor=0.5, threshold=0.02)
+                        verbose=True, min_lr=1e-3, factor=0.5, threshold=0.01)
 
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
 
     def step(self):
         start_time = time.time()
+
+        if self.use_keeper and self.meta_info:
+            # the first epoch to warm up
+            if self.epoch == 0:
+                warm_up_lr = args.lr * max(0.1, min(1., 1.-self.meta_info['matching_score']))
+                change_opt_lr(self.optimizer, warm_up_lr)
+            # roll back to the original lr
+            elif self.epoch == 1:
+                change_opt_lr(self.optimizer, args.lr)
 
         # Automatically change batch size if OOM
         recovery_trials = 3
@@ -539,7 +553,7 @@ if __name__ == "__main__":
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--num_models', type=int, default=300, metavar='N',
                         help='number of models to train ')
-    parser.add_argument('--lr', type=float, default=5e-3, metavar='LR',
+    parser.add_argument('--lr', type=float, default=1e-2, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='SGD momentum (default: 0.9)')
@@ -594,7 +608,7 @@ if __name__ == "__main__":
     TRAINING_EPOCH = 1#32
 
     REDUCTION_FACTOR = 1.000001
-    GRACE_PERIOD = 4#4
+    GRACE_PERIOD = 6#4
     CPU_RESOURCES_PER_TRIAL = 1
     GPU_RESOURCES_PER_TRIAL = 1
     METRIC = 'accuracy'  # or 'loss'
@@ -649,6 +663,7 @@ if __name__ == "__main__":
             checkpoint_freq=10000,
             max_failures=3,
             config=CONFIG,
+            local_dir=os.path.join(os.environ['HOME'], 'experiment/ray_results')
         )
 
     if METRIC=='accuracy':
@@ -656,5 +671,5 @@ if __name__ == "__main__":
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
 
-    if keeper_service is None:
+    if keeper_service is not None:
         keeper_service.stop_service()

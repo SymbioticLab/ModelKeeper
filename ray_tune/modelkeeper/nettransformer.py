@@ -40,7 +40,7 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
     2. Larger kernel size by padding zeros in resizing
     """
     n_weight = np.zeros_like(child_w)
-    n_bias = None 
+    n_bias = None
 
     paste(n_weight, parent_w, tuple([0] * len(n_weight.shape)))
     # TODO: figure out top-k important units
@@ -63,19 +63,19 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
                 n_bias[i] = n_bias[idx].copy()
 
     n_weight += np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
-    
+
     if n_bias is not None:
         n_bias += np.random.normal(scale=noise_factor*n_bias.std(), size=list(n_bias.shape))
 
-    return n_weight, n_bias, widen_units
+    return n_weight, n_bias, widen_units, new_width
 
-def widen_child(weight, mapping_index, noise_factor=0):
+def widen_child(weight, mapping_index, new_width, noise_factor=0):
     if len(mapping_index) > 0:
         tracking = dict()
         n_weight = torch.from_numpy(weight)
-        n_weight.transpose_(0, 1)
 
-        new_width = n_weight.shape[0]
+        n_weight.transpose_(0, 1) # change the input channels
+        #new_width = n_weight.shape[0]
         old_width = new_width - len(mapping_index)
 
         for i in range(old_width, new_width):
@@ -126,4 +126,3 @@ def deepen(weight, noise_factor=5e-2):
         return n_weight, n_bias
 
     return weight, n_bias
-

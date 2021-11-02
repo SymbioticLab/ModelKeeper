@@ -18,13 +18,13 @@ def gen_trace(model_list):
             arrival_trace.append(row.time+base)
 
     # Load model list
-    random.seed(8)
+    random.seed(0)
     models = [x.strip() for x in open(model_list).readlines()]
     models_a = models[:12]
     models_b = models[12:]
     random.shuffle(models_b)
     models = models_a+models_b
-    
+
     ans = [['name', 'arrival']]
     for arrival, model in zip(arrival_trace, models):
         ans.append([model, arrival])

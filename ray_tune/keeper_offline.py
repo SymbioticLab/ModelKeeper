@@ -10,6 +10,7 @@ import logging
 import pickle
 import torch
 import time
+import os
 
 log_path = './modelkeeper_log'
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
