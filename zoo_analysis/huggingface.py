@@ -1,4 +1,4 @@
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoModelForMaskedLM
 
 from datasets import load_dataset
 from transformers import Trainer
@@ -9,18 +9,16 @@ import torch, os
 from fnmatch import fnmatch
 import inspect
 
-path = '/mnt/transformers/'
+path = '/users/fanlai/experiment/nwp_zoo'
 padding_length = 256
 
 def clean_transfomers():
 
-    file_dir = '/users/fanlai/transformers/src/transformers/models'
-    ans = []
+    home_path = os.environ['HOME']
+    file_dir = f"{home_path}/experiment/transformers/src/transformers/"
+    model_zoos = []
 
     def extract_model_names(file):
-        global ans 
-
-        #print(file)
         with open(file) as fin:
             lines = fin.readlines()
         start = -1
@@ -31,7 +29,7 @@ def clean_transfomers():
 
             if ']' in lines[i] and start != -1: 
                 for x in lines[start+1:i]:
-                    ans.append(x)
+                    model_zoos.append(x)
                 start = -1
 
     pattern = "*.py"
@@ -42,7 +40,7 @@ def clean_transfomers():
                 extract_model_names(os.path.join(path, name))
 
 
-    ans = [x.strip() for x in ans if '# See all' not in x]
+    ans = [x.strip() for x in model_zoos if '# See all' not in x]
     dummy_ans = []
 
     for x in ans:
@@ -71,7 +69,51 @@ def clean_transfomers():
     with open('transformers.pkl', 'wb') as fout:
         pickle.dump(ans, fout)
 
-def validate_models():
+
+def get_args_pair(inputs, _args, _default):
+    arg_inputs = []
+    for idx, _arg in enumerate(_args):
+        arg_inputs.append(inputs.get(_arg, _default[idx]))
+    return tuple(arg_inputs)
+
+
+def validate_models_nwp(file):
+    with open(file) as fin:
+        models = [x.strip() for x in fin.readlines()]
+
+    for name in models:
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(name)
+            model = AutoModelForMaskedLM.from_pretrained(name)
+
+            text = "Replace me by any text you'd like."
+            encoded_input = tokenizer(text, return_tensors='pt')
+            output = model(**encoded_input)
+
+            sum_params = sum([param.data.numel() for param in model.parameters()])
+            
+
+            input_names = inspect.getargspec(model.forward).args[1:]
+            dummy_inputs = get_args_pair(encoded_input, input_names, inspect.getargspec(model.forward).defaults)
+
+            pure_name = name.replace('/', '_')
+            try:
+                os.makedirs(os.path.join(path, pure_name))
+            except Exception as e:
+                pass
+
+            torch.onnx.export(model, dummy_inputs, 
+                os.path.join(path, pure_name, f"{pure_name}.onnx"),
+                export_params=True, verbose=0, training=1, opset_version=13,
+                do_constant_folding=False, use_external_data_format=True,
+                input_names=input_names)
+
+            print(f"**** Model {name} success, params {sum_params} ****")
+        except Exception as e:
+            print(f"model {name} fails as: {e}")
+
+
+def validate_models_cls():
 
     raw_datasets = load_dataset('imdb')['test'].select(range(1))
     metric = load_metric("accuracy")
@@ -109,10 +151,10 @@ def validate_models():
 
             print(trainer.evaluate())
 
-    with open('/users/fanlai/transformers.pkl', 'rb')  as fin:
+    with open('transformers.pkl', 'rb')  as fin:
         model_names = pickle.load(fin)
 
-    with open('/users/fanlai/success_seq_cls', 'w') as fout:
+    with open('success_seq_cls', 'w') as fout:
         for name in model_names:
             try_pad = False
             for i in range(2):
@@ -160,11 +202,6 @@ def validate_models():
         for line in unique_ans:
             fout.writelines(line)
 
-def get_args_pair(inputs, _args, _default):
-    arg_inputs = []
-    for idx, _arg in enumerate(_args):
-        arg_inputs.append(inputs.get(_arg, _default[idx]))
-    return tuple(arg_inputs)
 
 def dump_models(file):
     with open(file) as fin:
@@ -179,28 +216,27 @@ def dump_models(file):
         if pure_name in dumped_files:
             continue
 
-        tokenizer = AutoTokenizer.from_pretrained(name)
-        model = AutoModelForSequenceClassification.from_pretrained(name, num_labels=2)
-
-        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-        model.config.max_length = padding_length
-
-
         try:
+            tokenizer = AutoTokenizer.from_pretrained(name)
+            model = AutoModelForSequenceClassification.from_pretrained(name, num_labels=2)
+
+            tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+            model.config.max_length = padding_length
+
             inputs = tokenizer("Hello, my dog is cute", return_tensors='pt')#, padding="max_length", max_length=padding_length)
             
             input_names = inspect.getargspec(model.forward).args[1:]#sorted(list(inputs.keys()))
             dummy_inputs = get_args_pair(inputs, input_names, inspect.getargspec(model.forward).defaults) #tuple([inputs[val] for val in input_names])
 
             try:
-                os.mkdir(os.path.join(path, pure_name))
+                os.makedirs(os.path.join(path, pure_name))
             except Exception as e:
                 pass
 
             torch.onnx.export(model, dummy_inputs, 
                 os.path.join(path, pure_name, f"{pure_name}.onnx"),
                 export_params=True, verbose=0, training=1, opset_version=13,
-                do_constant_folding=True, use_external_data_format=True,
+                do_constant_folding=False, use_external_data_format=True,
                 input_names=input_names)
 
             print(f"**** Model {pure_name}  successes ****")
@@ -211,4 +247,23 @@ def dump_models(file):
             except Exception as e:
                 pass
 
-dump_models("new_success_seq_cls")
+def dedup_model(file):
+    with open(file) as fin:
+        lines = fin.readlines()
+
+    ans = []
+    param_set = set()
+    for l in lines:
+        num_param = l.strip().split()[-1]
+        if num_param not in param_set:
+            param_set.add(num_param)
+            ans.append(l)
+    with open(file, 'w') as fout:
+        for l in ans:
+            fout.writelines(l)
+#dump_models("new_success_seq_cls")
+#clean_transfomers()
+#validate_models()
+#dedup_model("success_seq_cls")
+#dump_models("new_success_seq_cls")
+validate_models_nwp("results")
