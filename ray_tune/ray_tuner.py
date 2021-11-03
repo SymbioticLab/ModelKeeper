@@ -608,7 +608,7 @@ if __name__ == "__main__":
     TRAINING_EPOCH = 1#32
 
     REDUCTION_FACTOR = 1.000001
-    GRACE_PERIOD = 6#4
+    GRACE_PERIOD = 7
     CPU_RESOURCES_PER_TRIAL = 1
     GPU_RESOURCES_PER_TRIAL = 1
     METRIC = 'accuracy'  # or 'loss'
@@ -651,7 +651,7 @@ if __name__ == "__main__":
             stop=CombinedStopper(
                 MaximumIterationStopper(max_iter=args.epochs),
                 BestAccuracyStopper(),
-                TrialPlateauStopper(metric='mean_accuracy', mode='max', std=4e-3,
+                TrialPlateauStopper(metric='mean_accuracy', mode='max', std=2e-3,
                 num_results=10, grace_period=GRACE_PERIOD),
             ),
             resources_per_trial={

@@ -583,7 +583,14 @@ class ModelKeeper(object):
         pool.close()
         pool.join()
 
-        scores = [res.get() for res in results]
+        scores = []
+        for res in results:
+            try:
+                temp_res = res.get(timeout=300)
+                scores.append(temp_res)
+            except Exception as e:
+                logging.error(f"Keeper warns as: {e} for model {child.graph['name'], parents.parent.graph['name']}")
+                scores.append((parents.parent.graph['name'], float('-inf')))
 
         for (p, s) in scores:
             self.distance[p][child.graph['name']] = 1. - s
