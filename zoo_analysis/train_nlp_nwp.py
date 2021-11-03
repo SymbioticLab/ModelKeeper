@@ -15,6 +15,8 @@ tokenizer = None
 
 path = '/users/fanlai/experiment/nwp_zoo'
 
+device = 'cuda'
+
 def collate(examples):
     if tokenizer._pad_token is None:
         return pad_sequence(examples, batch_first=True)
@@ -29,11 +31,23 @@ def tokenize_datset(tokenizer, data, block_size=256):
 
     return data_iter
 
+def eval_nwp(model, test_loader):
+    total_loss = 0
+    model.eval()
+
+    for inputs in test_loader:
+        inputs = inputs.to(device=device)
+        outputs = model(inputs, labels=inputs)
+        loss = outputs.loss
+
+        total_loss += loss.item()
+
+    print(f"Eval loss: {total_loss/len(test_loader)}")
+
 def train_nwp(model_name):
     global tokenizer
     pure_name = model_name.replace('/', '_')
 
-    device = 'cuda'
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     config = AutoConfig.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_config(config)
@@ -44,17 +58,17 @@ def train_nwp(model_name):
 
 
     train_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='train'))
-    #test_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='train'))
+    test_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='test'))
 
-    with open(f'~/experiment/{pure_name}_train', 'wb') as fout:
+    with open(f'{pure_name}_train', 'wb') as fout:
         pickle.dump(train_dataset, fout)
 
-    # with open(f'~/experiment/{pure_name}_test', 'wb') as fout:
-    #     pickle.dump(test_dataset, fout)
+    with open(f'{pure_name}_test', 'wb') as fout:
+        pickle.dump(test_dataset, fout)
 
     batch_size = 16
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=collate)
-    #test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=collate)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=collate)
 
     optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-5, eps=1e-8)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=4, verbose=True, min_lr=0, factor=0.5)
@@ -66,7 +80,8 @@ def train_nwp(model_name):
     model = model.to(device=device)
 
     for epoch in range(EPOCHS):
-        total_loss = last_loss = 0
+        total_loss = last_loss = cur_step = 0
+        model.train()
 
         for inputs in train_loader:
             inputs = inputs.to(device=device)
@@ -85,8 +100,7 @@ def train_nwp(model_name):
                 scheduler.step(total_loss-last_loss)
                 last_loss = total_loss
 
-            #print(f"loss {loss.item()}")
-        #scheduler.step(total_loss/len(train_loader))
+        eval_nwp(model, test_loader)
         print(f"(epoch {epoch}) Avg training loss: {total_loss/len(train_loader)}")
 
     # pure_name = model_name.replace('/', '_')
