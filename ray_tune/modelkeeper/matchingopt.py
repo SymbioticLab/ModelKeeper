@@ -6,7 +6,7 @@ import logging
 from onnx import numpy_helper
 import multiprocessing
 import torch
-from multiprocessing import Manager
+
 import ctypes
 import json
 import concurrent, threading
@@ -576,36 +576,24 @@ class ModelKeeper(object):
         return (self.model_zoo[parent_path].parent, mapping_res, score)
 
 
-    def query_scores(self, parents, child, threads=40):
-        pool = multiprocessing.Pool(processes=threads)
-        results = [pool.apply_async(mapping_func, (self.model_zoo[parent], child)) for parent in parents]
-
-        pool.close()
-        pool.join()
-
+    def query_scores(self, parents, child, threads=40, timeout=180):
         scores = []
-        for res in results:
+        with concurrent.futures.ProcessPoolExecutor() as executor:
             try:
-                temp_res = res.get(timeout=300)
-                scores.append(temp_res)
-            except Exception as e:
-                logging.error(f"Keeper warns as: {e} for model {child.graph['name'], parents.parent.graph['name']}")
-                scores.append((parents.parent.graph['name'], float('-inf')))
+                for model, score in executor.map(mapping_func, list(self.model_zoo.values()), 
+                    repeat(child), timeout=timeout):
+                    scores.appennd((model, score))
+            except:
+                pass
 
         for (p, s) in scores:
             self.distance[p][child.graph['name']] = 1. - s
 
         return scores
 
-
-    def mapping_func(self, model, child=None):
-        query_model = self.query_model if child is None else child
-        return mapping_func(model, query_model)
-
-
     def query_best_mapping(self, child, blacklist=set(),
                             model_name=None, return_weight=True,
-                            score_threshold=0.95, timeout=60):
+                            score_threshold=0.95, timeout=180):
 
         start_time = time.time()
         self.query_model = child
@@ -640,19 +628,28 @@ class ModelKeeper(object):
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
             #for model, score in executor.map(self.mapping_func, search_models, timeout=timeout):
-            for model, score in executor.map(mapping_func, search_models, repeat(child), timeout=timeout):
-                if score > best_score:
-                    parent_path, best_score = model, score
+            try:
+                for model, score in executor.map(mapping_func, search_models, repeat(child), timeout=timeout):
+                    if score > best_score:
+                        parent_path, best_score = model, score
 
-                self.distance[model][child.graph['name']] = 1.0-score
+                    self.distance[model][child.graph['name']] = 1.0-score
 
-                if best_score >= score_threshold:
-                    executor.shutdown(wait=False)
-                    break
+                    if best_score >= score_threshold:
+                        executor.shutdown(wait=False)
+                        break
+            except:
+                pass 
 
         if parent_path is not None and return_weight:
-            mapping_func(self.model_zoo[parent_path], child, read_mapping=True)
-            parent, mappings, _ = self.get_mappings(parent_path)
+            with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+                try:
+                    for model, score in executor.map(mapping_func, 
+                            [self.model_zoo[parent_path]], [child], [True], timeout=timeout):
+                        scores.appennd((model, score))
+                    parent, mappings, _ = self.get_mappings(parent_path)
+                except:
+                    pass
 
         if parent is not None:
             logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
@@ -684,8 +681,14 @@ class ModelKeeper(object):
                 parent_path, best_score = p, s
 
         if parent_path is not None and return_weight:
-            mapping_func(self.model_zoo[parent_path], child, read_mapping=True)
-            parent, mappings, _ = self.get_mappings(parent_path)
+            with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+                try:
+                    for model, score in executor.map(mapping_func, 
+                            [self.model_zoo[parent_path]], [child], [True], timeout=timeout):
+                        scores.appennd((model, score))
+                    parent, mappings, _ = self.get_mappings(parent_path)
+                except:
+                    pass
 
         if parent is not None:
             logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
@@ -753,7 +756,10 @@ class ModelKeeper(object):
             meta_data = {
               "matching_score": best_score,
               "parent_name": parent_name,
-              "parent_acc": parent.graph['accuracy']
+              "parent_acc": parent.graph['accuracy'],
+              'num_of_matched': num_of_matched,
+              'parent_layers': parent.graph['num_tensors'],
+              'child_layers': child.graph['num_tensors']
             }
 
         # remove the temporary onnx model
@@ -788,7 +794,8 @@ class ModelKeeper(object):
               "parent_name": parent_name,
               "parent_acc": parent.graph['accuracy'],
               'num_of_matched': num_of_matched,
-              'parent_layers': parent.graph['num_tensors']
+              'parent_layers': parent.graph['num_tensors'],
+              'child_layers': child.graph['num_tensors']
             }
 
         return weights, meta_data

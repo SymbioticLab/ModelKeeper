@@ -458,9 +458,10 @@ class TrainModel(tune.Trainable):
         start_time = time.time()
 
         if self.use_keeper and self.meta_info:
-            # the first epoch to warm up
+            # the first two epoch to warm up
             if self.epoch == 0:
-                warm_up_lr = args.lr * max(0.1, min(1., 1.-self.meta_info['matching_score']))
+                warm_up_lr = args.lr * max(0.5, 
+                    1.-self.meta_info['parent_layers']/max(self.meta_info['parent_layers'], self.meta_info['child_layers']))
                 change_opt_lr(self.optimizer, warm_up_lr)
             # roll back to the original lr
             elif self.epoch == 1:

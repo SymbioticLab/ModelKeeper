@@ -23,3 +23,6 @@ dependencies:
     - scp
     - pandas
     - ray[tune]
+    - sentencepiece
+    - datasets
+    - torch-scatter
