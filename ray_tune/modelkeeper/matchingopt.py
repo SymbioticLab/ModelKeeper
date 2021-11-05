@@ -30,7 +30,7 @@ sys.setrecursionlimit(10000)
 random.seed(1)
 distance_lookup = None
 SCORE_THRESHOLD = float('-inf')
-THRESHOLD = 0.1 # more than X% layers can be transferred from the parent
+THRESHOLD = 0 # more than X% layers can be transferred from the parent
 MAX_MATCH_NODES=1000
 
 
@@ -578,7 +578,7 @@ class ModelKeeper(object):
 
     def query_scores(self, parents, child, threads=40, timeout=180):
         scores = []
-        with concurrent.futures.ProcessPoolExecutor() as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
             try:
                 for model, score in executor.map(mapping_func, list(self.model_zoo.values()), 
                     repeat(child), timeout=timeout):
@@ -626,7 +626,7 @@ class ModelKeeper(object):
 
         logging.info(f"Searching {len(search_models)+len(medoids)} models ...")
 
-        with concurrent.futures.ProcessPoolExecutor() as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=40) as executor:
             #for model, score in executor.map(self.mapping_func, search_models, timeout=timeout):
             try:
                 for model, score in executor.map(mapping_func, search_models, repeat(child), timeout=timeout):
