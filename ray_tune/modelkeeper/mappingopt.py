@@ -43,15 +43,15 @@ class MappingOperator(object):
         def dfs(node):
             visited.add(node)
             # Trainable tensor. TODO: solve BN
-            if len(graph.nodes[node]['attr']['dims']) >=1:
+            if len(graph.nodes[node]['attr']['dims']) >= 1:
                 ret.append(graph.nodes[node]['attr']['layer_name'])
 
             # we overwrite BN and its child layers
-            if len(graph.nodes[node]['attr']['dims']) <= 1:
+            if len(graph.nodes[node]['attr']['dims']) < 1:
                 [dfs(edge[1]) for edge in graph.out_edges(node) if edge[1] not in visited]
 
-        dfs(node_id)
-        return ret[1:] # skip node == node_id
+        [dfs(edge[1]) for edge in graph.out_edges(node_id)]
+        return ret#[1:] # skip node == node_id
 
     def get_weights(self, graph, initializer, node):
         layer_dims = graph.nodes[node]['attr']['dims']
@@ -99,7 +99,7 @@ class MappingOperator(object):
                     following_layers = self.get_child_layers(self.child, child_layer)
                     for layer in following_layers:
                         layer_w = self.child_weights[layer+'.weight']
-                        nl_weight = widen_child(layer_w, mapping_index, new_width=new_width, noise_factor=0)
+                        nl_weight = widen_child(layer_w, mapping_index, new_width=new_width, noise_factor=5e-2)
 
                         #assert(layer_w.shape == nl_weight.shape)
                         self.child_weights[layer+'.weight'] = nl_weight
@@ -167,5 +167,6 @@ class MappingOperator(object):
                     logging.warning('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
         logging.info("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
+
 
 

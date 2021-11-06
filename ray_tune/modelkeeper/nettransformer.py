@@ -1,4 +1,3 @@
-
 import numpy as np
 import torch
 
@@ -57,44 +56,56 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
 
         for i in range(old_width, new_width):
             idx = widen_units[i-old_width]
-            n_weight[i] = n_weight[idx].copy()
+            n_weight[i] = n_weight[idx].copy() + np.random.normal(scale=noise_factor*n_weight[idx].std(), 
+                    size=list(n_weight[idx].shape))
 
             if n_bias is not None:
-                n_bias[i] = n_bias[idx].copy()
+                n_bias[i] = n_bias[idx].copy() + np.random.normal(scale=noise_factor*n_bias[idx].std(), 
+                    size=list(n_bias[idx].shape))
 
-    n_weight += np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
+    # n_weight += np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
 
-    if n_bias is not None:
-        n_bias += np.random.normal(scale=noise_factor*n_bias.std(), size=list(n_bias.shape))
+    # if n_bias is not None:
+    #     n_bias += np.random.normal(scale=noise_factor*n_bias.std(), size=list(n_bias.shape))
 
     return n_weight, n_bias, widen_units, new_width
 
-def widen_child(weight, mapping_index, new_width, noise_factor=0):
+def widen_child(weight, mapping_index, new_width, noise_factor=5e-2):
     if len(mapping_index) > 0:
         tracking = dict()
         n_weight = torch.from_numpy(weight)
+        is_transposed = False
 
-        n_weight.transpose_(0, 1) # change the input channels
-        #new_width = n_weight.shape[0]
+        # some operators may have already implicitly transposed
+        try:
+            if n_weight.shape[1] == new_width:
+                n_weight.transpose_(0, 1) # change the input channels
+            is_transposed = True
+        except: pass
+
+        # new_width = n_weight.shape[0]
         old_width = new_width - len(mapping_index)
 
+        #print(old_width, new_width, len(mapping_index), n_weight.shape)
         for i in range(old_width, new_width):
             idx = mapping_index[i-old_width]
-
             if idx not in tracking:
                 tracking[idx] = [idx]
             tracking[idx].append(i)
 
-            n_weight[i] = n_weight[idx].clone()
+            n_weight[i] = n_weight[idx].clone() + np.random.normal(scale=noise_factor*n_weight[idx].std(), 
+                    size=list(n_weight[idx].shape))
 
         for idx, d in tracking.items():
             for item in d:
                 n_weight[item] /= float(len(d))
 
-        n_weight.transpose_(0, 1)
-        n_weight = n_weight.numpy()
-        n_weight += np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
+        if is_transposed:
+            try: n_weight.transpose_(0, 1)
+            except: pass
 
+        n_weight = n_weight.numpy()
+        #n_weight += np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
         return n_weight
     else:
         return weight
@@ -105,15 +116,17 @@ def deepen(weight, noise_factor=5e-2):
     n_weight = None
 
     # 2-D Linear layers
-    if len(weight.shape) == 2:
+    if len(weight.shape) == 1: # BN layer
+        n_weight = np.ones(weight.shape[0])
+    elif len(weight.shape) == 2:
         n_weight = np.matrix(np.eye(weight.shape[0], dtype=weight.dtype))
     elif len(weight.shape) > 2:
         c_d, c_wh = weight.shape[2]//2, weight.shape[3]//2
         n_weight = torch.zeros(weight.shape)
-
-        for i in range(n_weight.shape[0]):
+        # print(c_d, c_wh, n_weight.shape)
+        for i in range(n_weight.shape[1]):
             if n_weight.dim() == 4:
-                n_weight.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).fill_(1)
+                n_weight.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_d, 1).fill_(1)
             elif n_weight.dim() == 5:
                 n_weight.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).narrow(4, c_wh, 1).fill_(1)
 

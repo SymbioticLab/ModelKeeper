@@ -583,7 +583,7 @@ class ModelKeeper(object):
         scores = []
         with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
             try:
-                for model, score in executor.map(mapping_func, list(self.model_zoo.values()),
+                for model, score in executor.map(mapping_func, [self.model_zoo[p] for p in parents],
                     repeat(child), timeout=timeout):
                     scores.append((model, score))
             except Exception as e:
@@ -1009,15 +1009,15 @@ def test():
 
     # args = parser.parse_args()
     from config import modelkeeper_config
-    zoo_path = '/users/fanlai/experiment/exp_logs/keeper_lr001/model_zoo'
+    zoo_path = '/users/fanlai/experiment/temp_zoo'
     modelkeeper_config.zoo_path = zoo_path
 
     mapper = ModelKeeper(modelkeeper_config)
 
-    child_onnx_path = ["ShuffleNetG2_@0.6777.onnx"]
-    #models = os.listdir(zoo_path)
+    #models = ["resnesta18@0.6394.onnx"]
+    models = os.listdir(zoo_path)
 
-    for model in child_onnx_path:
+    for model in models:
         child_onnx_path = os.path.join(zoo_path, model)
         weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([child_onnx_path]))
 
@@ -1025,6 +1025,5 @@ def test():
 
     # time.sleep(40)
 
-#test()
+test()
 #test_fake()
-
