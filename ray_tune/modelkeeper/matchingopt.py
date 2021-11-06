@@ -335,10 +335,13 @@ def mapping_func(parent_opt, child, read_mapping=False, return_child_name=False)
         logging.error(f"Mapping {parent_name} to {child.graph['name']} failed as {e}")
         score = float('-inf')
 
-    if return_child_name:
-        return parent_name, score, child.graph['name']
-    return parent_name, score
-
+    if not read_mapping:
+        if return_child_name:
+            return parent_name, score, child.graph['name']
+        return parent_name, score
+    else:
+        mapping_res, score = parent_opt.get_mappings()
+        return (parent_opt.parent, mapping_res, score)
 
 class ModelKeeper(object):
 
@@ -580,11 +583,11 @@ class ModelKeeper(object):
         scores = []
         with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
             try:
-                for model, score in executor.map(mapping_func, list(self.model_zoo.values()), 
+                for model, score in executor.map(mapping_func, list(self.model_zoo.values()),
                     repeat(child), timeout=timeout):
-                    scores.appennd((model, score))
-            except:
-                pass
+                    scores.append((model, score))
+            except Exception as e:
+                logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
 
         for (p, s) in scores:
             self.distance[p][child.graph['name']] = 1. - s
@@ -639,17 +642,16 @@ class ModelKeeper(object):
                         executor.shutdown(wait=False)
                         break
             except:
-                pass 
+                pass
 
         if parent_path is not None and return_weight:
             with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
                 try:
-                    for model, score in executor.map(mapping_func, 
-                            [self.model_zoo[parent_path]], [child], [True], timeout=timeout):
-                        scores.appennd((model, score))
-                    parent, mappings, _ = self.get_mappings(parent_path)
-                except:
-                    pass
+                    for p, m, s in executor.map(mapping_func, [self.model_zoo[parent_path]], [child], [True], timeout=timeout):
+                        parent, mappings, _ = p, m, s
+                        break
+                except Exception as e:
+                    logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
 
         if parent is not None:
             logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
@@ -661,7 +663,7 @@ class ModelKeeper(object):
         return parent, mappings, best_score
 
 
-    def get_best_mapping(self, child, blacklist=set(), model_name=None, return_weight=True):
+    def get_best_mapping(self, child, blacklist=set(), model_name=None, return_weight=True, timeout=180):
         """
             Enumerate all possible model pairs. Not as efficient as the clustering one.
         """
@@ -683,12 +685,11 @@ class ModelKeeper(object):
         if parent_path is not None and return_weight:
             with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
                 try:
-                    for model, score in executor.map(mapping_func, 
-                            [self.model_zoo[parent_path]], [child], [True], timeout=timeout):
-                        scores.appennd((model, score))
-                    parent, mappings, _ = self.get_mappings(parent_path)
-                except:
-                    pass
+                    for p, m, s in executor.map(mapping_func, [self.model_zoo[parent_path]], [child], [True], timeout=timeout):
+                        parent, mappings, _ = p, m, s
+                        break
+                except Exception as e:
+                    logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
 
         if parent is not None:
             logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
@@ -912,7 +913,7 @@ class ModelKeeper(object):
             if time.time() - last_heartbeat > 30:
                 logging.info(f"ModelKeeper has been running {int(time.time() - start_time)} sec ...")
                 last_heartbeat = time.time()
-                
+
 
     def start_service(self):
         self.service_thread = threading.Thread(target=self.start)
@@ -1008,15 +1009,15 @@ def test():
 
     # args = parser.parse_args()
     from config import modelkeeper_config
-    zoo_path = '/users/fanlai/experiment/exp_logs/keeper/model_zoo'
+    zoo_path = '/users/fanlai/experiment/exp_logs/keeper_lr001/model_zoo'
     modelkeeper_config.zoo_path = zoo_path
 
     mapper = ModelKeeper(modelkeeper_config)
 
-    #child_onnx_path = '/mnt/zoo/tests/vgg11.onnx'
-    models = os.listdir(zoo_path)
+    child_onnx_path = ["ShuffleNetG2_@0.6777.onnx"]
+    #models = os.listdir(zoo_path)
 
-    for model in models:
+    for model in child_onnx_path:
         child_onnx_path = os.path.join(zoo_path, model)
         weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([child_onnx_path]))
 
@@ -1026,5 +1027,4 @@ def test():
 
 #test()
 #test_fake()
-
 
