@@ -34,6 +34,7 @@ class MappingOperator(object):
 
         self.reset_layers = set()
         self.num_of_matched = 0
+        self.reset_layers_name = set()
 
     def get_child_layers(self, graph, node_id):
         """Get the trainable next layers"""
@@ -82,6 +83,7 @@ class MappingOperator(object):
 
                 parent_layer_name = self.parent.nodes[parent_layer]['attr']['layer_name']
                 child_layer_name = self.child.nodes[child_layer]['attr']['layer_name']
+                #print('#', self.parent.nodes[parent_layer]['attr'], self.child.nodes[child_layer]['attr'])
 
                 if parent_w is None or child_w is None:
                     logging.debug('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'],
@@ -92,17 +94,20 @@ class MappingOperator(object):
                     #assert(n_weight.shape == child_w.shape and n_bias.shape == child_b.shape)
 
                     self.child_weights[child_layer_name+'.weight'] = n_weight
+                    self.reset_layers_name.add(child_layer_name+'.weight')
                     if n_bias is not None:
                         self.child_weights[child_layer_name+'.bias'] = n_bias
+                        self.reset_layers_name.add(child_layer_name+'.bias')
 
-                    # get its child layers, and override child weights
+                    # get its child layers, and override child weights if it is transferred
                     following_layers = self.get_child_layers(self.child, child_layer)
                     for layer in following_layers:
-                        layer_w = self.child_weights[layer+'.weight']
-                        nl_weight = widen_child(layer_w, mapping_index, new_width=new_width, noise_factor=5e-2)
+                        if layer in self.reset_layers:
+                            layer_w = self.child_weights[layer+'.weight']
+                            nl_weight = widen_child(layer_w, mapping_index, new_width=new_width, noise_factor=5e-2)
 
-                        #assert(layer_w.shape == nl_weight.shape)
-                        self.child_weights[layer+'.weight'] = nl_weight
+                            #assert(layer_w.shape == nl_weight.shape)
+                            self.child_weights[layer+'.weight'] = nl_weight
 
                     self.num_of_matched += 1
                     self.reset_layers.add(child_layer_name)
@@ -115,7 +120,7 @@ class MappingOperator(object):
 
 
     def get_mapping_weights(self):
-        return self.child_weights, self.num_of_matched
+        return self.child_weights, self.num_of_matched, self.reset_layers_name
 
     def pad_mapping(self, threshold=4):
         """
@@ -134,11 +139,12 @@ class MappingOperator(object):
             layer_name, layer_dims = self.child.nodes[node]['attr']['layer_name'], len(self.child.nodes[node]['attr']['dims'])
 
             # trainable layers
-            if layer_dims > 1:
+            if layer_dims >= 1:
                 cur_depth += 1
-                layer_gaps[layer_name] = max(cur_depth, layer_gaps.get(layer_name, 0))
                 if layer_name in self.reset_layers:
                     cur_depth = 0 # reset the closest warmed layers
+                layer_gaps[layer_name] = max(cur_depth, layer_gaps[layer_name])
+                #print(self.child.nodes[node]['attr'], layer_gaps[layer_name])
 
             for source, target in graph.out_edges(node):
                 if target not in visited:
@@ -155,6 +161,8 @@ class MappingOperator(object):
             logging.error(f"Error in dfs traverse: {e}")
 
         for trainable_layer in forward_layer_gaps:
+            #print(self.child.nodes[trainable_layer]['attr'], forward_layer_gaps[trainable_layer], backward_layer_gaps[trainable_layer])
+
             if forward_layer_gaps[trainable_layer] + backward_layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
                 try:
                     n_weight, n_bias = deepen(self.child_weights[trainable_layer+'.weight'], noise_factor=5e-2)
@@ -167,6 +175,3 @@ class MappingOperator(object):
                     logging.warning('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
         logging.info("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
-
-
-

@@ -253,13 +253,13 @@ void Matcher::align_child_parent(){
 
                 cprev = child_node.parents[k]+1;
                 // insert identity mapping
-                temp.push_back(node_pair(scores[i+1][cprev] + del_gap, i+1, cprev, INS));
+                temp.push_back(node_pair(scores[i+1][cprev] + ins_gap, i+1, cprev, INS));
 
                 // add all candidates to a list, pick the best insert to the child
                 for (int m=0; m < parent_node.parents.size(); ++m) {
                     predIndex = parent_node.parents[m];
                     temp.push_back(node_pair(scores[predIndex+1][cprev] + match_score, predIndex+1, cprev, is_match));
-                    temp.push_back(node_pair(scores[predIndex+1][cprev+1] + ins_gap, predIndex+1, cprev+1, DEL)); // skip a child node
+                    temp.push_back(node_pair(scores[predIndex+1][cprev+1] + del_gap, predIndex+1, cprev+1, DEL)); // skip a child node
                 }
                 sort(temp.begin(), temp.end(), cmp_function);
                 

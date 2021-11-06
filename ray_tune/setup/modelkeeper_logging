@@ -1,29 +1,40 @@
-2021-10-21 20:14:01,123	INFO scripts.py:572 -- Will use value of `--address` as remote Redis server address(es). If the primary one is not reachable, we starts new one(s) with `--port` in local.
-2021-10-21 20:14:33,926	INFO scripts.py:590 -- The primary external redis server `10.0.0.1:6379` is not reachable. Will starts new one(s) with `--port` in local.
-2021-10-21 20:14:33,927	INFO scripts.py:606 -- Local node IP: 128.105.144.68
-2021-10-21 20:14:34,409	SUCC scripts.py:645 -- --------------------
-2021-10-21 20:14:34,409	SUCC scripts.py:646 -- Ray runtime started.
-2021-10-21 20:14:34,409	SUCC scripts.py:647 -- --------------------
-2021-10-21 20:14:34,409	INFO scripts.py:649 -- Next steps
-2021-10-21 20:14:34,410	INFO scripts.py:651 -- To connect to this Ray runtime from another node, run
-2021-10-21 20:14:34,410	INFO scripts.py:657 --   ray start --address='128.105.144.68:6379' --redis-password='5241590000000000'
-2021-10-21 20:14:34,410	INFO scripts.py:659 -- Alternatively, use the following Python code:
-2021-10-21 20:14:34,410	INFO scripts.py:662 -- import ray
-2021-10-21 20:14:34,410	INFO scripts.py:669 -- ray.init(address='auto', _redis_password='5241590000000000')
-2021-10-21 20:14:34,410	INFO scripts.py:671 -- To connect to this Ray runtime from outside of the cluster, for example to
-2021-10-21 20:14:34,410	INFO scripts.py:673 -- connect to a remote cluster from your laptop directly, use the following
-2021-10-21 20:14:34,410	INFO scripts.py:675 -- Python code:
-2021-10-21 20:14:34,410	INFO scripts.py:678 -- import ray
-2021-10-21 20:14:34,410	INFO scripts.py:682 -- ray.init(address='ray://<head_node_ip_address>:10001')
-2021-10-21 20:14:34,410	INFO scripts.py:686 -- If connection fails, check your firewall settings and network configuration.
-2021-10-21 20:14:34,410	INFO scripts.py:690 -- To terminate the Ray runtime, run
-2021-10-21 20:14:34,411	INFO scripts.py:691 --   ray stop
-2021-10-21 20:14:39,457	INFO scripts.py:741 -- Local node IP: 10.0.0.1
-2021-10-21 20:14:39,597	SUCC scripts.py:749 -- --------------------
-2021-10-21 20:14:39,597	SUCC scripts.py:750 -- Ray runtime started.
-2021-10-21 20:14:39,597	SUCC scripts.py:751 -- --------------------
-2021-10-21 20:14:39,597	INFO scripts.py:753 -- To terminate the Ray runtime, run
-2021-10-21 20:14:39,597	INFO scripts.py:754 --   ray stop
-bash: ray: command not found
-bash: line 1: 57710 Terminated              sleep 240h
-bash: line 1: 57773 Terminated              sleep 240h
+2021-11-03 16:36:37,044	INFO scripts.py:572 -- Will use value of `--address` as remote Redis server address(es). If the primary one is not reachable, we starts new one(s) with `--port` in local.
+2021-11-03 16:37:09,848	INFO scripts.py:590 -- The primary external redis server `10.0.0.1:6379` is not reachable. Will starts new one(s) with `--port` in local.
+2021-11-03 16:37:09,849	INFO scripts.py:606 -- Local node IP: 128.105.146.22
+2021-11-03 16:37:11,216	SUCC scripts.py:645 -- --------------------
+2021-11-03 16:37:11,216	SUCC scripts.py:646 -- Ray runtime started.
+2021-11-03 16:37:11,216	SUCC scripts.py:647 -- --------------------
+2021-11-03 16:37:11,216	INFO scripts.py:649 -- Next steps
+2021-11-03 16:37:11,217	INFO scripts.py:651 -- To connect to this Ray runtime from another node, run
+2021-11-03 16:37:11,217	INFO scripts.py:657 --   ray start --address='128.105.146.22:6379' --redis-password='5241590000000000'
+2021-11-03 16:37:11,217	INFO scripts.py:659 -- Alternatively, use the following Python code:
+2021-11-03 16:37:11,217	INFO scripts.py:662 -- import ray
+2021-11-03 16:37:11,217	INFO scripts.py:669 -- ray.init(address='auto', _redis_password='5241590000000000')
+2021-11-03 16:37:11,217	INFO scripts.py:671 -- To connect to this Ray runtime from outside of the cluster, for example to
+2021-11-03 16:37:11,217	INFO scripts.py:673 -- connect to a remote cluster from your laptop directly, use the following
+2021-11-03 16:37:11,217	INFO scripts.py:675 -- Python code:
+2021-11-03 16:37:11,217	INFO scripts.py:678 -- import ray
+2021-11-03 16:37:11,217	INFO scripts.py:682 -- ray.init(address='ray://<head_node_ip_address>:10001')
+2021-11-03 16:37:11,217	INFO scripts.py:686 -- If connection fails, check your firewall settings and network configuration.
+2021-11-03 16:37:11,218	INFO scripts.py:690 -- To terminate the Ray runtime, run
+2021-11-03 16:37:11,218	INFO scripts.py:691 --   ray stop
+2021-11-03 16:37:15,331	INFO scripts.py:741 -- Local node IP: 10.0.0.1
+2021-11-03 16:37:15,466	SUCC scripts.py:749 -- --------------------
+2021-11-03 16:37:15,466	SUCC scripts.py:750 -- Ray runtime started.
+2021-11-03 16:37:15,467	SUCC scripts.py:751 -- --------------------
+2021-11-03 16:37:15,467	INFO scripts.py:753 -- To terminate the Ray runtime, run
+2021-11-03 16:37:15,467	INFO scripts.py:754 --   ray stop
+[2021-11-03 16:37:15,890 I 31989 31989] global_state_accessor.cc:394: This node has an IP address of 10.0.0.2, while we can not found the matched Raylet address. This maybe come from when you connect the Ray cluster with a different IP address or connect a container.
+2021-11-03 16:37:15,855	INFO scripts.py:741 -- Local node IP: 10.0.0.2
+2021-11-03 16:37:15,891	SUCC scripts.py:749 -- --------------------
+2021-11-03 16:37:15,891	SUCC scripts.py:750 -- Ray runtime started.
+2021-11-03 16:37:15,891	SUCC scripts.py:751 -- --------------------
+2021-11-03 16:37:15,891	INFO scripts.py:753 -- To terminate the Ray runtime, run
+2021-11-03 16:37:15,891	INFO scripts.py:754 --   ray stop
+[2021-11-03 16:37:16,396 I 147586 147586] global_state_accessor.cc:394: This node has an IP address of 10.0.0.3, while we can not found the matched Raylet address. This maybe come from when you connect the Ray cluster with a different IP address or connect a container.
+2021-11-03 16:37:16,359	INFO scripts.py:741 -- Local node IP: 10.0.0.3
+2021-11-03 16:37:16,397	SUCC scripts.py:749 -- --------------------
+2021-11-03 16:37:16,397	SUCC scripts.py:750 -- Ray runtime started.
+2021-11-03 16:37:16,397	SUCC scripts.py:751 -- --------------------
+2021-11-03 16:37:16,397	INFO scripts.py:753 -- To terminate the Ray runtime, run
+2021-11-03 16:37:16,397	INFO scripts.py:754 --   ray stop

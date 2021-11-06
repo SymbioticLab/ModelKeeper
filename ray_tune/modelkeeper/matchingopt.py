@@ -120,6 +120,7 @@ def topological_sorting(graph):
 
     [dfs_iterative(node) for node in graph.nodes() if graph.in_degree(node)==0]
     assert len(ret) == graph.number_of_nodes()
+    #print(ret)
     # ret.reverse()
     return ret[:MAX_MATCH_NODES]
 
@@ -706,12 +707,12 @@ class ModelKeeper(object):
         mapper = MappingOperator(parent, child, mappings)
         mapper.cascading_mapping()
         mapper.pad_mapping()
-        weights, num_of_matched = mapper.get_mapping_weights()
+        weights, num_of_matched, layer_mappings = mapper.get_mapping_weights()
 
         logging.info("Mapped {} layers to the child model ({} layers), parent {} layers".format(num_of_matched, child.graph['num_tensors'],
                     parent.graph['num_tensors']))
 
-        return weights, num_of_matched
+        return weights, num_of_matched, layer_mappings
 
 
 
@@ -751,7 +752,7 @@ class ModelKeeper(object):
         parent_name, meta_data = 'None', {}
 
         if parent is not None and len(mappings) > THRESHOLD * parent.graph['num_nodes']:
-            weights, num_of_matched = self.warm_weights(parent, child, mappings)
+            weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
             parent_name = parent.graph['name']
 
             meta_data = {
@@ -760,7 +761,8 @@ class ModelKeeper(object):
               "parent_acc": parent.graph['accuracy'],
               'num_of_matched': num_of_matched,
               'parent_layers': parent.graph['num_tensors'],
-              'child_layers': child.graph['num_tensors']
+              'child_layers': child.graph['num_tensors'],
+              #'mappings': layer_mappings
             }
 
         # remove the temporary onnx model
@@ -787,7 +789,7 @@ class ModelKeeper(object):
         parent_name, meta_data = 'None', {}
 
         if parent is not None and len(mappings) > THRESHOLD * parent.graph['num_nodes']:
-            weights, num_of_matched = self.warm_weights(parent, child, mappings)
+            weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
             parent_name = parent.graph['name']
 
             meta_data = {
@@ -796,7 +798,8 @@ class ModelKeeper(object):
               "parent_acc": parent.graph['accuracy'],
               'num_of_matched': num_of_matched,
               'parent_layers': parent.graph['num_tensors'],
-              'child_layers': child.graph['num_tensors']
+              'child_layers': child.graph['num_tensors'],
+              #'mappings': layer_mappings
             }
 
         return weights, meta_data
@@ -1025,5 +1028,6 @@ def test():
 
     # time.sleep(40)
 
-test()
+#test()
 #test_fake()
+

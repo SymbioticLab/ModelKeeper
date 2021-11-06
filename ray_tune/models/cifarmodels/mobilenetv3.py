@@ -156,7 +156,7 @@ class MobileNetV3(nn.Module):
             ]
             init_conv_out = _make_divisible(16 * multiplier)
             self.init_conv = nn.Sequential(
-                nn.Conv2d(in_channels=3, out_channels=init_conv_out, kernel_size=3, stride=2, padding=1),
+                nn.Conv2d(in_channels=3, out_channels=init_conv_out, kernel_size=3, stride=1, padding=1),
                 nn.BatchNorm2d(init_conv_out),
                 h_swish(inplace=True),
             )
@@ -203,7 +203,7 @@ class MobileNetV3(nn.Module):
 
             init_conv_out = _make_divisible(16 * multiplier)
             self.init_conv = nn.Sequential(
-                nn.Conv2d(in_channels=3, out_channels=init_conv_out, kernel_size=3, stride=2, padding=1),
+                nn.Conv2d(in_channels=3, out_channels=init_conv_out, kernel_size=3, stride=1, padding=1),
                 nn.BatchNorm2d(init_conv_out),
                 h_swish(inplace=True),
             )

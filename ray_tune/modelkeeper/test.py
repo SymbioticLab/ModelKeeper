@@ -15,7 +15,7 @@ def test():
 
     # args = parser.parse_args()
     from config import modelkeeper_config
-    zoo_path = '/users/fanlai/experiment/exp_logs/keeper/model_zoo'
+    zoo_path = '/users/fanlai/experiment/keeper/model_zoo'
     #zoo_path = "/users/fanlai/experiment/exp_logs/keeper/model_zoo/regnety002@0.4767.onnx"
     modelkeeper_config.zoo_path = zoo_path
 
@@ -24,7 +24,7 @@ def test():
     #child_onnx_path = '/mnt/zoo/tests/vgg11.onnx'
     models = os.listdir(zoo_path)
 
-    match_list = ['seresnet1001_cifar10.onnx']
+    match_list = ['../query_zoo/nin_cifar10.onnx']
     for model in match_list:
         child_onnx_path = os.path.join(zoo_path, model)
         weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([child_onnx_path]),
