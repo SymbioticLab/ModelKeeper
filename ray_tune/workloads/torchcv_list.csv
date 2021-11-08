@@ -40,7 +40,6 @@ ResNet50(),9612
 preresnet272bn_cifar10,9732
 regnetx160,9876
 DPN92(),10151
-resnet1001_cifar10,10318
 SimpleDLA(),10319
 "MobileNetV3(is_large=1, multiplier=0.5)",11033
 pyramidnet110_a270_cifar10,11256
@@ -61,7 +60,6 @@ ror3_110_cifar10,14708
 DPN98(),14817
 regnety032,15115
 preresnet56_cifar10,15563
-seresnet1001_cifar10,15879
 seresnet18(),16110
 densenet40_k12_cifar10,16319
 resneta50b,16331
@@ -132,7 +130,6 @@ stochastic_depth_resnet18(),24040
 resnetd152b,24132
 densenet100_k24_cifar10,24362
 ResNeXt29_8x64d(),24755
-preresnet1001_cifar10,24780
 regnetx002,24855
 MobileNetV2(alpha=0.75),24869
 efficientnet_b4,25125
@@ -157,7 +154,6 @@ resnesta200,28451
 efficientnet_b3,28545
 resneta18,29028
 efficientnet_b8,29320
-diapreresnet1001_cifar10,29471
 pyramidnet110_a48_cifar10,29521
 resnet14_cifar10,29642
 efficientnet_b6,29685
@@ -175,9 +171,7 @@ diapreresnet20_cifar10,32106
 ShuffleNetV2(net_size=2),32466
 resnext29_32x4d_cifar10,32515
 "VGG(vgg_block=11, use_bn=True)",32596
-diaresnet1001_cifar10,32946
 diapreresnet164bn_cifar10,34002
-sepreresnet1001_cifar10,34030
 resnext29_16x64d_cifar10,34069
 regnety006,34292
 pyramidnet110_a84_cifar10,34676

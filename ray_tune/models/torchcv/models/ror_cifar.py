@@ -280,7 +280,7 @@ def get_ror_cifar(num_classes,
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    assert (num_classes in [10, 100])
+    #assert (num_classes in [10, 100])
 
     assert ((blocks - 8) % 6 == 0)
     layers = [(blocks - 8) // 6] * 3

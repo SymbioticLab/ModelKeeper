@@ -580,15 +580,16 @@ class ModelKeeper(object):
         return (self.model_zoo[parent_path].parent, mapping_res, score)
 
 
-    def query_scores(self, parents, child, threads=40, timeout=180):
+    def query_scores(self, parents, child, threads=20, timeout=180):
         scores = []
-        with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
-            try:
+        try:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
+            
                 for model, score in executor.map(mapping_func, [self.model_zoo[p] for p in parents],
                     repeat(child), timeout=timeout):
                     scores.append((model, score))
-            except Exception as e:
-                logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
+        except Exception as e:
+            logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
 
         for (p, s) in scores:
             self.distance[p][child.graph['name']] = 1. - s
@@ -597,7 +598,7 @@ class ModelKeeper(object):
 
     def query_best_mapping(self, child, blacklist=set(),
                             model_name=None, return_weight=True,
-                            score_threshold=0.95, timeout=180):
+                            score_threshold=0.95, timeout=180, threads=20):
 
         start_time = time.time()
         self.query_model = child
@@ -630,7 +631,7 @@ class ModelKeeper(object):
 
         logging.info(f"Searching {len(search_models)+len(medoids)} models ...")
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=40) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
             #for model, score in executor.map(self.mapping_func, search_models, timeout=timeout):
             try:
                 for model, score in executor.map(mapping_func, search_models, repeat(child), timeout=timeout):
@@ -646,13 +647,13 @@ class ModelKeeper(object):
                 pass
 
         if parent_path is not None and return_weight:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
-                try:
+            try:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
                     for p, m, s in executor.map(mapping_func, [self.model_zoo[parent_path]], [child], [True], timeout=timeout):
                         parent, mappings, _ = p, m, s
                         break
-                except Exception as e:
-                    logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
+            except Exception as e:
+                logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
 
         if parent is not None:
             logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
@@ -684,13 +685,13 @@ class ModelKeeper(object):
                 parent_path, best_score = p, s
 
         if parent_path is not None and return_weight:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
-                try:
+            try:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
                     for p, m, s in executor.map(mapping_func, [self.model_zoo[parent_path]], [child], [True], timeout=timeout):
                         parent, mappings, _ = p, m, s
                         break
-                except Exception as e:
-                    logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
+            except Exception as e:
+                logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
 
         if parent is not None:
             logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(

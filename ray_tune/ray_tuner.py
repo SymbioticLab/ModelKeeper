@@ -594,7 +594,8 @@ if __name__ == "__main__":
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
-    conf_list = GenerateConfig(args.num_models, os.path.join(args.meta, args.data + "_config.pkl"))
+    if args.task == "nasbench":
+        conf_list = GenerateConfig(args.num_models, os.path.join(args.meta, args.data + "_config.pkl"))
 
     # Clear the log dir
     log_dir = f"{os.environ['HOME']}/experiment/ray_logs"
@@ -673,4 +674,5 @@ if __name__ == "__main__":
 
     if keeper_service is not None:
         keeper_service.stop_service()
+
 

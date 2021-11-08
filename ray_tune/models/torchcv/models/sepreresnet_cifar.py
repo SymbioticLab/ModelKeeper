@@ -115,7 +115,7 @@ def get_sepreresnet_cifar(num_classes,
     root : str, default '~/.torch/models'
         Location for keeping the model parameters.
     """
-    assert (num_classes in [10, 100])
+    #assert (num_classes in [10, 100])
 
     if bottleneck:
         assert ((blocks - 2) % 9 == 0)
