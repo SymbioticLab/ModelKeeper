@@ -63,10 +63,10 @@ def split_inputs(in_list):
         # in some cases, bias itself may be a tensor
         elif '.weight' in _input:
             layer_name = _input
-            break
-        elif '.bias' in _input:
+            # break
+        elif layer_name is None and '.bias' in _input:
             layer_name = _input
-            break
+            # break
 
     return input_nodes, layer_name
 
@@ -120,8 +120,12 @@ def topological_sorting(graph):
 
     [dfs_iterative(node) for node in graph.nodes() if graph.in_degree(node)==0]
     assert len(ret) == graph.number_of_nodes()
-    #print(ret)
-    # ret.reverse()
+
+    #for n in ret:
+    #    print(n, graph.nodes[n]['attr'])
+
+    #print('** Source: ', sum([1 for node in graph.nodes() if graph.in_degree(node) == 0]))
+    #print('** Sink: ', sum([1 for node in graph.nodes() if graph.out_degree(node) == 0]))
     return ret[:MAX_MATCH_NODES]
 
 class MatchingOperator(object):
@@ -548,7 +552,7 @@ class ModelKeeper(object):
         edge_source = collections.defaultdict(list)
 
         opt_dir = collections.defaultdict(int)
-
+        input_nodes_list = []
         for idx, node in enumerate(nodes):
             input_nodes, trainable_weights = split_inputs(node.input)
             opt_dir[node.op_type] += 1
@@ -563,14 +567,20 @@ class ModelKeeper(object):
             }
             graph.add_node(idx, attr=attr)
 
+            # register node
+            for out_node in node.output:
+                edge_source[out_node].append(idx)
+
+            input_nodes_list.append(input_nodes)
+
+
+        for idx, node in enumerate(nodes):
+            input_nodes = input_nodes_list[idx]
+
             # add edges
             for input_node in input_nodes:
                 for s in edge_source[input_node]:
                     graph.add_edge(s, idx)
-
-            # register node
-            for out_node in node.output:
-                edge_source[out_node].append(idx)
 
         return graph, onnx_model
 
@@ -584,7 +594,7 @@ class ModelKeeper(object):
         scores = []
         try:
             with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
-            
+
                 for model, score in executor.map(mapping_func, [self.model_zoo[p] for p in parents],
                     repeat(child), timeout=timeout):
                     scores.append((model, score))
@@ -788,7 +798,7 @@ class ModelKeeper(object):
         # overwrite the current model weights
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
-
+        print(mappings, len(mappings), parent.graph['num_nodes'])
         if parent is not None and len(mappings) > THRESHOLD * parent.graph['num_nodes']:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
             parent_name = parent.graph['name']

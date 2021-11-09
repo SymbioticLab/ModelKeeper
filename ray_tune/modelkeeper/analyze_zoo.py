@@ -3,7 +3,7 @@ import numpy
 import networkx as nx
 import time, sys, os
 import functools, collections
-from matchingopt import Oort
+from matchingopt import ModelKeeper
 import logging
 from onnx import numpy_helper
 import multiprocessing
@@ -14,7 +14,7 @@ import ctypes
 import json, gc
 
 # Call C backend
-clib_matcher = ctypes.cdll.LoadLibrary('/users/fanlai/ModelKeeper/ray_tune/oort/backend/bin/matcher.so')
+clib_matcher = ctypes.cdll.LoadLibrary('./backend/bin/matcher.so')
 clib_matcher.get_matching_score.restype = ctypes.c_char_p
 
 sys.setrecursionlimit(10000)
@@ -65,17 +65,13 @@ def analyze_zoo():
 
 
 def analyze_zoo_folder():
-    import argparse
+    from config import modelkeeper_config
 
     start_time = time.time()
-    zoo_path = '/mnt/zoo/transformers/'
+    zoo_path = '/mnt/transformers/'
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--zoo_path', type=str, default=zoo_path)
-    parser.add_argument('--num_of_processes', type=int, default=40)
-
-    args = parser.parse_args()
-    mapper = Oort(args)
+    modelkeeper_config.zoo_path = zoo_path
+    mapper = ModelKeeper(modelkeeper_config)
 
     model_folders = os.listdir(zoo_path)
     models = []
@@ -83,18 +79,18 @@ def analyze_zoo_folder():
         model_name = [x for x in os.listdir(os.path.join(zoo_path, model_path)) if '.onnx' in x]
         if len(model_name) == 1:
             models.append(os.path.join(zoo_path, model_path, model_name[0]))
-            mapper.add_to_zoo(models[-1], idx)
+            mapper.add_to_zoo(models[-1])
             print(f"===Add {models[-1]} to zoo...")
 
     # models = os.listdir(zoo_path)
     for idx, model_name in enumerate(models):
         child_onnx_path = model_name #os.path.join(zoo_path, model_name)
-        child, child_onnx = mapper.load_model_meta(child_onnx_path)
-        child.graph['model_id'] = str(idx)
+        # child, child_onnx = mapper.load_model_meta(child_onnx_path)
+        # child.graph['model_id'] = str(idx)
 
         # find the best mapping from the zoo
-        parent, mappings, best_score = mapper.get_best_mapping(child, set([]), model_name.split('/')[-1], return_weight=False)
-
+        weights, meta_data = mapper.map_for_onnx(child_onnx_path, set([]), model_name.split('/')[-1])
+        print(meta_data)
         gc.collect()
 
     print("==============")

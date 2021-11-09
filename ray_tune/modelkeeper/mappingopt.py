@@ -111,8 +111,8 @@ class MappingOperator(object):
 
                     self.num_of_matched += 1
                     self.reset_layers.add(child_layer_name)
-                    #logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
-                    #                                            child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
+                    logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
+                                                                child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
             except Exception as e:
                 logging.warning(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
 

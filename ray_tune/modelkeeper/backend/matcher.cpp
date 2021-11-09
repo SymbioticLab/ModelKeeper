@@ -98,34 +98,25 @@ void Matcher::init_score(){
     for (int i=0; i < 1+len_parent; ++i) {
         scores[i] = new double[1+len_child]();
     }
-
-    // initialize margin
-    for (int i=0; i < 1+len_child; ++i) {
-        scores[0][i] = i * ins_gap;
-    }
-
-    for (int i=0; i < 1+len_parent; ++i){
-        scores[i][0] = i * del_gap;
-    }
-
+    
     double best;
 
     for (int i=0; i < parent_nodes.size(); ++i) {
-        best = INT_MIN;
+        best = 0;//INT_MIN;
 
         for (int j=0; j < parent_nodes[i].parents.size(); ++j) {
-            best = max(best, scores[1+parent_nodes[i].parents[j]][0]);
+            best += scores[1+parent_nodes[i].parents[j]][0];//max(best, scores[1+parent_nodes[i].parents[j]][0]);
         }
-        scores[i+1][0] = best + del_gap;
+        scores[i+1][0] = best/parent_nodes[i].parents.size() + del_gap;
     }
 
     for (int i=0; i < child_nodes.size(); ++i) {
-        best = INT_MIN;
+        best = 0;
 
-        for (int j=0; j < child_nodes[j].parents.size(); ++j){
-            best = max(best, scores[0][1+child_nodes[i].parents[j]]);
+        for (int j=0; j < child_nodes[i].parents.size(); ++j){
+            best += scores[0][1+child_nodes[i].parents[j]];
         }
-        scores[0][i+1] = best + ins_gap;
+        scores[0][i+1] = best/child_nodes[i].parents.size() + ins_gap;
     }
 
     long long num_parent_param=1;
@@ -147,7 +138,6 @@ void Matcher::init_score(){
     }
 }
 
-
 inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, vector<int> & parent_list, vector<int> & child_list){
 
     priority_queue<pair<double, int> > queue;
@@ -158,10 +148,8 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
 
     vector<int> inbranch_idx(lists.size(), 0);
 
-    double score = 0, match_cnt = 0.0001;
-    bool should_match = true;
+    double score = 0;
     int branch, inbranch, parent_node;
-
     set<int> parent_node_set;
 
     // merge k-sorted lists
@@ -169,30 +157,24 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
         pair<double, int> temp_pair = queue.top();
         queue.pop();
 
-        should_match = true;
-
         branch = temp_pair.second;
         inbranch = inbranch_idx[branch];
 
-        if (lists[branch][inbranch].opt == MATCH){
-            parent_node = lists[branch][inbranch].parentidx;
+        //if (lists[branch][inbranch].opt == MATCH){
+        parent_node = lists[branch][inbranch].parentidx;
+        //child_node = lists[branch][inbranch].childidx;
 
-            // parent is used before, then move to the next inbranch idx in this branch
-            if (parent_node_set.find(parent_node) != parent_node_set.end()){
-                should_match = false;
-                if (inbranch + 1 < lists[branch].size()){
-                    inbranch += 1;
-                    inbranch_idx[branch] = inbranch;
-                    queue.push(make_pair(lists[branch][inbranch].val, branch));
-                }
-            } else{
-                parent_node_set.insert(parent_node);
+        // parent is used before, then move to the next inbranch idx in this branch
+        if (parent_node_set.find(parent_node) != parent_node_set.end()){
+            if (inbranch + 1 < lists[branch].size()){
+                inbranch += 1;
+                inbranch_idx[branch] = inbranch;
+                queue.push(make_pair(lists[branch][inbranch].val, branch));
             }
-        }
-
-        if (should_match){
+        } else{
+            parent_node_set.insert(parent_node);
+            //child_node_set.insert(child_node);
             score += lists[branch][inbranch].val;
-            //match_cnt += 1;
 
             if (dump_mapping) {
                 parent_list.push_back(lists[branch][inbranch].parentidx);
@@ -201,12 +183,12 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
         }
     }
 
-    return score;//match_cnt;
+    return score;
 }
 
 
 inline double Matcher::cal_score(Node parent_node, Node child_node){
-    if (parent_node.type != child_node.type) {
+    if (parent_node.type != child_node.type || parent_node.shape.size() != child_node.shape.size()) {
         return _mismatchscore;
     } else{
         long long num_parent_param=parent_parameters[parent_node.idx], num_child_param=child_parameters[child_node.idx];
@@ -229,12 +211,14 @@ inline double Matcher::cal_score(Node parent_node, Node child_node){
     }
 }
 
-bool cmp_function(node_pair i, node_pair j) { return (i.val>j.val); }
+bool cmp_function(node_pair i, node_pair j) { return (i.val>=j.val); }
 
 void Matcher::align_child_parent(){
 
     double match_score = 0, merge_score = 0;
     int cprev = 0, is_match=1, predIndex=0;
+    map<string, vector<int> >::iterator iter;
+    vector<int> temp_vec;
 
     // Dynamic Programming
     for (int i=0; i < parent_nodes.size(); ++i){
@@ -250,19 +234,19 @@ void Matcher::align_child_parent(){
             // enumerate all branches
             for (int k=0; k < child_node.parents.size(); ++k){
                 vector<node_pair> temp;
+                cprev = child_node.parents[k]; // j
 
-                cprev = child_node.parents[k]+1;
                 // insert identity mapping
-                temp.push_back(node_pair(scores[i+1][cprev] + ins_gap, i+1, cprev, INS));
+                temp.push_back(node_pair(scores[i+1][cprev+1] + ins_gap, i+1, cprev+1, INS));
 
                 // add all candidates to a list, pick the best insert to the child
                 for (int m=0; m < parent_node.parents.size(); ++m) {
                     predIndex = parent_node.parents[m];
-                    temp.push_back(node_pair(scores[predIndex+1][cprev] + match_score, predIndex+1, cprev, is_match));
-                    temp.push_back(node_pair(scores[predIndex+1][cprev+1] + del_gap, predIndex+1, cprev+1, DEL)); // skip a child node
+                    temp.push_back(node_pair(scores[predIndex+1][cprev+1] + match_score, predIndex+1, cprev+1, is_match));
+                    temp.push_back(node_pair(scores[predIndex+1][j+1] + del_gap, predIndex+1, j+1, DEL)); // skip a child node
                 }
+
                 sort(temp.begin(), temp.end(), cmp_function);
-                
                 temp_ans.push_back(temp);
             }
 
@@ -290,5 +274,4 @@ extern "C"{
         return mapper.gen_mapping(json_s, dump_mapping);
     }
 }
-
 
