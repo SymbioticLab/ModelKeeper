@@ -15,7 +15,7 @@ import gc
 from itertools import repeat
 import shutil
 import random
-import numpy as np 
+import numpy as np
 
 sys.path.append('./modelkeeper')
 
@@ -112,7 +112,7 @@ def topological_sorting(graph):
                 else:
                     in_degrees[edge[1]] -= 1
 
-            stack += temp_out 
+            stack += temp_out
 
     [dfs_iterative(node) for node in graph.nodes() if graph.in_degree(node)==0]
     assert len(ret) == graph.number_of_nodes()
@@ -405,7 +405,7 @@ class ModelKeeper(object):
             model_paths = [model_paths]
 
         if len(model_paths) == 0:
-            return 
+            return
 
         model_accuracies = [p.graph['accuracy'] for p in self.model_zoo.values()]
         new_model_accuracies = []
@@ -415,7 +415,6 @@ class ModelKeeper(object):
 
         # remove outliers
         model_accuracies = np.array(model_accuracies+new_model_accuracies)
-        print("###", model_accuracies)
         accuracy_std, accuracy_mean = model_accuracies.std(), model_accuracies.mean()
 
         for m in self.model_zoo:
@@ -628,7 +627,7 @@ class ModelKeeper(object):
 
     def query_scores(self, parents, child, threads=20, timeout=180):
         scores = []
-        
+
         with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
             try:
                 for model, score in executor.map(mapping_func, [self.model_zoo[p] for p in parents],

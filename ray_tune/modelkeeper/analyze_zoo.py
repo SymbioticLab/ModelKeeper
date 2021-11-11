@@ -32,17 +32,13 @@ def get_mapped(file):
     return black_list
 
 def analyze_zoo():
-    import argparse
+    from config import modelkeeper_config
 
     start_time = time.time()
-    zoo_path = '/mnt/weight/'
+    zoo_path = '/users/Yinwei/'
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--zoo_path', type=str, default=zoo_path)
-    parser.add_argument('--num_of_processes', type=int, default=20)
-
-    args = parser.parse_args()
-    mapper = Oort(args)
+    modelkeeper_config.zoo_path = zoo_path
+    mapper = ModelKeeper(modelkeeper_config)
 
     models = sorted(os.listdir(zoo_path))
 
@@ -51,14 +47,17 @@ def analyze_zoo():
     #print(models)
     #print(len(models))
     for idx, model_name in enumerate(models):
-        child_onnx_path = os.path.join(zoo_path, model_name)
-        child, child_onnx = mapper.load_model_meta(child_onnx_path)
-        child.graph['model_id'] = str(idx)
+        try:
+            child_onnx_path = os.path.join(zoo_path, model_name)
+            # child, child_onnx = mapper.load_model_meta(child_onnx_path)
+            # child.graph['model_id'] = str(idx)
 
-        # find the best mapping from the zoo
-        parent, mappings, best_score = mapper.get_best_mapping(child, set([]), model_name, return_weight=False)
-
-        gc.collect()
+            # find the best mapping from the zoo
+            weights, meta_data = mapper.map_for_onnx(child_onnx_path, set([]), model_name)
+            print(meta_data)
+            gc.collect()
+        except Exception as e:
+            print(e) 
 
     print("==============")
     print(f"total duration is {(time.time()-start_time)/1000.0} sec")
@@ -96,4 +95,6 @@ def analyze_zoo_folder():
     print("==============")
     print(f"total duration is {(time.time()-start_time)/1000.0} sec")
 
-analyze_zoo_folder()
+#analyze_zoo_folder()
+analyze_zoo()
+
