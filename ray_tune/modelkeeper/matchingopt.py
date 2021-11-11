@@ -15,6 +15,7 @@ import gc
 from itertools import repeat
 import shutil
 import random
+import numpy as np 
 
 sys.path.append('./modelkeeper')
 
@@ -30,7 +31,7 @@ sys.setrecursionlimit(10000)
 random.seed(1)
 distance_lookup = None
 SCORE_THRESHOLD = float('-inf')
-THRESHOLD = 0 # more than X% layers can be transferred from the parent
+THRESHOLD = 10 # more than X% layers can be transferred from the parent
 MAX_MATCH_NODES=1000
 
 
@@ -68,6 +69,8 @@ def split_inputs(in_list):
             layer_name = _input
             # break
 
+    # if in_list != input_nodes:
+    #     print(in_list, input_nodes)
     return input_nodes, layer_name
 
 def get_tensor_shapes(model_graph):
@@ -91,8 +94,6 @@ def get_tensor_shapes(model_graph):
 
 def topological_sorting(graph):
     """DFS based topological sort to maximize length of each chain"""
-    # return list(nx.topological_sort(graph))
-    #visited = set()
     ret = []
     in_degrees = {n:graph.in_degree(n) for n in graph.nodes if graph.in_degree(n) > 0}
 
@@ -111,12 +112,7 @@ def topological_sorting(graph):
                 else:
                     in_degrees[edge[1]] -= 1
 
-            stack += temp_out #[edge[1] for edge in graph.out_edges(vertex) if edge[1] not in visited]
-
-    # def dfs(node):
-    #     visited.add(node)
-    #     [dfs(edge[1]) for edge in graph.out_edges(node) if edge[1] not in visited]
-    #     ret.append(node)
+            stack += temp_out 
 
     [dfs_iterative(node) for node in graph.nodes() if graph.in_degree(node)==0]
     assert len(ret) == graph.number_of_nodes()
@@ -370,6 +366,8 @@ class ModelKeeper(object):
 
         # Blacklist opts in matching
         self.skip_opts = {'Constant'}
+        self.opt_annotation = set(['key', 'value', 'query'])
+        self.outlier_factor = 3.0
 
         if args.zoo_path is not None:
             self.init_model_zoo(args.zoo_path)
@@ -406,8 +404,31 @@ class ModelKeeper(object):
         if not isinstance(model_paths, list):
             model_paths = [model_paths]
 
+        if len(model_paths) == 0:
+            return 
+
+        model_accuracies = [p.graph['accuracy'] for p in self.model_zoo.values()]
+        new_model_accuracies = []
+        for m in model_paths:
+            model_acc = self.get_model_accuracy(m)
+            new_model_accuracies.append(model_acc)
+
+        # remove outliers
+        model_accuracies = np.array(model_accuracies+new_model_accuracies)
+        print("###", model_accuracies)
+        accuracy_std, accuracy_mean = model_accuracies.std(), model_accuracies.mean()
+
+        for m in self.model_zoo:
+            if m.graph['accuracy'] < accuracy_mean - self.outlier_factor*accuracy_std:
+                del self.model_zoo[m]
+
+        decent_models = []
+        for acc, m in zip(new_model_accuracies, model_paths):
+            if acc >= accuracy_mean - self.outlier_factor*accuracy_std:
+                decent_models.append(m)
+
         is_update = False
-        for model_path in model_paths:
+        for model_path in decent_models:
             if model_path in self.model_zoo:
                 logging.warning(f"{model_path} is already in the zoo")
             else:
@@ -525,6 +546,22 @@ class ModelKeeper(object):
         #update_cluster_offline()
 
 
+    def get_op_type(self, op_type, node_name):
+        temp_op = op_type
+        if node_name:
+            for annotation in self.opt_annotation:
+                if annotation in node_name:
+                    temp_op=temp_op+'_'+annotation
+
+        return temp_op
+
+    def get_model_accuracy(self, meta_file):
+        if '@' in meta_file:
+            accuracy = float(meta_file.split('@')[-1].split('.onnx')[0])
+        else:
+            accuracy = -1
+        return accuracy
+
     def load_model_meta(self, meta_file='sample__accuracy.onnx'):
         """
         @ meta_file: input files are onnx. return the weight meta graph of this model
@@ -535,10 +572,7 @@ class ModelKeeper(object):
         # meta file is rather small
         onnx_model = onnx.load(meta_file)
         model_graph = onnx_model.graph
-        if '@' in meta_file:
-            accuracy = float(meta_file.split('@')[-1].split('.onnx')[0])
-        else:
-            accuracy = -1
+        accuracy = self.get_model_accuracy(meta_file)
 
         # record the shape of each weighted nodes
         node_shapes, num_of_trainable_tensors = get_tensor_shapes(model_graph)
@@ -559,11 +593,13 @@ class ModelKeeper(object):
 
             #logging.info(node.input, trainable_weights)
             # add new nodes to graph
+            layer_name = None if not trainable_weights else '.'.join(trainable_weights.split('.')[:-1])
+
             attr = {
                 'dims': [] if not trainable_weights else node_shapes[trainable_weights],
-                'op_type': node.op_type,
+                'op_type': self.get_op_type(node.op_type, layer_name),
                 'name': node.name,# if node.name else str(node.op_type)+str(opt_dir[node.op_type]),
-                'layer_name': None if not trainable_weights else '.'.join(trainable_weights.split('.')[:-1])
+                'layer_name': layer_name
             }
             graph.add_node(idx, attr=attr)
 
@@ -592,14 +628,16 @@ class ModelKeeper(object):
 
     def query_scores(self, parents, child, threads=20, timeout=180):
         scores = []
-        try:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
-
+        
+        with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
+            try:
                 for model, score in executor.map(mapping_func, [self.model_zoo[p] for p in parents],
                     repeat(child), timeout=timeout):
                     scores.append((model, score))
-        except Exception as e:
-            logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
+            except Exception as e:
+                for pid, process in executor._processes.items():
+                    process.terminate()
+                logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
 
         for (p, s) in scores:
             self.distance[p][child.graph['name']] = 1. - s
@@ -654,16 +692,17 @@ class ModelKeeper(object):
                         executor.shutdown(wait=False)
                         break
             except:
-                pass
+                for pid, process in executor._processes.items():
+                    process.terminate()
 
         if parent_path is not None and return_weight:
-            try:
-                with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+                try:
                     for p, m, s in executor.map(mapping_func, [self.model_zoo[parent_path]], [child], [True], timeout=timeout):
                         parent, mappings, _ = p, m, s
                         break
-            except Exception as e:
-                logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
+                except Exception as e:
+                    logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
 
         if parent is not None:
             logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
@@ -695,13 +734,15 @@ class ModelKeeper(object):
                 parent_path, best_score = p, s
 
         if parent_path is not None and return_weight:
-            try:
-                with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+                try:
                     for p, m, s in executor.map(mapping_func, [self.model_zoo[parent_path]], [child], [True], timeout=timeout):
                         parent, mappings, _ = p, m, s
                         break
-            except Exception as e:
-                logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
+                except Exception as e:
+                    for pid, process in executor._processes.items():
+                        process.terminate()
+                    logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
 
         if parent is not None:
             logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
@@ -891,6 +932,7 @@ class ModelKeeper(object):
         if len(new_models) > 0:
             for m in new_models:
                 os.system(f'mv {os.path.join(self.args.zoo_register_path, m)} {self.args.zoo_path}')
+
             self.add_to_zoo([os.path.join(self.args.zoo_path, m) for m in new_models])
 
 

@@ -102,21 +102,21 @@ void Matcher::init_score(){
     double best;
 
     for (int i=0; i < parent_nodes.size(); ++i) {
-        best = 0;//INT_MIN;
+        best = INT_MIN;
 
         for (int j=0; j < parent_nodes[i].parents.size(); ++j) {
-            best += scores[1+parent_nodes[i].parents[j]][0];//max(best, scores[1+parent_nodes[i].parents[j]][0]);
+            best = max(best, scores[1+parent_nodes[i].parents[j]][0]);
         }
-        scores[i+1][0] = best/parent_nodes[i].parents.size() + del_gap;
+        scores[i+1][0] = (best + del_gap)/parent_nodes[i].parents.size();
     }
 
     for (int i=0; i < child_nodes.size(); ++i) {
-        best = 0;
+        best = INT_MIN;
 
         for (int j=0; j < child_nodes[i].parents.size(); ++j){
-            best += scores[0][1+child_nodes[i].parents[j]];
+            best = max(best, scores[0][1+child_nodes[i].parents[j]]);
         }
-        scores[0][i+1] = best/child_nodes[i].parents.size() + ins_gap;
+        scores[0][i+1] = (best + ins_gap)/child_nodes[i].parents.size();
     }
 
     long long num_parent_param=1;
@@ -173,13 +173,13 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
             }
         } else{
             parent_node_set.insert(parent_node);
-            //child_node_set.insert(child_node);
             score += lists[branch][inbranch].val;
 
             if (dump_mapping) {
                 parent_list.push_back(lists[branch][inbranch].parentidx);
                 child_list.push_back(lists[branch][inbranch].childidx);
             }
+        
         }
     }
 
@@ -232,6 +232,7 @@ void Matcher::align_child_parent(){
             vector<vector<node_pair> > temp_ans;
 
             // enumerate all branches
+            // TODO: optimal solution should apply bipartite algorithm to mix and match 
             for (int k=0; k < child_node.parents.size(); ++k){
                 vector<node_pair> temp;
                 cprev = child_node.parents[k]; // j

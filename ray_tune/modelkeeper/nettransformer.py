@@ -38,17 +38,20 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
     1. More units/kernels
     2. Larger kernel size by padding zeros in resizing
     """
-    n_weight = np.zeros_like(child_w)
-    n_bias = None
+    n_weight = n_base = None
 
-    paste(n_weight, parent_w, tuple([0] * len(n_weight.shape)))
+    if n_weight is not None:
+        n_weight = np.zeros_like(child_w)
+        paste(n_weight, parent_w, tuple([0] * len(n_weight.shape)))
+        # more units/output channels
+        old_width, new_width = parent_w.shape[0], child_w.shape[0]
+
     # TODO: figure out top-k important units
     if parent_b is not None and child_b is not None:
         n_bias = np.zeros_like(child_b)
         paste(n_bias, parent_b, tuple([0] * len(n_bias.shape)))
+        old_width, new_width = parent_b.shape[0], child_b.shape[0]
 
-    # more units/output channels
-    old_width, new_width = parent_w.shape[0], child_w.shape[0]
     widen_units = []
 
     if old_width < new_width:
@@ -56,7 +59,8 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
 
         for i in range(old_width, new_width):
             idx = widen_units[i-old_width]
-            n_weight[i] = n_weight[idx].copy() + np.random.normal(scale=noise_factor*n_weight[idx].std(),
+            if n_weight:
+                n_weight[i] = n_weight[idx].copy() + np.random.normal(scale=noise_factor*n_weight[idx].std(),
                     size=list(n_weight[idx].shape))
 
             if n_bias is not None:
