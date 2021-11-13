@@ -112,10 +112,10 @@ class MappingOperator(object):
 
                     self.num_of_matched += 1
                     self.reset_layers.add(child_layer_name)
-                    logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
-                                                                child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
+                    #logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
+                    #                                            child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
             except Exception as e:
-                logging.warning(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
+                logging.error(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
 
         logging.debug("\n\nCascading mapping takes {:.2f} sec".format(time.time() - start_time))
 
@@ -177,9 +177,9 @@ class MappingOperator(object):
                             self.child_weights[bias_layer] = n_bias
 
                         num_of_padding += 1
-                        logging.info("Pad layer {} with gap {}".format(trainable_layer, forward_layer_gaps[trainable_layer] + backward_layer_gaps[trainable_layer]))
+                        #logging.info("Pad layer {} with gap {}".format(trainable_layer, forward_layer_gaps[trainable_layer] + backward_layer_gaps[trainable_layer]))
                 except Exception as e:
-                    logging.warning('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
+                    logging.error('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
         logging.info("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
 

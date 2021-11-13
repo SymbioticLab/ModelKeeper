@@ -31,7 +31,7 @@ sys.setrecursionlimit(10000)
 random.seed(1)
 distance_lookup = None
 SCORE_THRESHOLD = float('-inf')
-THRESHOLD = 10 # more than X% layers can be transferred from the parent
+THRESHOLD = 0.1 # more than X% layers can be transferred from the parent
 MAX_MATCH_NODES=1000
 
 
@@ -407,7 +407,7 @@ class ModelKeeper(object):
         if len(model_paths) == 0:
             return
 
-        model_accuracies = [p.graph['accuracy'] for p in self.model_zoo.values()]
+        model_accuracies = [p.parent.graph['accuracy'] for p in self.model_zoo.values()]
         new_model_accuracies = []
         for m in model_paths:
             model_acc = self.get_model_accuracy(m)
@@ -418,7 +418,7 @@ class ModelKeeper(object):
         accuracy_std, accuracy_mean = model_accuracies.std(), model_accuracies.mean()
 
         for m in self.model_zoo:
-            if m.graph['accuracy'] < accuracy_mean - self.outlier_factor*accuracy_std:
+            if self.model_zoo[m].parent.graph['accuracy'] < accuracy_mean - self.outlier_factor*accuracy_std:
                 del self.model_zoo[m]
 
         decent_models = []
@@ -838,7 +838,7 @@ class ModelKeeper(object):
         # overwrite the current model weights
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
-        print(mappings, len(mappings), parent.graph['num_nodes'])
+
         if parent is not None and len(mappings) > THRESHOLD * parent.graph['num_nodes']:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
             parent_name = parent.graph['name']
@@ -852,7 +852,7 @@ class ModelKeeper(object):
               'child_layers': child.graph['num_tensors'],
               #'mappings': layer_mappings
             }
-
+            logging.info(f"Querying model {child.graph['name']} completes with meta: {meta_data}")
         return weights, meta_data
 
 

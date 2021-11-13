@@ -38,9 +38,9 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
     1. More units/kernels
     2. Larger kernel size by padding zeros in resizing
     """
-    n_weight = n_base = None
+    n_weight = n_bias = None
 
-    if n_weight is not None:
+    if parent_w is not None:
         n_weight = np.zeros_like(child_w)
         paste(n_weight, parent_w, tuple([0] * len(n_weight.shape)))
         # more units/output channels
