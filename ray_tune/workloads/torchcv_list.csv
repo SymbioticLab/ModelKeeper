@@ -70,7 +70,6 @@ ror3_164_cifar10,16925
 ShuffleNetV2(net_size=1.5),16946
 DenseNet169(),16957
 ShuffleNetG2(),17490
-prnet,17628
 pyramidnet236_a220_bn_cifar10,18010
 stochastic_depth_resnet34(),18159
 "MobileNetV3(is_large=0, multiplier=0.75)",18289

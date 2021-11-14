@@ -43,7 +43,7 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging status')
 parser.add_argument('--data', type=str, default='cifar100')
-parser.add_argument('--weight_decay', type=float, default=1e-4) 
+parser.add_argument('--weight_decay', type=float, default=1e-4)
 
 
 args = parser.parse_args()
@@ -88,10 +88,10 @@ if args.data == 'cifar10':
 
 elif args.data == 'cifar100':
     train_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR100('/users/fanlai/', train=True, download=True, transform=train_transform),
+        datasets.CIFAR100('/users/fanlai/experiment/data', train=True, download=True, transform=train_transform),
         batch_size=args.batch_size, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR100('/users/fanlai/', train=False, download=True, transform=test_transform),
+        datasets.CIFAR100('/users/fanlai/experiment/data', train=False, download=True, transform=test_transform),
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
 elif args.data == 'imagenet':
@@ -121,7 +121,7 @@ elif args.data == 'ImageNet120':
 
     mean = [x / 255 for x in [122.68, 116.66, 104.01]]
     std  = [x / 255 for x in [63.22,  61.26 , 65.09]]
-    lists = [transforms.RandomHorizontalFlip(), transforms.RandomCrop(32, padding=2), 
+    lists = [transforms.RandomHorizontalFlip(), transforms.RandomCrop(32, padding=2),
             transforms.ToTensor(), transforms.Normalize(mean, std)]
     train_transform = transforms.Compose(lists)
     test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
@@ -205,7 +205,7 @@ def greedy_prefix_warmup(file):
 
 
 def modelkeeper(model):
-    import sys 
+    import sys
     sys.path.insert(0,'../../ray_tune/modelkeeper')
 
     from matchingopt import ModelKeeper
@@ -232,9 +232,9 @@ def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 2 every 30 epochs"""
     # lr = args.lr * (0.5 ** (epoch // 20))
     if epoch < 120:
-        lr = 0.02 
+        lr = 0.02
     elif epoch < 160:
-        lr = 0.004 
+        lr = 0.004
     else:
         lr = 0.0008
 
@@ -250,7 +250,7 @@ def train(epoch):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
-    
+
         output = model(data)
         loss = criterion(output, target)
         optimizer.zero_grad()

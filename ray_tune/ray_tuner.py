@@ -17,7 +17,7 @@ import torch.optim as optim
 
 import ray
 from ray import tune
-from ray.tune import track, run_experiments
+from ray.tune import run_experiments
 from ray.tune.schedulers import AsyncHyperBandScheduler, FIFOScheduler
 from onlinescheduler import OnlineScheduler
 from ray.tune.stopper import CombinedStopper, MaximumIterationStopper
@@ -30,7 +30,7 @@ from random import Random
 from collections import defaultdict, deque
 
 import sys
-from ImageNet import ImageNet16
+from utils.ImageNet import ImageNet16
 
 # ModelKeeper dependency
 from modelkeeper.config import modelkeeper_config
@@ -46,6 +46,7 @@ from models.nasbench import get_cell_based_tiny_net
 import threading
 
 ray.tune.ray_trial_executor.DEFAULT_GET_TIMEOUT = 600
+os.environ['TUNE_PLACEMENT_GROUP_RECON_INTERVAL'] = '60'
 
 def GenerateConfig(n, path):
     """
@@ -506,19 +507,18 @@ class TrainModel(tune.Trainable):
 
 
     def stop(self):
-        self.model.to(device='cpu')
-        self.model.eval()
-
-        local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
-        os.makedirs(local_path, exist_ok=True)
-        export_path = os.path.join(local_path, self.export_path)
-        dummy_input = torch.rand((2, 3, 32, 32))
-
-        with open(export_path, 'wb') as fout:
-            pickle.dump(self.model, fout)
-            pickle.dump(dummy_input, fout)
-
         if args.use_keeper:
+            self.model.to(device='cpu')
+            self.model.eval()
+            local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
+            os.makedirs(local_path, exist_ok=True)
+            export_path = os.path.join(local_path, self.export_path)
+            dummy_input = torch.rand((2, 3, 32, 32))
+
+            with open(export_path, 'wb') as fout:
+                pickle.dump(self.model, fout)
+                pickle.dump(dummy_input, fout)
+
             # Call the offline API to register the model
             os.system(f"nohup python {os.environ['HOME']}/experiment/ModelKeeper/ray_tune/keeper_offline.py --model_file={export_path} --accuracy={self.history[self.epoch]['acc']} &")
             self.logger.info("Call keeper offline register API")
