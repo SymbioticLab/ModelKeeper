@@ -353,7 +353,7 @@ class ModelKeeper(object):
 
         self.current_mapping_id = 0
         self.zoo_model_id = 0
-        self.mode_threshold = 500 # enable clustering if len(model_zoo) > T
+        self.mode_threshold = 1000 # enable clustering if len(model_zoo) > T
 
         self.model_clusters = []
         self.query_model = None
@@ -362,7 +362,7 @@ class ModelKeeper(object):
         self.distance = collections.defaultdict(dict)
 
         # Lock for offline clustering
-        self.zoo_lock = threading.Lock()
+        # self.zoo_lock = threading.Lock()
 
         # Blacklist opts in matching
         self.skip_opts = {'Constant'}
@@ -417,7 +417,8 @@ class ModelKeeper(object):
         model_accuracies = np.array(model_accuracies+new_model_accuracies)
         accuracy_std, accuracy_mean = model_accuracies.std(), model_accuracies.mean()
 
-        for m in self.model_zoo:
+        existing_zoo = list(self.model_zoo.keys())
+        for m in existing_zoo:
             if self.model_zoo[m].parent.graph['accuracy'] < accuracy_mean - self.outlier_factor*accuracy_std:
                 del self.model_zoo[m]
 
@@ -428,6 +429,7 @@ class ModelKeeper(object):
 
         is_update = False
         for model_path in decent_models:
+            logging.info(f"Try to add {model_path} to zoo ...")
             if model_path in self.model_zoo:
                 logging.warning(f"{model_path} is already in the zoo")
             else:
@@ -435,8 +437,8 @@ class ModelKeeper(object):
                     model_graph, model_weight = self.load_model_meta(model_path)
                     model_graph.graph['model_id'] = str(self.zoo_model_id)
 
-                    with self.zoo_lock:
-                        self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
+                    #with self.zoo_lock:
+                    self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
 
                     self.zoo_model_id += 1
                     is_update = True
@@ -457,8 +459,8 @@ class ModelKeeper(object):
 
         for model_path in model_paths:
             if model_path in self.model_zoo:
-                with self.zoo_lock:
-                    del self.model_zoo[model_path]
+                #with self.zoo_lock:
+                del self.model_zoo[model_path]
             else:
                 logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
 
@@ -497,8 +499,8 @@ class ModelKeeper(object):
         """
         logging.info(f"Clustering {len(self.model_zoo)} models ...")
 
-        with self.zoo_lock:
-            current_zoo_models = list(self.model_zoo.keys())
+        #with self.zoo_lock:
+        current_zoo_models = list(self.model_zoo.keys())
 
         def update_cluster_offline():
             global distance_lookup
@@ -933,7 +935,7 @@ class ModelKeeper(object):
                 os.system(f'mv {os.path.join(self.args.zoo_register_path, m)} {self.args.zoo_path}')
 
             self.add_to_zoo([os.path.join(self.args.zoo_path, m) for m in new_models])
-
+            logging.info(f"Added all pending models...")
 
     def check_pending_request(self):
         request_models = [x for x in os.listdir(self.args.zoo_query_path) if x.endswith('.onnx')]
@@ -945,6 +947,7 @@ class ModelKeeper(object):
 
                 self.export_query_res(m, weights, meta_data)
                 os.remove(model_path)
+            logging.info(f"Served all queries, start gc collections...")
 
             gc.collect()
 
@@ -974,6 +977,8 @@ class ModelKeeper(object):
         self.service_thread = threading.Thread(target=self.start)
         self.service_thread.setDaemon(True)
         self.service_thread.start()
+
+        return 
 
     def stop_service(self):
         try:
@@ -1082,4 +1087,3 @@ def test():
 
 #test()
 #test_fake()
-
