@@ -1,7 +1,7 @@
 import os
 import time
 import pickle
-from paramiko import SSHClient
+from paramiko import SSHClient, AutoAddPolicy
 from scp import SCPClient
 import logging
 import shutil
@@ -32,6 +32,7 @@ class ModelKeeperClient(object):
     def create_connection(self):
         connection = SSHClient()
         connection.load_system_host_keys()
+        connection.set_missing_host_key_policy(AutoAddPolicy())
         connection.connect(self.zoo_server)
 
         return connection
