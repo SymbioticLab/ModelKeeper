@@ -232,7 +232,7 @@ void Matcher::align_child_parent(){
         for (int j=0; j < child_nodes.size(); ++j){
             Node child_node = child_nodes[j];
             match_score = cal_score(parent_node, child_node);
-            is_match = match_score>0 ? MATCH:MISMATCH;
+            is_match = match_score > _mismatchscore ? MATCH:MISMATCH;
 
             vector<vector<node_pair> > temp_ans;
 
@@ -251,7 +251,7 @@ void Matcher::align_child_parent(){
                     temp.push_back(node_pair(scores[predIndex+1][cprev+1] + match_score, predIndex+1, cprev+1, is_match));
                     temp.push_back(node_pair(scores[predIndex+1][j+1] + del_gap, predIndex+1, j+1, DEL)); // skip a child node
                 }
-
+                
                 sort(temp.begin(), temp.end(), cmp_function);
                 temp_ans.push_back(temp);
             }

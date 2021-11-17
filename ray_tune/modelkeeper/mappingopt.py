@@ -80,7 +80,7 @@ class MappingOperator(object):
         for (parent_layer, child_layer) in mappings:
             try:
             # Get trainable weights
-                logging.info(f"map parent layer: {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}")
+                #logging.info(f"map parent layer: {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}")
                 parent_w, parent_b = self.get_weights(self.parent, self.parent_weights, parent_layer)
                 child_w, child_b = self.get_weights(self.child, self.child_weights, child_layer)
 
@@ -119,8 +119,8 @@ class MappingOperator(object):
 
                     self.num_of_matched += 1
                     self.reset_layers.add(child_layer_name)
-                    logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
-                                                                child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
+                    #logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
+                    #                                            child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
             except Exception as e:
                 logging.error(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
 

@@ -35,7 +35,7 @@ def analyze_zoo():
     from config import modelkeeper_config
 
     start_time = time.time()
-    zoo_path = '/mnt/zoo/'
+    zoo_path = '/mnt/zoo/temp'#nlp/bert-base-cased'#'/mnt/zoo/'
 
     modelkeeper_config.zoo_path = zoo_path
     mapper = ModelKeeper(modelkeeper_config)
@@ -53,11 +53,11 @@ def analyze_zoo():
             # child.graph['model_id'] = str(idx)
 
             # find the best mapping from the zoo
-            weights, meta_data = mapper.map_for_onnx(child_onnx_path, set([]), model_name)
+            weights, meta_data = mapper.map_for_onnx(child_onnx_path, set([child_onnx_path]), model_name)
             print(meta_data)
             gc.collect()
         except Exception as e:
-            print(e) 
+            print(e)
 
     print("==============")
     print(f"total duration is {(time.time()-start_time)/1000.0} sec")

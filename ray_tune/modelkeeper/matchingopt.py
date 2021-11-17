@@ -121,7 +121,8 @@ def topological_sorting(graph):
 
     #for n in ret:
     #    print(n, graph.nodes[n]['attr'])
-
+    #for node in ret:
+        #print(graph.nodes[node]['attr']['layer_name'])
     #print('** Source: ', sum([1 for node in graph.nodes() if graph.in_degree(node) == 0]))
     #print('** Sink: ', sum([1 for node in graph.nodes() if graph.out_degree(node) == 0]))
     return ret[:MAX_MATCH_NODES]
@@ -233,7 +234,6 @@ class MatchingOperator(object):
         self.meta_data['child'] = {'opts':[self.child.nodes[x]['attr']['op_type'] for x in self.childidx_order],
                                    'dims':[self.child.nodes[x]['attr']['dims'] for x in self.childidx_order],
                                    'parents':[self.childPrevIndicesList[x]  for x in self.childidx_order]}
-
         json_str = json.dumps(self.meta_data)
 
         return json_str
@@ -806,8 +806,8 @@ class ModelKeeper(object):
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
 
-        if mappings is not None:
-            print(mappings, f"# of parent nodes: {parent.graph['num_tensors']}, # of child nodes: {child.graph['num_tensors']}, # of mapped pairs: {len(mappings)}")
+        #if mappings is not None:
+        #    print(mappings, f"# of parent nodes: {parent.graph['num_tensors']}, # of child nodes: {child.graph['num_tensors']}, # of mapped pairs: {len(mappings)}")
         if parent is not None:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
             if num_of_matched > THRESHOLD * parent.graph['num_tensors']:
@@ -848,7 +848,8 @@ class ModelKeeper(object):
         parent_name, meta_data = 'None', {}
 
         if mappings is not None:
-            print(mappings, f"\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
+            assert (any([x[0]!=x[1] for x in mappings))
+            #print(mappings, f"\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
 
         if parent is not None:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
