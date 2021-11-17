@@ -15,9 +15,9 @@ MobileNetV2(alpha=2),2535
 resneta152b,2735
 sepreresnet110_cifar10,2850
 "MobileNetV3(is_large=1, multiplier=0.75)",3073
-ShuffleNetG3(),3107
+nin_cifar10,3107
 VGG(vgg_block=13),3403
-seresnet542bn_cifar10,3472
+ShuffleNetG2(),3472
 efficientnet_b2,3687
 resnesta269,3733
 resnet110_cifar10,4003
@@ -34,7 +34,7 @@ preresnet110_cifar10,7752
 VGG(vgg_block=19),8287
 seresnet34(),8444
 preresnet542bn_cifar10,8532
-nin_cifar10,8614
+ShuffleNetG3(),8614
 resnext20_16x4d_cifar10,9550
 ResNet50(),9612
 preresnet272bn_cifar10,9732
@@ -69,7 +69,7 @@ regnety120,16585
 ror3_164_cifar10,16925
 ShuffleNetV2(net_size=1.5),16946
 DenseNet169(),16957
-ShuffleNetG2(),17490
+seresnet542bn_cifar10,17490
 pyramidnet236_a220_bn_cifar10,18010
 stochastic_depth_resnet34(),18159
 "MobileNetV3(is_large=0, multiplier=0.75)",18289
@@ -151,9 +151,9 @@ diaresnet110_cifar10,28299
 seresnet164bn_cifar10,28324
 resnesta200,28451
 efficientnet_b3,28545
-resneta18,29028
+resnext272_1x64d_cifar10,29028
 efficientnet_b8,29320
-pyramidnet110_a48_cifar10,29521
+sepreresnet542bn_cifar10,29521
 resnet14_cifar10,29642
 efficientnet_b6,29685
 regnety080,29793
@@ -163,18 +163,18 @@ seresnet152(),29929
 MobileNetV2(alpha=1),30121
 resnestabc26,30497
 densenet40_k24_bc_cifar10,30543
-resnext272_1x64d_cifar10,30609
+resneta18,30609
 resnestabc14,30804
 seresnet101(),31051
 diapreresnet20_cifar10,32106
 ShuffleNetV2(net_size=2),32466
 resnext29_32x4d_cifar10,32515
-"VGG(vgg_block=11, use_bn=True)",32596
+pyramidnet110_a48_cifar10,32596
 diapreresnet164bn_cifar10,34002
 resnext29_16x64d_cifar10,34069
 regnety006,34292
 pyramidnet110_a84_cifar10,34676
 regnetx320,34890
 resnext20_32x2d_cifar10,34921
-sepreresnet542bn_cifar10,35088
+"VGG(vgg_block=11, use_bn=True)",35088
 regnetx008,35214

@@ -75,10 +75,12 @@ class MappingOperator(object):
 
         mappings = self.mapping_indices.copy()
         mappings.reverse()
+        widen_children = set()
 
         for (parent_layer, child_layer) in mappings:
             try:
             # Get trainable weights
+                logging.info(f"map parent layer: {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}")
                 parent_w, parent_b = self.get_weights(self.parent, self.parent_weights, parent_layer)
                 child_w, child_b = self.get_weights(self.child, self.child_weights, child_layer)
 
@@ -103,17 +105,22 @@ class MappingOperator(object):
                     # get its child layers, and override child weights if it is transferred
                     following_layers = self.get_child_layers(self.child, child_layer)
                     for layer in following_layers:
-                        if layer in self.reset_layers and layer+'.weight' in self.child_weights:
+                        if layer in self.reset_layers and layer+'.weight' in self.child_weights and layer not in widen_children:
                             layer_w = self.child_weights[layer+'.weight']
-                            nl_weight = widen_child(layer_w, mapping_index, new_width=new_width, noise_factor=5e-2)
+                            layer_b = self.child_weights.get(layer +'bias', None)
+                            nl_weight, nl_bias = widen_child(layer_w, layer_b, mapping_index, new_width=new_width)
 
                             #assert(layer_w.shape == nl_weight.shape)
                             self.child_weights[layer+'.weight'] = nl_weight
+                            if (layer+'bias') in self.child_weights:
+                                self.child_weights[layer+'.bias'] = nl_bias
+
+                            widen_children.add(layer)
 
                     self.num_of_matched += 1
                     self.reset_layers.add(child_layer_name)
-                    #logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
-                    #                                            child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
+                    logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
+                                                                child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
             except Exception as e:
                 logging.error(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
 
@@ -182,4 +189,3 @@ class MappingOperator(object):
                     logging.error('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
 
         logging.info("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
-

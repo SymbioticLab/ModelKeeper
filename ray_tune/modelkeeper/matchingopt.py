@@ -804,19 +804,23 @@ class ModelKeeper(object):
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
 
-        if parent is not None and len(mappings) > THRESHOLD * parent.graph['num_nodes']:
+        if mappings is not None:
+            print(mappings, f"# of parent nodes: {parent.graph['num_tensors']}, # of child nodes: {child.graph['num_tensors']}, # of mapped pairs: {len(mappings)}")
+        if parent is not None:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
-            parent_name = parent.graph['name']
+            if num_of_matched > THRESHOLD * parent.graph['num_tensors']:
+                parent_name = parent.graph['name']
 
-            meta_data = {
-              "matching_score": best_score,
-              "parent_name": parent_name,
-              "parent_acc": parent.graph['accuracy'],
-              'num_of_matched': num_of_matched,
-              'parent_layers': parent.graph['num_tensors'],
-              'child_layers': child.graph['num_tensors'],
-              #'mappings': layer_mappings
-            }
+                meta_data = {
+                  "matching_score": best_score,
+                  "parent_name": parent_name,
+                  "parent_acc": parent.graph['accuracy'],
+                  'num_of_matched': num_of_matched,
+                  'parent_layers': parent.graph['num_tensors'],
+                  'child_layers': child.graph['num_tensors'],
+                  #'mappings': layer_mappings
+                }
+            logging.info(f"Querying model {child.graph['name']} completes with meta: {meta_data}")
 
         # remove the temporary onnx model
         os.remove(onnx_model_name)
@@ -841,20 +845,22 @@ class ModelKeeper(object):
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
 
-        if parent is not None and len(mappings) > THRESHOLD * parent.graph['num_nodes']:
+        if parent is not None:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
-            parent_name = parent.graph['name']
+            if num_of_matched > THRESHOLD * parent.graph['num_tensors']:
+                parent_name = parent.graph['name']
 
-            meta_data = {
-              "matching_score": best_score,
-              "parent_name": parent_name,
-              "parent_acc": parent.graph['accuracy'],
-              'num_of_matched': num_of_matched,
-              'parent_layers': parent.graph['num_tensors'],
-              'child_layers': child.graph['num_tensors'],
-              #'mappings': layer_mappings
-            }
+                meta_data = {
+                  "matching_score": best_score,
+                  "parent_name": parent_name,
+                  "parent_acc": parent.graph['accuracy'],
+                  'num_of_matched': num_of_matched,
+                  'parent_layers': parent.graph['num_tensors'],
+                  'child_layers': child.graph['num_tensors'],
+                  #'mappings': layer_mappings
+                }
             logging.info(f"Querying model {child.graph['name']} completes with meta: {meta_data}")
+
         return weights, meta_data
 
 

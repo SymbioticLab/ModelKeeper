@@ -18,9 +18,9 @@ using json=nlohmann::json;
 #define INS -2
 
 #define _matchscore 1
-#define _mismatchscore -0.5 // may miss better skip/insert, so take (ins+del)/2.0
-#define ins_gap -0.25  // insert identity mapping, insert too many is bad. so slightly negative
-#define del_gap -1  // lose all information
+#define _mismatchscore -2 // may miss better skip/insert, so take (ins+del)/2.0
+#define ins_gap -0.5  // insert identity mapping, insert too many is bad. so slightly negative
+#define del_gap -2  // lose all information
 
 using namespace std;
 
@@ -162,7 +162,6 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
 
         //if (lists[branch][inbranch].opt == MATCH){
         parent_node = lists[branch][inbranch].parentidx;
-        //child_node = lists[branch][inbranch].childidx;
 
         // parent is used before, then move to the next inbranch idx in this branch
         if (parent_node_set.find(parent_node) != parent_node_set.end()){
@@ -199,15 +198,21 @@ inline double Matcher::cal_score(Node parent_node, Node child_node){
             inherited_param *= min(parent_node.shape[i], child_node.shape[i]);
         }
 
-        double match_score = inherited_param/max(num_parent_param, num_child_param);
+        double match_score = inherited_param;
+        if (num_parent_param > num_child_param) {
+            match_score = inherited_param/num_parent_param/2.0; // lost information of the parent
+        } else {
+            match_score = inherited_param/num_child_param; // padding too many ones
+        }
+        //double match_score = inherited_param/max(num_parent_param, num_child_param);
 
         // lose too much information
-        if (match_score >= 0.25) {
+        if (match_score > 0.25) {
             return match_score * _matchscore;
         }
 
         // skip this layer
-        return ins_gap;
+        return _mismatchscore;
     }
 }
 
@@ -257,7 +262,7 @@ void Matcher::align_child_parent(){
             merge_score = merge_branch_mapping(temp_ans, parent_list, child_list);
 
             // treat multi branches as a single chain 
-            scores[i+1][j+1] = merge_score/max(parent_node.parents.size(), child_node.parents.size());
+            scores[i+1][j+1] = merge_score/child_node.parents.size();//max(parent_node.parents.size(), child_node.parents.size());
 
             if (dump_mapping){
                 backParentIdx.insert({encode_hash(i+1, j+1), parent_list});

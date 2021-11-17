@@ -3,7 +3,8 @@ import torch
 
 def get_mapping_index(old_width, new_width):
     """Generate the unit index to replicate"""
-    return np.random.randint(0, old_width, size=new_width-old_width).tolist()
+    return list([x%old_width for x in range(new_width-old_width)])
+    #return np.random.randint(0, old_width, size=new_width-old_width).tolist()
 
 def paste_slices(tup):
   pos, w, max_w = tup
@@ -59,7 +60,7 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
 
         for i in range(old_width, new_width):
             idx = widen_units[i-old_width]
-            if n_weight:
+            if n_weight is not None:
                 n_weight[i] = n_weight[idx].copy() + np.random.normal(scale=noise_factor*n_weight[idx].std(),
                     size=list(n_weight[idx].shape))
 
@@ -69,10 +70,11 @@ def widen(parent_w, parent_b, child_w, child_b, bnorm=None, mapping_index=None, 
 
     return n_weight, n_bias, widen_units, new_width
 
-def widen_child(weight, mapping_index, new_width, noise_factor=5e-2):
+def widen_child(weight, bias, mapping_index, new_width):
     if len(mapping_index) > 0:
         tracking = dict()
         n_weight = torch.from_numpy(weight)
+        n_bias = torch.from_numpy(bias) if bias is not None else None
 
         is_bn = len(n_weight.shape) == 1
 
@@ -81,7 +83,7 @@ def widen_child(weight, mapping_index, new_width, noise_factor=5e-2):
 
         # new_width = n_weight.shape[0]
         old_width = new_width - len(mapping_index)
-
+        print(old_width, new_width, len(mapping_index))#, mapping_index)
         #Parent nodes already add some noise, so no need to add again
         for i in range(old_width, new_width):
             idx = mapping_index[i-old_width]
@@ -90,19 +92,24 @@ def widen_child(weight, mapping_index, new_width, noise_factor=5e-2):
             tracking[idx].append(i)
 
             n_weight[i] = n_weight[idx].clone()
+            if n_bias is not None:
+                n_bias[i] = n_bias[idx].clone()
 
         if not is_bn:
             for idx, d in tracking.items():
                 for item in d:
                     n_weight[item] /= float(len(d))
 
+                    if n_bias is not None:
+                        n_bias[item] /= float(len(d))
+
             n_weight.transpose_(0, 1)
 
         n_weight = n_weight.numpy()
         #n_weight += np.random.normal(scale=noise_factor*n_weight.std(), size=list(n_weight.shape))
-        return n_weight
+        return n_weight, n_bias
     else:
-        return weight
+        return weight, bias
 
 def deepen(weight, noise_factor=5e-2):
     """Build an identity layer"""

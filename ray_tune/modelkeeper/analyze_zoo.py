@@ -35,7 +35,7 @@ def analyze_zoo():
     from config import modelkeeper_config
 
     start_time = time.time()
-    zoo_path = '/users/Yinwei/'
+    zoo_path = '/mnt/zoo/'
 
     modelkeeper_config.zoo_path = zoo_path
     mapper = ModelKeeper(modelkeeper_config)
@@ -97,4 +97,3 @@ def analyze_zoo_folder():
 
 #analyze_zoo_folder()
 analyze_zoo()
-
