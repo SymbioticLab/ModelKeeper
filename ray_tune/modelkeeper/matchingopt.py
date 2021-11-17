@@ -6,6 +6,8 @@ import logging
 from onnx import numpy_helper
 import multiprocessing
 import torch
+import concurrent.futures
+
 
 import ctypes
 import json
@@ -845,6 +847,9 @@ class ModelKeeper(object):
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
 
+        if mappings is not None:
+            print(mappings, f"\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
+
         if parent is not None:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
             if num_of_matched > THRESHOLD * parent.graph['num_tensors']:
@@ -984,7 +989,7 @@ class ModelKeeper(object):
         self.service_thread.setDaemon(True)
         self.service_thread.start()
 
-        return 
+        return
 
     def stop_service(self):
         try:
