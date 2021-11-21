@@ -45,7 +45,6 @@ def train_nlp_cls(model, tokenizer, train_loader, optimizer, device=torch.device
         total_loss += loss.item()
         loss.backward()
         optimizer.step()
-        scheduler.step()
         #scheduler.step(total_loss/len(train_loader))
     model.to(device='cpu')
 

@@ -143,7 +143,7 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
 
     return accuracy, avg_loss/len(data_loader)
 
-def get_data_loaders(train_bz, test_bz, tokenizer=None):
+def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None):
 
     if 'ImageNet' in args.data:
         mean = [x / 255 for x in [122.68, 116.66, 104.01]]
@@ -194,20 +194,29 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None):
         test_loader = torch.utils.data.DataLoader(
             test_data, batch_size=test_bz, shuffle=True, **kwargs)
     elif args.data == "yelp":
-        train_dataset = load_dataset("yelp_review_full", split="train")
-        test_dataset = load_dataset("yelp_review_full", split="test")
-        train_dataset = train_dataset.rename_column('label', 'labels')
-        test_dataset = test_dataset.rename_column('label', 'labels')
+        path = os.path.join(os.environ['HOME'], model_name)
+        if not os.path.exists(path):
+            train_dataset = load_dataset("yelp_review_full", split="train")
+            test_dataset = load_dataset("yelp_review_full", split="test")
+            train_dataset = train_dataset.rename_column('label', 'labels')
+            test_dataset = test_dataset.rename_column('label', 'labels')
 
-        train_dataset = train_dataset.map(lambda batch: tokenizer(batch["text"], truncation=True, padding=True), batched=True)
-        test_dataset = test_dataset.map(lambda batch: tokenizer(batch["text"], truncation=True, padding=True), batched=True)
+            train_dataset = train_dataset.map(lambda batch: tokenizer(batch["text"], truncation=True, padding=True), batched=True)
+            test_dataset = test_dataset.map(lambda batch: tokenizer(batch["text"], truncation=True, padding=True), batched=True)
 
 
-        train_dataset.set_format(type='torch', columns=['attention_mask', 'input_ids', 'token_type_ids', 'labels'])
-        test_dataset.set_format(type='torch', columns=['attention_mask', 'input_ids', 'token_type_ids', 'labels'])
+            train_dataset.set_format(type='torch', columns=['attention_mask', 'input_ids', 'token_type_ids', 'labels'])
+            test_dataset.set_format(type='torch', columns=['attention_mask', 'input_ids', 'token_type_ids', 'labels'])
 
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, **kwargs)
-        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, **kwargs)
+            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, **kwargs)
+            test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, **kwargs)
+            with open(path, 'wb') as f:
+                pickle.dump(train_loader, f, -1)
+                pickle.dump(test_loader, f, -1)
+        else:
+            with open(path, 'rb') as f:
+                train_loader = pickle.load(f)
+                test_loader = pickle.load(f)
 
     return train_loader, test_loader, None
 
@@ -425,11 +434,9 @@ class TrainModel(tune.Trainable):
         else:
             assert("Have not implemented!")
 
-        self.train_loader, self.test_loader, _ = get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer)
-
         self.model_name = polish_name(temp_model_name) #'model_' + '_'.join([str(val) for val in config.values()])
         self.export_path = self.model_name + '.onnx'
-
+        self.train_loader, self.test_loader, _ = get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name)
         arrival_time = config['config'].get('arrival', 0)
         self.logger.info(f"Setup for model {self.model_name} ..., supposed {arrival_time}")
 
@@ -504,7 +511,7 @@ class TrainModel(tune.Trainable):
             except Exception as e:
                 train_bz = test_bz = max(4, args.batch_size//(i*2))
                 self.logger.info(f"Model {self.model_name} fails {e}, change batch size to {train_bz}")
-                self.train_loader, self.test_loader, _ = get_data_loaders(train_bz, train_bz, self.tokenizer)
+                self.train_loader, self.test_loader, _ = get_data_loaders(train_bz, train_bz, self.tokenizer, self.model_name)
 
         training_duration = time.time() - start_time
         if args.task == "nlp_cls":
@@ -610,7 +617,7 @@ if __name__ == "__main__":
     ## nlp branch args
     parser.add_argument('--task', type=str, default='nasbench')
     parser.add_argument('--use_keeper', type=bool, default=False)
-    
+
     args, unknown = parser.parse_known_args()
     keeper_service = None
 
