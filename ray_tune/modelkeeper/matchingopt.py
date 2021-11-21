@@ -847,8 +847,8 @@ class ModelKeeper(object):
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
 
-        if mappings is not None:
-            assert (any([x[0]!=x[1] for x in mappings))
+        # if mappings is not None:
+        #     assert (any([x[0]!=x[1] for x in mappings))
             #print(mappings, f"\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
 
         if parent is not None:

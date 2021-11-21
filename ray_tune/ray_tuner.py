@@ -44,6 +44,12 @@ from models.torchcv.model_provider import get_model as ptcv_get_model
 from models.cifarmodels.model_provider import get_cv_model
 from models.nasbench import get_cell_based_tiny_net
 import threading
+# nlp zoo
+import inspect
+from datasets import load_dataset, load_metric
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoConfig
+from transformers import Trainer, TrainingArguments, get_linear_schedule_with_warmup
+from utils.nlp_cls_utils import train_nlp_cls, eval_nlp_cls, load_cls_model
 
 ray.tune.ray_trial_executor.DEFAULT_GET_TIMEOUT = 600
 os.environ['TUNE_PLACEMENT_GROUP_RECON_INTERVAL'] = '60'
@@ -137,7 +143,7 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
 
     return accuracy, avg_loss/len(data_loader)
 
-def get_data_loaders(train_bz, test_bz):
+def get_data_loaders(train_bz, test_bz, tokenizer=None):
 
     if 'ImageNet' in args.data:
         mean = [x / 255 for x in [122.68, 116.66, 104.01]]
@@ -187,6 +193,21 @@ def get_data_loaders(train_bz, test_bz):
             train_data, batch_size=train_bz, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(
             test_data, batch_size=test_bz, shuffle=True, **kwargs)
+    elif args.data == "yelp":
+        train_dataset = load_dataset("yelp_review_full", split="train")
+        test_dataset = load_dataset("yelp_review_full", split="test")
+        train_dataset = train_dataset.rename_column('label', 'labels')
+        test_dataset = test_dataset.rename_column('label', 'labels')
+
+        train_dataset = train_dataset.map(lambda batch: tokenizer(batch["text"], truncation=True, padding=True), batched=True)
+        test_dataset = test_dataset.map(lambda batch: tokenizer(batch["text"], truncation=True, padding=True), batched=True)
+
+
+        train_dataset.set_format(type='torch', columns=['attention_mask', 'input_ids', 'token_type_ids', 'labels'])
+        test_dataset.set_format(type='torch', columns=['attention_mask', 'input_ids', 'token_type_ids', 'labels'])
+
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, **kwargs)
 
     return train_loader, test_loader, None
 
@@ -376,14 +397,13 @@ class TrainModel(tune.Trainable):
 
         device = torch.device('cuda')
         seed = 1
-
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         #torch.backends.cudnn.deterministic = True
 
         self.device = device if use_cuda else torch.device("cpu")
-        self.train_loader, self.test_loader, self.ntokens = get_data_loaders(args.batch_size, args.test_batch_size)
+        self.tokenizer = None
 
         temp_model_name = config['config']['name']
         if args.task == "nasbench":
@@ -400,9 +420,12 @@ class TrainModel(tune.Trainable):
                 self.model = get_cv_model(**args_model)
             else:
                 self.model = ptcv_get_model(temp_model_name, pretrained=False, num_classes=num_classes)
+        elif args.task == "nlp_nwp" or args.task == "nlp_cls":
+            self.model, self.tokenizer = load_cls_model(temp_model_name)
         else:
             assert("Have not implemented!")
 
+        self.train_loader, self.test_loader, _ = get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer)
 
         self.model_name = polish_name(temp_model_name) #'model_' + '_'.join([str(val) for val in config.values()])
         self.export_path = self.model_name + '.onnx'
@@ -445,9 +468,11 @@ class TrainModel(tune.Trainable):
         self.best_acc = 0
         self.best_loss = np.Infinity
         self.epoch = 0
-
-        self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr,
-                weight_decay=args.weight_decay, momentum=args.momentum, nesterov=True)
+        if args.task == "nlp_nwp" or args.task == "nlp_cls":
+            self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=args.lr, eps=1e-8)
+        else:
+            self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr,
+                    weight_decay=args.weight_decay, momentum=args.momentum, nesterov=True)
         self.criterion = nn.CrossEntropyLoss()
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=4,
                         verbose=True, min_lr=1e-3, factor=0.5, threshold=0.01)
@@ -471,15 +496,21 @@ class TrainModel(tune.Trainable):
         recovery_trials = 3
         for i in range(1, 1+recovery_trials):
             try:
-                train_cv(self.model, self.optimizer, self.criterion, self.train_loader, self.device, self.scheduler)
+                if args.task == "nlp_cls":
+                    train_nlp_cls(self.model, self.tokenizer, self.train_loader, self.optimizer, self.device, self.scheduler)
+                else:
+                    train_cv(self.model, self.optimizer, self.criterion, self.train_loader, self.device, self.scheduler)
                 break
             except Exception as e:
                 train_bz = test_bz = max(4, args.batch_size//(i*2))
                 self.logger.info(f"Model {self.model_name} fails {e}, change batch size to {train_bz}")
-                self.train_loader, self.test_loader, self.ntokens = get_data_loaders(train_bz, train_bz)
+                self.train_loader, self.test_loader, _ = get_data_loaders(train_bz, train_bz, self.tokenizer)
 
         training_duration = time.time() - start_time
-        acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
+        if args.task == "nlp_cls":
+            acc, loss = eval_nlp_cls(self.model, self.test_loader, self.device)
+        else:
+            acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
         self.scheduler.step(acc)
 
         self.epoch += 1
@@ -579,7 +610,7 @@ if __name__ == "__main__":
     ## nlp branch args
     parser.add_argument('--task', type=str, default='nasbench')
     parser.add_argument('--use_keeper', type=bool, default=False)
-
+    
     args, unknown = parser.parse_known_args()
     keeper_service = None
 
@@ -615,6 +646,13 @@ if __name__ == "__main__":
     METRIC = 'accuracy'  # or 'loss'
 
     if args.task == "torchcv":
+        temp_conf = []
+
+        workload = pandas.read_csv(args.trace)
+        for row in workload.sort_values(by="arrival").itertuples():
+            temp_conf.append({'name': row.name,'arrival': row.arrival})
+    elif args.task == "nlp_nwp" or args.task == "nlp_cls":
+        # TODO change workload logic
         temp_conf = []
 
         workload = pandas.read_csv(args.trace)
