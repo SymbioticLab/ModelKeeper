@@ -31,6 +31,7 @@ def eval_nlp_cls(model, test_loader, device=torch.device("cuda")):
     total_acc = total_loss = 0.
     step = 0
     for inputs in test_loader:
+        logging.info(inputs)
         inputs = {k: inputs[k].to(device=device) for k in inputs}
         outputs = model(**inputs)
         total_loss += outputs.loss.item()
@@ -40,6 +41,7 @@ def eval_nlp_cls(model, test_loader, device=torch.device("cuda")):
         if step > total_steps:
             break
     logging.info(f"Eval loss: {total_loss/len(test_loader)}, accuracy: {total_acc*100./len(test_loader.dataset)}")
+    print(f"Eval loss: {total_loss/len(test_loader)}, accuracy: {total_acc*100./len(test_loader.dataset)}")
     return total_acc/len(test_loader.dataset), total_loss/len(test_loader)
 
 
@@ -63,7 +65,8 @@ def train_nlp_cls(model, tokenizer, train_loader, optimizer, device=torch.device
         if step > total_steps:
             break
         #scheduler.step(total_loss/len(train_loader))
-    model.to(device='cpu')
+    logging.info("Training completes")
+    print("Training completes")
 
 
 def load_cls_model(name, num_labels=5):
@@ -75,7 +78,7 @@ def load_cls_model(name, num_labels=5):
 
     model = AutoModelForSequenceClassification.from_config(config)
     model.resize_token_embeddings(len(tokenizer))
-    
+
     model.config.max_length = max_text_length
 
     return model, tokenizer
@@ -83,7 +86,7 @@ def load_cls_model(name, num_labels=5):
 
 def main():
     device = 'cuda'
-    model, tokenizer = load_cls_model("albert-base-v2")
+    model, tokenizer = load_cls_model("albert-large-v2")
     train_dataset = load_dataset("yelp_review_full", split="train")
     test_dataset = load_dataset("yelp_review_full", split="test")
     train_dataset = train_dataset.rename_column('label', 'labels')
@@ -99,10 +102,10 @@ def main():
     test_dataset.set_format(type='torch', columns=interested_args)
 
 
-    batch_size = 16
-    
+    batch_size = 2
+
     #train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=4)#, 
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=4)#,
             #collate_fn=lambda b: collate(b, tokenizer.pad_token_id))
 
     WARMUP_STEPS = 20#int(0.2*len(train_loader))
@@ -117,3 +120,4 @@ def main():
     eval_nlp_cls(model, test_loader)
 
 #main()
+
