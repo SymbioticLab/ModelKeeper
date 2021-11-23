@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 import logging
 
 device = 'cpu'
+total_steps = 20
 
 def eval_nlp_cls(model, test_loader, device=torch.device("cpu")):
 
@@ -22,20 +23,26 @@ def eval_nlp_cls(model, test_loader, device=torch.device("cpu")):
 
     model.eval()
     total_acc = total_loss = 0.
+    step = 0
     for inputs in test_loader:
         inputs = {k: inputs[k].to(device=device) for k in inputs}
         outputs = model(**inputs)
         total_loss += outputs.loss.item()
         total_acc += compute_metrics(outputs.logits, inputs['labels'])
+
+        step += 1
+        if step > total_steps:
+            break
     # logging.info(f"Eval loss: {total_loss/len(test_loader)}, accuracy: {total_acc*100./len(test_loader)}")
     return total_acc/len(test_loader), total_loss/len(test_loader)
-    
+
 
 def train_nlp_cls(model, tokenizer, train_loader, optimizer, device=torch.device("cpu"), scheduler=None):
 
     model = model.to(device=device)
     # for epoch in range(EPOCHS):
     total_loss = 0.
+    step = 0
     for inputs in train_loader:
         inputs = {k: inputs[k].to(device=device) for k in inputs}
         optimizer.zero_grad()
@@ -45,6 +52,10 @@ def train_nlp_cls(model, tokenizer, train_loader, optimizer, device=torch.device
         total_loss += loss.item()
         loss.backward()
         optimizer.step()
+
+        step += 1
+        if step > total_steps:
+            break
         #scheduler.step(total_loss/len(train_loader))
     model.to(device='cpu')
 
@@ -61,7 +72,7 @@ def load_cls_model(name, num_labels=5):
     model.config.max_length = max_text_length
 
     return model, tokenizer
-    
+
 
 if __name__ == "__main__":
     model, tokenizer = load_cls_model("albert-base-v2")
