@@ -34,7 +34,7 @@ def eval_nlp_cls(model, test_loader, device=torch.device("cuda")):
             break
     # logging.info(f"Eval loss: {total_loss/len(test_loader)}, accuracy: {total_acc*100./len(test_loader)}")
     return total_acc/len(test_loader), total_loss/len(test_loader)
-    
+
 
 def train_nlp_cls(model, tokenizer, train_loader, optimizer, device=torch.device("cuda"), scheduler=None):
 
@@ -67,11 +67,11 @@ def load_cls_model(name, num_labels=5):
 
     model = AutoModelForSequenceClassification.from_config(config)
 
-    #tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     model.config.max_length = max_text_length
 
     return model, tokenizer
-    
+
 
 def main():
     device = 'cpu'
