@@ -143,7 +143,7 @@ def eval_cv(model, criterion, data_loader, device=torch.device("cpu")):
 
     return accuracy, avg_loss/len(data_loader)
 
-def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None):
+def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interest_args=None):
 
     if 'ImageNet' in args.data:
         mean = [x / 255 for x in [122.68, 116.66, 104.01]]
@@ -204,9 +204,9 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None):
             train_dataset = train_dataset.map(lambda batch: tokenizer(batch["text"], truncation=True, padding=True), batched=True)
             test_dataset = test_dataset.map(lambda batch: tokenizer(batch["text"], truncation=True, padding=True), batched=True)
 
-
-            train_dataset.set_format(type='torch', columns=['attention_mask', 'input_ids', 'token_type_ids', 'labels'])
-            test_dataset.set_format(type='torch', columns=['attention_mask', 'input_ids', 'token_type_ids', 'labels'])
+            interested_args = [x for x in list(test_dataset.features.keys()) if x in interest_args]
+            train_dataset.set_format(type='torch', columns=interested_args)
+            test_dataset.set_format(type='torch', columns=interested_args)
 
             train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, **kwargs)
             test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, **kwargs)
@@ -260,6 +260,9 @@ def change_opt_lr(optim, lr):
     for g in optim.param_groups:
         g['lr'] = lr
 
+
+def get_interest_args(model):
+    return [x for x in inspect.getargspec(model.forward).args if x != 'self']
 
 from ray.tune.stopper import Stopper
 class TrialPlateauStopper(Stopper):
@@ -436,7 +439,11 @@ class TrainModel(tune.Trainable):
 
         self.model_name = polish_name(temp_model_name) #'model_' + '_'.join([str(val) for val in config.values()])
         self.export_path = self.model_name + '.onnx'
-        self.train_loader, self.test_loader, _ = get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name)
+
+        self.interest_args = get_interest_args(self.model) if args.task == "nlp_nwp" or args.task == "nlp_cls" else None
+
+        self.train_loader, self.test_loader, _ = get_data_loaders(
+                            args.batch_size, args.test_batch_size, self.tokenizer, self.model_name, interest_args=self.interest_args)
         arrival_time = config['config'].get('arrival', 0)
         self.logger.info(f"Setup for model {self.model_name} ..., supposed {arrival_time}")
 
@@ -513,7 +520,8 @@ class TrainModel(tune.Trainable):
             except Exception as e:
                 train_bz = test_bz = max(4, args.batch_size//(i*2))
                 self.logger.info(f"Model {self.model_name} fails {e}, change batch size to {train_bz}")
-                self.train_loader, self.test_loader, _ = get_data_loaders(train_bz, train_bz, self.tokenizer, self.model_name)
+                self.train_loader, self.test_loader, _ = get_data_loaders(
+                            args.batch_size, args.test_batch_size, self.tokenizer, self.model_name, interest_args=self.interest_args)
 
         training_duration = time.time() - start_time
         if args.task == "nlp_cls":
@@ -721,5 +729,4 @@ if __name__ == "__main__":
 
     if keeper_service is not None:
         keeper_service.stop_service()
-
 

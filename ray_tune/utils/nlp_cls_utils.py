@@ -84,7 +84,8 @@ def main():
     train_dataset = train_dataset.map(lambda batch: tokenizer(batch["text"], truncation=True, padding=True), batched=True)
     test_dataset = test_dataset.map(lambda batch: tokenizer(batch["text"], truncation=True, padding=True), batched=True)
 
-
+    print(train_dataset.keys())
+    return
     train_dataset.set_format(type='torch', columns=['attention_mask', 'input_ids', 'token_type_ids', 'labels'])
     test_dataset.set_format(type='torch', columns=['attention_mask', 'input_ids', 'token_type_ids', 'labels'])
 
@@ -103,3 +104,5 @@ def main():
     model = model.to(device=device)
     train_nlp_cls(model, tokenizer, train_loader, optimizer, device, scheduler)
     eval_nlp_cls(model, test_loader)
+
+#main()
