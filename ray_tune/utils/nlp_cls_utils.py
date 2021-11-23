@@ -10,6 +10,7 @@ import inspect
 from transformers import TrainingArguments, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader
 import logging
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 total_steps = 200
 
