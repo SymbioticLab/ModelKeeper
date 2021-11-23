@@ -11,10 +11,9 @@ from transformers import TrainingArguments, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader
 import logging
 
-device = 'cpu'
 total_steps = 20
 
-def eval_nlp_cls(model, test_loader, device=torch.device("cpu")):
+def eval_nlp_cls(model, test_loader, device=torch.device("cuda")):
 
     def compute_metrics(logits, labels):
         predictions = torch.argmax(logits, axis=-1)
@@ -35,9 +34,9 @@ def eval_nlp_cls(model, test_loader, device=torch.device("cpu")):
             break
     # logging.info(f"Eval loss: {total_loss/len(test_loader)}, accuracy: {total_acc*100./len(test_loader)}")
     return total_acc/len(test_loader), total_loss/len(test_loader)
+    
 
-
-def train_nlp_cls(model, tokenizer, train_loader, optimizer, device=torch.device("cpu"), scheduler=None):
+def train_nlp_cls(model, tokenizer, train_loader, optimizer, device=torch.device("cuda"), scheduler=None):
 
     model = model.to(device=device)
     # for epoch in range(EPOCHS):
@@ -72,9 +71,10 @@ def load_cls_model(name, num_labels=5):
     model.config.max_length = max_text_length
 
     return model, tokenizer
+    
 
-
-if __name__ == "__main__":
+def main():
+    device = 'cpu'
     model, tokenizer = load_cls_model("albert-base-v2")
     train_dataset = load_dataset("yelp_review_full", split="train")
     test_dataset = load_dataset("yelp_review_full", split="test")
