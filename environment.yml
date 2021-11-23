@@ -24,5 +24,4 @@ dependencies:
     - ray[tune]
     - sentencepiece
     - datasets
-    - torch-scatter
     - torch
