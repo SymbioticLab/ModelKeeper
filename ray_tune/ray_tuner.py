@@ -477,12 +477,14 @@ class TrainModel(tune.Trainable):
         self.epoch = 0
         if args.task == "nlp_nwp" or args.task == "nlp_cls":
             self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=args.lr, eps=1e-8)
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=2,
+                        verbose=True, min_lr=args.lr*1e-3, factor=0.5, threshold=0.01)
         else:
             self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr,
                     weight_decay=args.weight_decay, momentum=args.momentum, nesterov=True)
-        self.criterion = nn.CrossEntropyLoss()
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=4,
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=4,
                         verbose=True, min_lr=1e-3, factor=0.5, threshold=0.01)
+        self.criterion = nn.CrossEntropyLoss()
 
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
