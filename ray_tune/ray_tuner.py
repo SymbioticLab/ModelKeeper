@@ -208,15 +208,16 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
             train_dataset.set_format(type='torch', columns=interested_args)
             test_dataset.set_format(type='torch', columns=interested_args)
 
-            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, **kwargs)
-            test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, **kwargs)
             with open(path, 'wb') as f:
-                pickle.dump(train_loader, f, -1)
-                pickle.dump(test_loader, f, -1)
+                pickle.dump(train_dataset, f, -1)
+                pickle.dump(test_dataset, f, -1)
         else:
             with open(path, 'rb') as f:
-                train_loader = pickle.load(f)
-                test_loader = pickle.load(f)
+                train_dataset = pickle.load(f)
+                test_dataset = pickle.load(f)
+
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, **kwargs)
 
     return train_loader, test_loader, None
 
