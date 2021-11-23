@@ -194,7 +194,7 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
         test_loader = torch.utils.data.DataLoader(
             test_data, batch_size=test_bz, shuffle=True, **kwargs)
     elif args.data == "yelp":
-        path = os.path.join(os.environ['HOME'], model_name)
+        path = os.path.join(args.dataset, model_name)
         if not os.path.exists(path):
             train_dataset = load_dataset("yelp_review_full", split="train")
             test_dataset = load_dataset("yelp_review_full", split="test")

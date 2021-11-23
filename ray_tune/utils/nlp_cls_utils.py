@@ -10,28 +10,21 @@ import inspect
 from transformers import TrainingArguments, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader
 import logging
-from torch.nn.utils.rnn import pad_sequence
 
-total_steps = 20
+total_steps = 200
 
-def collate(examples, pid):
-    #if tokenizer._pad_token is None:
-    #    return pad_sequence(examples, batch_first=True)
-    return pad_sequence(examples, batch_first=True, padding_value=pid)
 
 def eval_nlp_cls(model, test_loader, device=torch.device("cuda")):
 
     def compute_metrics(logits, labels):
         predictions = torch.argmax(logits, axis=-1)
-        return torch.sum(predictions == labels)
-        #return metric.compute(predictions=predictions, references=labels)
+        return torch.sum(predictions == labels).item()
 
     model.eval()
     model = model.to(device=device)
     total_acc = total_loss = 0.
     step = 0
     for inputs in test_loader:
-        logging.info(inputs)
         inputs = {k: inputs[k].to(device=device) for k in inputs}
         outputs = model(**inputs)
         total_loss += outputs.loss.item()
@@ -40,9 +33,10 @@ def eval_nlp_cls(model, test_loader, device=torch.device("cuda")):
         step += 1
         if step > total_steps:
             break
-    logging.info(f"Eval loss: {total_loss/len(test_loader)}, accuracy: {total_acc*100./len(test_loader.dataset)}")
-    print(f"Eval loss: {total_loss/len(test_loader)}, accuracy: {total_acc*100./len(test_loader.dataset)}")
-    return total_acc/len(test_loader.dataset), total_loss/len(test_loader)
+    #logging.info(f"Eval loss: {total_loss/step}, accuracy: {total_acc*100./(step*len(inputs['labels']))}")
+    
+    #print(f"Eval loss: {total_loss/len(test_loader)}, accuracy: {total_acc*100./len(test_loader.dataset)}")
+    return total_acc/(step*len(inputs['labels'])), total_loss/step
 
 
 def train_nlp_cls(model, tokenizer, train_loader, optimizer, device=torch.device("cuda"), scheduler=None):
@@ -65,28 +59,27 @@ def train_nlp_cls(model, tokenizer, train_loader, optimizer, device=torch.device
         if step > total_steps:
             break
         #scheduler.step(total_loss/len(train_loader))
-    logging.info("Training completes")
-    print("Training completes")
 
 
 def load_cls_model(name, num_labels=5):
-    max_text_length = 256
+    max_text_length = 128
     tokenizer = AutoTokenizer.from_pretrained(name, model_max_length=max_text_length)
     tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+
     config = AutoConfig.from_pretrained(name)
     config.num_labels = num_labels
+    config.max_position_embeddings = max_text_length
 
     model = AutoModelForSequenceClassification.from_config(config)
-    model.resize_token_embeddings(len(tokenizer))
-
     model.config.max_length = max_text_length
+    model.resize_token_embeddings(len(tokenizer))
 
     return model, tokenizer
 
 
 def main():
     device = 'cuda'
-    model, tokenizer = load_cls_model("albert-large-v2")
+    model, tokenizer = load_cls_model("junnyu/roformer_small_generator")
     train_dataset = load_dataset("yelp_review_full", split="train")
     test_dataset = load_dataset("yelp_review_full", split="test")
     train_dataset = train_dataset.rename_column('label', 'labels')
