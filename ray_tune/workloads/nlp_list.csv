@@ -1,2 +1,6 @@
 name,arrival
-albert-base-v2,53
+bert-base-cased, 1
+roberta-base, 2
+flaubert/flaubert_small_cased, 3
+flaubert/flaubert_base_cased, 4
+bert-large-cased, 5

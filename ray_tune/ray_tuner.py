@@ -46,10 +46,12 @@ from models.nasbench import get_cell_based_tiny_net
 import threading
 # nlp zoo
 import inspect
+import torchtext
 from datasets import load_dataset, load_metric
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoConfig
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoConfig, AutoModelForCausalLM
 from transformers import Trainer, TrainingArguments, get_linear_schedule_with_warmup
 from utils.nlp_cls_utils import train_nlp_cls, eval_nlp_cls, load_cls_model
+from utils.nlp_nwp_utils import train_nlp_nwp, eval_nlp_nwp, load_nwp_model, collate, tokenize_datset
 
 ray.tune.ray_trial_executor.DEFAULT_GET_TIMEOUT = 600
 os.environ['TUNE_PLACEMENT_GROUP_RECON_INTERVAL'] = '60'
@@ -218,6 +220,21 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
 
         train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, **kwargs)
+    elif args.data == "wiki":
+        path = os.path.join(args.dataset, model_name)
+        if not os.path.exists(path):
+            train_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='train'))
+            test_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='test'))
+            with open(path, 'wb') as f:
+                pickle.dump(train_dataset, f, -1)
+                pickle.dump(test_dataset, f, -1)
+        else:
+            with open(path, 'rb') as f:
+                train_dataset = pickle.load(f)
+                test_dataset = pickle.load(f)
+
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=lambda b: collate(b, tokenizer))
+        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=lambda b: collate(b, tokenizer))
 
     return train_loader, test_loader, None
 
@@ -433,8 +450,10 @@ class TrainModel(tune.Trainable):
                 self.model = get_cv_model(**args_model)
             else:
                 self.model = ptcv_get_model(temp_model_name, pretrained=False, num_classes=num_classes)
-        elif args.task == "nlp_nwp" or args.task == "nlp_cls":
+        elif args.task == "nlp_cls":
             self.model, self.tokenizer = load_cls_model(temp_model_name)
+        elif args.task == "nlp_nwp":
+            self.model, self.tokenizer = load_nwp_model(temp_model_name)
         else:
             assert("Have not implemented!")
 
@@ -483,10 +502,13 @@ class TrainModel(tune.Trainable):
         self.best_acc = 0
         self.best_loss = np.Infinity
         self.epoch = 0
-        if args.task == "nlp_nwp" or args.task == "nlp_cls":
+        if args.task == "nlp_cls":
             self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=args.lr, eps=1e-8)
             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=2,
                         verbose=True, min_lr=args.lr*1e-3, factor=0.5, threshold=0.01)
+        elif args.task == "nlp_nwp":
+            self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=1e-5, eps=1e-8)
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=4, verbose=True, min_lr=0, factor=0.5)
         else:
             self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr,
                     weight_decay=args.weight_decay, momentum=args.momentum, nesterov=True)
@@ -515,6 +537,8 @@ class TrainModel(tune.Trainable):
             try:
                 if args.task == "nlp_cls":
                     train_nlp_cls(self.model, self.tokenizer, self.train_loader, self.optimizer, self.device, self.scheduler)
+                elif args.task == "nlp_nwp":
+                    train_nlp_nwp(self.model, self.tokenizer, self.train_loader, self.optimizer, self.device, self.scheduler)
                 else:
                     train_cv(self.model, self.optimizer, self.criterion, self.train_loader, self.device, self.scheduler)
                 break
@@ -527,9 +551,12 @@ class TrainModel(tune.Trainable):
         training_duration = time.time() - start_time
         if args.task == "nlp_cls":
             acc, loss = eval_nlp_cls(self.model, self.test_loader, self.device)
+        elif args.task == "nlp_nwp":
+            acc, loss = eval_nlp_nwp(self.model, self.test_loader, self.device)
         else:
             acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
-        self.scheduler.step(acc)
+        if args.task != "nlp_nwp":
+            self.scheduler.step(acc)
 
         self.epoch += 1
         self.history[self.epoch] = {
@@ -659,8 +686,8 @@ if __name__ == "__main__":
 
     REDUCTION_FACTOR = 1.000001
     GRACE_PERIOD = 7
-    CPU_RESOURCES_PER_TRIAL = 1
-    GPU_RESOURCES_PER_TRIAL = 1
+    CPU_RESOURCES_PER_TRIAL = 2
+    GPU_RESOURCES_PER_TRIAL = 0
     METRIC = 'accuracy'  # or 'loss'
 
     if args.task == "torchcv":
@@ -682,7 +709,7 @@ if __name__ == "__main__":
     CONFIG = {
         "config": tune.grid_search(temp_conf),
     }
-    ray.init(address=f"{args.address}")
+    ray.init()
 
     if METRIC=='accuracy':
         sched = AsyncHyperBandScheduler(time_attr="training_epoch",
@@ -708,7 +735,7 @@ if __name__ == "__main__":
             stop=CombinedStopper(
                 MaximumIterationStopper(max_iter=args.epochs),
                 BestAccuracyStopper(),
-                TrialPlateauStopper(metric='mean_accuracy', mode='max', std=2e-3,
+                TrialPlateauStopper(metric='mean_loss', mode='min', std=2e-3,
                 num_results=10, grace_period=GRACE_PERIOD),
             ),
             resources_per_trial={
