@@ -52,6 +52,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, Auto
 from transformers import Trainer, TrainingArguments, get_linear_schedule_with_warmup, DataCollatorForLanguageModeling
 from utils.nlp_cls_utils import train_nlp_cls, eval_nlp_cls, load_cls_model
 from utils.nlp_nwp_utils import train_nlp_nwp, eval_nlp_nwp, load_nwp_model, collate, tokenize_datset
+from vgg import VGG, make_layers
 
 ray.tune.ray_trial_executor.DEFAULT_GET_TIMEOUT = 600
 os.environ['TUNE_PLACEMENT_GROUP_RECON_INTERVAL'] = '60'
@@ -61,7 +62,7 @@ def GenerateConfig(n, path):
     n : number of models
     path : meta file path
     """
-    if args.task == "v100":
+    if args.task == "ensemble":
         config_list = vgg_zoo()
     else:
         fr = open(path,'rb')
@@ -71,9 +72,9 @@ def GenerateConfig(n, path):
     rng.seed(0)
     rng.shuffle(config_list)
 
-    modelidx_base = 0
+    #modelidx_base = 0
 
-    return config_list[modelidx_base:modelidx_base+n]
+    return config_list#[modelidx_base:modelidx_base+n]
     #return [config_list[i] for i in random.sample(range(0,len(config_list)), n)]
 
 
@@ -179,6 +180,7 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
         test_loader = torch.utils.data.DataLoader(
             datasets.CIFAR10(args.dataset, train=False, download=True, transform=test_transform),
             batch_size=test_bz, shuffle=True, **kwargs)
+
     elif args.data == 'cifar100':
         train_loader = torch.utils.data.DataLoader(
             datasets.CIFAR100(args.dataset, train=True, download=True, transform=train_transform),
@@ -195,6 +197,7 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
             train_data, batch_size=train_bz, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(
             test_data, batch_size=test_bz, shuffle=True, **kwargs)
+
     elif args.data == "yelp":
         path = os.path.join(args.dataset, model_name)
         if not os.path.exists(path):
@@ -220,6 +223,7 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
 
         train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, **kwargs)
+
     elif args.data == "wiki":
         path = os.path.join(args.dataset, model_name)
         if not os.path.exists(path):
@@ -450,10 +454,14 @@ class TrainModel(tune.Trainable):
                 self.model = get_cv_model(**args_model)
             else:
                 self.model = ptcv_get_model(temp_model_name, pretrained=False, num_classes=num_classes)
+                
         elif args.task == "nlp_cls":
             self.model, self.tokenizer = load_cls_model(temp_model_name)
         elif args.task == "nlp_nwp":
             self.model, self.tokenizer = load_nwp_model(temp_model_name)
+        elif args.task == "ensemble":
+            model_config = eval(config['name'])
+            self.model = VGG(make_layers(model_config[0], batch_norm=True, k=model_config[1]))
         else:
             assert("Have not implemented!")
 
@@ -555,6 +563,7 @@ class TrainModel(tune.Trainable):
             acc, loss = eval_nlp_nwp(self.model, self.test_loader, self.device)
         else:
             acc, loss = eval_cv(self.model, self.criterion, self.test_loader, self.device)
+
         if args.task != "nlp_nwp":
             self.scheduler.step(acc)
 
@@ -663,14 +672,14 @@ if __name__ == "__main__":
 
     if args.use_keeper:
         logging.info(modelkeeper_config)
-        keeper_service = ModelKeeper(modelkeeper_config)
-        keeper_service.start_service()
+        # keeper_service = ModelKeeper(modelkeeper_config)
+        # keeper_service.start_service()
 
     torch.manual_seed(args.seed)
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
-    if args.task == "nasbench":
+    if args.task == "nasbench" or args.task == "ensemble":
         conf_list = GenerateConfig(args.num_models, os.path.join(args.meta, args.data + "_config.pkl"))
 
     # Clear the log dir
@@ -690,12 +699,21 @@ if __name__ == "__main__":
     GPU_RESOURCES_PER_TRIAL = 0
     METRIC = 'loss'  # or 'loss'
 
-    if args.task == "torchcv":
+    if args.task == "torchcv" or args.task == "ensemble":
         temp_conf = []
 
         workload = pandas.read_csv(args.trace)
-        for row in workload.sort_values(by="arrival").itertuples():
-            temp_conf.append({'name': row.name,'arrival': row.arrival})
+        if args.task == "torchcv":
+            for row in workload.sort_values(by="arrival").itertuples():
+                temp_conf.append({'name': row.name,'arrival': row.arrival})
+        else:
+            cnt = 0
+            for row in workload.sort_values(by="arrival").itertuples():
+                temp_conf.append({'name': repr(conf_list[cnt]),'arrival': row.arrival})
+                cnt += 1
+                if cnt == len(conf_list):
+                    break
+
     elif args.task == "nlp_nwp" or args.task == "nlp_cls":
         # TODO change workload logic
         temp_conf = []
@@ -727,17 +745,25 @@ if __name__ == "__main__":
                                         brackets=1)
 
     # Random scheduler (FIFO) that trains all models to the end
+    if 'nlp' in args.task:
+        stopper = CombinedStopper(
+                MaximumIterationStopper(max_iter=args.epochs),
+                #BestAccuracyStopper(),
+                TrialPlateauStopper(metric='mean_loss', mode='min', std=2e-3, num_results=10, grace_period=GRACE_PERIOD),
+            )
+    else:
+        stopper = CombinedStopper(
+                MaximumIterationStopper(max_iter=args.epochs),
+                BestAccuracyStopper(),
+                TrialPlateauStopper(metric='mean_accuracy', mode='max', std=2e-3, num_results=10, grace_period=GRACE_PERIOD),
+            )
+
     analysis = tune.run(
             TrainModel,
             scheduler=OnlineScheduler(FIFOScheduler()),
             queue_trials=True,
             #stop={"training_epoch": 1},
-            stop=CombinedStopper(
-                MaximumIterationStopper(max_iter=args.epochs),
-                BestAccuracyStopper(),
-                TrialPlateauStopper(metric='mean_loss', mode='min', std=2e-3,
-                num_results=10, grace_period=GRACE_PERIOD),
-            ),
+            stop=stopper,
             resources_per_trial={
                 "cpu": CPU_RESOURCES_PER_TRIAL,
                 "gpu": GPU_RESOURCES_PER_TRIAL
@@ -755,6 +781,6 @@ if __name__ == "__main__":
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
 
-    if keeper_service is not None:
-        keeper_service.stop_service()
+    # if keeper_service is not None:
+    #     keeper_service.stop_service()
 
