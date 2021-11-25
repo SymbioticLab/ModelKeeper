@@ -52,7 +52,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, Auto
 from transformers import Trainer, TrainingArguments, get_linear_schedule_with_warmup, DataCollatorForLanguageModeling
 from utils.nlp_cls_utils import train_nlp_cls, eval_nlp_cls, load_cls_model
 from utils.nlp_nwp_utils import train_nlp_nwp, eval_nlp_nwp, load_nwp_model, collate, tokenize_datset
-from vgg import VGG, make_layers
+from vgg import VGG, make_layers, vgg_zoo
 
 ray.tune.ray_trial_executor.DEFAULT_GET_TIMEOUT = 600
 os.environ['TUNE_PLACEMENT_GROUP_RECON_INTERVAL'] = '60'
@@ -237,9 +237,10 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
                 train_dataset = pickle.load(f)
                 test_dataset = pickle.load(f)
 
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
-        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
-
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, num_workers=4, pin_memory=True, 
+                collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
+        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, num_workers=4, pin_memory=True, 
+                collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
     return train_loader, test_loader, None
 
 
@@ -440,13 +441,12 @@ class TrainModel(tune.Trainable):
         self.tokenizer = None
 
         temp_model_name = config['config']['name']
+        num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120}
+        num_classes = num_labels[args.data]
+
         if args.task == "nasbench":
             self.model = get_cell_based_tiny_net(conf_list[temp_model_name])
         elif args.task == 'torchcv':
-
-            num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120}
-            num_classes = num_labels[args.data]
-
             if '(' in temp_model_name:
                 args_model = get_model(temp_model_name)
                 args_model['num_classes'] = num_classes
@@ -460,8 +460,8 @@ class TrainModel(tune.Trainable):
         elif args.task == "nlp_nwp":
             self.model, self.tokenizer = load_nwp_model(temp_model_name)
         elif args.task == "ensemble":
-            model_config = eval(config['name'])
-            self.model = VGG(make_layers(model_config[0], batch_norm=True, k=model_config[1]))
+            model_config = config['config']['setup']
+            self.model = VGG(make_layers(model_config[0], batch_norm=True, k=model_config[1], num_of_class=num_classes))
         else:
             assert("Have not implemented!")
 
@@ -651,9 +651,9 @@ if __name__ == "__main__":
     parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
                         help='how many batches to wait before logging status')
     parser.add_argument('--data', type=str, default='cifar100')
-    parser.add_argument('--dataset', type=str, default='/users/fanlai/experiment/data')
-    parser.add_argument('--trace', type=str, default='/users/fanlai/experiment/ModelKeeper/ray_tune/workloads/torchcv_list.csv')
-    parser.add_argument('--meta', type=str, default='/users/fanlai/experiment/data')
+    parser.add_argument('--dataset', type=str, default=f'{os.environ["HOME"]}/experiment/data')
+    parser.add_argument('--trace', type=str, default=f'{os.environ["HOME"]}/experiment/ModelKeeper/ray_tune/workloads/torchcv_list.csv')
+    parser.add_argument('--meta', type=str, default=f'{os.environ["HOME"]}/experiment/data')
     parser.add_argument(
         "--smoke-test", action="store_true", help="Finish quickly for testing")
     parser.add_argument(
@@ -695,9 +695,10 @@ if __name__ == "__main__":
 
     REDUCTION_FACTOR = 1.000001
     GRACE_PERIOD = 7
-    CPU_RESOURCES_PER_TRIAL = 2
+    CPU_RESOURCES_PER_TRIAL = 20
     GPU_RESOURCES_PER_TRIAL = 0
-    METRIC = 'loss'  # or 'loss'
+
+    METRIC = 'accuracy' if 'nlp' not in args.task else 'loss'
 
     if args.task == "torchcv" or args.task == "ensemble":
         temp_conf = []
@@ -709,7 +710,7 @@ if __name__ == "__main__":
         else:
             cnt = 0
             for row in workload.sort_values(by="arrival").itertuples():
-                temp_conf.append({'name': repr(conf_list[cnt]),'arrival': row.arrival})
+                temp_conf.append({'name': repr(conf_list[cnt]),'arrival': row.arrival, 'setup': conf_list[cnt]})
                 cnt += 1
                 if cnt == len(conf_list):
                     break
