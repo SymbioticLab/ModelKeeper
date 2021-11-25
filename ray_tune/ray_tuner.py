@@ -547,8 +547,10 @@ class TrainModel(tune.Trainable):
             self.train_loader, self.test_loader, [max_len_train, max_len_test] = \
                 get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name)
             self.model = load_nwp_model(self.temp_model_name, max(max_len_train, max_len_test))
-            self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=1e-5, eps=1e-8)
-            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=4, verbose=True, min_lr=0, factor=0.5)
+            WARMUP_STEPS = int(0.2*len(self.train_loader))
+            self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=8e-5, eps=1e-8)
+            self.scheduler = get_linear_schedule_with_warmup(self.optimizer, num_warmup_steps=WARMUP_STEPS,
+                                            num_training_steps=len(self.train_loader)*args.epochs)
 
             if self.use_keeper:
                 self.warm_start()
@@ -577,7 +579,7 @@ class TrainModel(tune.Trainable):
                 train_bz = test_bz = max(4, args.batch_size//(i*2))
                 self.logger.info(f"Model {self.model_name} fails {e}, change batch size to {train_bz}")
                 self.train_loader, self.test_loader, _ = get_data_loaders(
-                            args.batch_size, args.test_batch_size, self.tokenizer, self.model_name, interest_args=self.interest_args)
+                            args.batch_size, args.test_batch_size, self.tokenizer, self.model_name)
 
         training_duration = time.time() - start_time
         if args.task == "nlp_cls":
@@ -653,9 +655,9 @@ class TrainModel(tune.Trainable):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PyTorch Cifar10 Example")
-    parser.add_argument('--batch-size', type=int, default=16, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=16, metavar='N',
+    parser.add_argument('--test-batch-size', type=int, default=64, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=150, metavar='N',
                         help='number of epochs to train (default: 10)')
@@ -774,7 +776,7 @@ if __name__ == "__main__":
         stopper = CombinedStopper(
                 MaximumIterationStopper(max_iter=args.epochs),
                 #BestAccuracyStopper(),
-                TrialPlateauStopper(metric='mean_loss', mode='min', std=2e-3, num_results=10, grace_period=GRACE_PERIOD),
+                TrialPlateauStopper(metric='mean_loss', mode='min', std=2e-3, num_results=5, grace_period=GRACE_PERIOD),
             )
     else:
         stopper = CombinedStopper(
@@ -808,4 +810,3 @@ if __name__ == "__main__":
 
     # if keeper_service is not None:
     #     keeper_service.stop_service()
-

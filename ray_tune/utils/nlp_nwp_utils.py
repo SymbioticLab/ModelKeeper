@@ -1,6 +1,5 @@
 import torchtext
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, AutoModelForMaskedLM
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 import torch
 import logging
@@ -10,11 +9,6 @@ import logging
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 BLOCK_SIZE = 128
-
-def collate(examples, tokenizer):
-    if tokenizer._pad_token is None:
-        return pad_sequence(examples, batch_first=True)
-    return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
 
 def tokenize_datset(tokenizer, data, block_size=BLOCK_SIZE):
 
@@ -39,9 +33,7 @@ def eval_nlp_nwp(model, test_loader, device=torch.device("cuda")):
         inputs = {k: inputs[k].to(device) for k in inputs}
         outputs = model(**inputs)
         loss = outputs.loss
-
         total_loss += loss.item()
-        break
 
     logging.info(f"Eval loss: {total_loss/len(test_loader)}")
     return 0, total_loss/len(test_loader)
@@ -49,6 +41,8 @@ def eval_nlp_nwp(model, test_loader, device=torch.device("cuda")):
 def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device("cuda"), scheduler=None):
     total_loss = last_loss = cur_step = 0
     model.train()
+    eval_step = 1/4.
+    breakdown_length = len(train_loader) * eval_step
 
     for inputs in train_loader:
         inputs = {k: inputs[k].to(device) for k in inputs}
@@ -62,11 +56,16 @@ def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device
 
         cur_step += 1
 
-        if cur_step % 100 == 0:
-            logging.info(f"(step {cur_step}) Avg training loss: {total_loss/cur_step}")
-            scheduler.step(total_loss-last_loss)
-            last_loss = total_loss
-        break
+        if cur_step == breakdown_length:
+            break
+        if scheduler is not None:
+            scheduler.step()
+
+        # if cur_step % 100 == 0:
+        #     logging.info(f"(step {cur_step}) Avg training loss: {total_loss/cur_step}")
+        #     scheduler.step(total_loss-last_loss)
+        #     last_loss = total_loss
+        # break
 
     logging.info(f"Avg training loss: {total_loss/cur_step}")
 
@@ -86,3 +85,4 @@ def load_nwp_model(name, max_text_length=BLOCK_SIZE):
     #model = AutoModelForCausalLM.from_pretrained(model_name)
 
     return model
+

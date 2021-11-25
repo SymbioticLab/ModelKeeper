@@ -1,59 +1,58 @@
 name,arrival
-albert-base-v1, 11221680
-albert-base-v2, 11221680
-YituTech/conv-bert-small, 13207442
-junnyu/roformer_small_discriminator, 13489338
-google/electra-small-discriminator, 13546682
-albert-large-v1, 16795824
-albert-large-v2, 16795824
-YituTech/conv-bert-medium-small, 17555946
-google/electra-base-generator, 33740602
-google/mobilebert-uncased, 36596538
-google/electra-large-generator, 51295290
-squeezebert/squeezebert-mnli, 51716928
-flaubert/flaubert_small_cased, 54435449
-albert-xlarge-v1, 54821040
-albert-xlarge-v2, 54821040
-distilbert-base-cased, 65812036
-distilbert-base-uncased, 66985530
-distilroberta-base, 82170201
-YituTech/conv-bert-base, 106303170
-bert-base-cased, 108340804
-bert-base-uncased, 109514298
-microsoft/mpnet-base, 109518527
-camembert-base, 110655493
-microsoft/layoutlm-base-uncased, 113250618
-roberta-base, 124697433
-google/bigbird-roberta-base, 128111286
-google/bigbird-base-trivia-itc, 128122038
-funnel-transformer/small, 131003706
-distilbert-base-multilingual-cased, 135445755
-flaubert/flaubert_base_uncased, 137389014
-flaubert/flaubert_base_cased, 138301817
-microsoft/deberta-base, 139244121
-xlm-clm-enfr-1024, 141848203
-bert-base-multilingual-uncased, 167463831
-funnel-transformer/intermediate, 177088314
-bert-base-multilingual-cased, 177974523
-albert-xxlarge-v1, 206368944
-albert-xxlarge-v2, 206368944
-xlm-mlm-tlm-xnli15-1024, 249071384
-xlm-roberta-base, 278295186
-bert-large-cased, 333610308
-bert-large-uncased, 335174458
-microsoft/layoutlm-large-uncased, 340418362
-roberta-large, 355412057
-google/bigbird-roberta-large, 360225974
-flaubert/flaubert_large_cased, 373282937
-funnel-transformer/large, 386158394
-microsoft/deberta-large, 406264921
-facebook/bart-large, 406291456
-funnel-transformer/xlarge, 468051770
-xlm-roberta-large, 560142482
-xlm-mlm-100-1280, 571696960
-facebook/mbart-large-cc25, 610851840
-xlm-mlm-en-2048, 667119041
-microsoft/deberta-xlarge, 758905945
-microsoft/deberta-v2-xlarge, 887085156
-google/rembert, 993263548
-microsoft/deberta-v2-xxlarge, 1567041636
+albert-base-v1,424
+YituTech/conv-bert-small,1232
+funnel-transformer/small,2608
+xlm-mlm-en-2048,2944
+roberta-base,5880
+microsoft/mpnet-base,10520
+junnyu/roformer_small_discriminator,12680
+google/electra-small-discriminator,14536
+xlm-roberta-large,15328
+albert-large-v1,15392
+bert-base-multilingual-cased,19504
+bert-base-cased,20144
+roberta-large,20280
+distilroberta-base,21880
+flaubert/flaubert_small_cased,22800
+funnel-transformer/intermediate,24584
+google/rembert,24856
+squeezebert/squeezebert-mnli,27224
+bert-large-cased,27776
+bert-large-uncased,29496
+albert-base-v2,29864
+microsoft/deberta-v2-xxlarge,32024
+google/mobilebert-uncased,32056
+flaubert/flaubert_large_cased,32624
+distilbert-base-uncased,32808
+flaubert/flaubert_base_cased,39584
+microsoft/deberta-large,39592
+bert-base-uncased,39640
+distilbert-base-cased,41376
+distilbert-base-multilingual-cased,42216
+microsoft/deberta-v2-xlarge,42280
+YituTech/conv-bert-medium-small,49088
+albert-xlarge-v2,50592
+google/electra-base-generator,51248
+facebook/bart-large,53848
+funnel-transformer/xlarge,55176
+funnel-transformer/large,62016
+microsoft/layoutlm-base-uncased,66296
+albert-xxlarge-v1,67552
+microsoft/deberta-xlarge,68256
+google/electra-large-generator,68912
+microsoft/layoutlm-large-uncased,73808
+google/bigbird-roberta-base,76400
+albert-xlarge-v1,76896
+xlm-mlm-100-1280,77856
+YituTech/conv-bert-base,79008
+google/bigbird-roberta-large,81208
+flaubert/flaubert_base_uncased,82544
+albert-xxlarge-v2,82552
+google/bigbird-base-trivia-itc,88264
+xlm-clm-enfr-1024,90048
+xlm-mlm-tlm-xnli15-1024,90304
+xlm-roberta-base,90336
+camembert-base,91568
+albert-large-v2,91928
+bert-base-multilingual-uncased,92120
+microsoft/deberta-base,94816

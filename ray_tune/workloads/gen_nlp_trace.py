@@ -8,7 +8,7 @@ def gen_trace(model_list):
 
     arrival_trace = []
     base = 0
-    factor = 3
+    factor = 8
 
     # Concatenate multiple traces
     for w in workloads:
@@ -17,7 +17,7 @@ def gen_trace(model_list):
             if len(arrival_trace) > 0 and row.time+base < arrival_trace[-1]:
                 base = arrival_trace[-1]
 
-            arrival_trace.append(0)#row.time+base)
+            arrival_trace.append(row.time+base)
             
     # Load model list
     random.seed(0)
@@ -36,4 +36,5 @@ def gen_trace(model_list):
         writer = csv.writer(f)
         writer.writerows(ans)
 
-gen_trace('../../zoo_analysis/nlp_cls_zoo')
+gen_trace('../../zoo_analysis/nlp_nwp_zoo')
+
