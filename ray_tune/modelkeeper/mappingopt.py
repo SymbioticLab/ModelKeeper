@@ -20,7 +20,7 @@ def load_model_data(file):
 class MappingOperator(object):
     """Map parent weights to child weights given the mapping index"""
 
-    def __init__(self, parent, child, mapping_indices):
+    def __init__(self, parent, child, mapping_indices, breakdown=False):
         """
         @ parent, child: graph of nodes for each model
         @ mapping_indices: (parent_layer_name, child_layer_name): sorted by the topological order of child
@@ -35,6 +35,7 @@ class MappingOperator(object):
         self.reset_layers = set()
         self.num_of_matched = 0
         self.reset_layers_name = set()
+        self.is_breakdown=breakdown
 
     def get_child_layers(self, graph, node_id):
         """Get the trainable next layers"""
@@ -92,6 +93,9 @@ class MappingOperator(object):
                     logging.debug('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'],
                                                         self.child.nodes[child_layer]['attr']['op_type']))
                 else:
+                    # for breakdown
+                    if self.is_breakdown and self.parent.nodes[parent_layer]['attr']['dims'] != self.child.nodes[child_layer]['attr']['dims']:
+                        continue
                     n_weight, n_bias, mapping_index, new_width = widen(parent_w, parent_b, child_w, child_b, noise_factor=5e-2)
 
                     #assert(n_weight.shape == child_w.shape and n_bias.shape == child_b.shape)
@@ -103,19 +107,20 @@ class MappingOperator(object):
                         self.reset_layers_name.add(child_layer_name+'.bias')
 
                     # get its child layers, and override child weights if it is transferred
-                    following_layers = self.get_child_layers(self.child, child_layer)
-                    for layer in following_layers:
-                        if layer in self.reset_layers and layer+'.weight' in self.child_weights and layer not in widen_children:
-                            layer_w = self.child_weights[layer+'.weight']
-                            layer_b = self.child_weights.get(layer +'bias', None)
-                            nl_weight, nl_bias = widen_child(layer_w, layer_b, mapping_index, new_width=new_width)
+                    if self.is_breakdown == False:
+                        following_layers = self.get_child_layers(self.child, child_layer)
+                        for layer in following_layers:
+                            if layer in self.reset_layers and layer+'.weight' in self.child_weights and layer not in widen_children:
+                                layer_w = self.child_weights[layer+'.weight']
+                                layer_b = self.child_weights.get(layer +'bias', None)
+                                nl_weight, nl_bias = widen_child(layer_w, layer_b, mapping_index, new_width=new_width)
 
-                            #assert(layer_w.shape == nl_weight.shape)
-                            self.child_weights[layer+'.weight'] = nl_weight
-                            if (layer+'bias') in self.child_weights:
-                                self.child_weights[layer+'.bias'] = nl_bias
+                                #assert(layer_w.shape == nl_weight.shape)
+                                self.child_weights[layer+'.weight'] = nl_weight
+                                if (layer+'bias') in self.child_weights:
+                                    self.child_weights[layer+'.bias'] = nl_bias
 
-                            widen_children.add(layer)
+                                widen_children.add(layer)
 
                     self.num_of_matched += 1
                     self.reset_layers.add(child_layer_name)
@@ -135,6 +140,8 @@ class MappingOperator(object):
             Handle unmapped layers by padding identity layers or random initialization
         """
         # reverse the graph, and then run DFS to record the gap between warmed layers and next closest one
+        if self.is_breakdown == True:
+            return
         start_time = time.time()
         reversed_graph = self.child.reverse(copy=True)
 
