@@ -77,6 +77,15 @@ def GenerateConfig(n, path):
     return config_list#[modelidx_base:modelidx_base+n]
     #return [config_list[i] for i in random.sample(range(0,len(config_list)), n)]
 
+def polish_name(model_name):
+    updated_name = ''
+    for c in model_name:
+        if c in string.punctuation:
+            updated_name += '_'
+        else:
+            updated_name += c
+
+    return updated_name.replace(' ', '_').replace('__', '_')
 
 
 def train_cv(model, optimizer, criterion, train_loader, device=torch.device("cpu"), scheduler=None):
@@ -199,7 +208,9 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
             test_data, batch_size=test_bz, shuffle=True, **kwargs)
 
     elif args.data == "yelp":
-        path = os.path.join(args.dataset, model_name)
+        valid_name = polish_name(model_name)
+        path = os.path.join(args.dataset, valid_name)
+        os.makedirs(args.dataset, exist_ok=True)
         if not os.path.exists(path):
             train_dataset = load_dataset("yelp_review_full", split="train")
             test_dataset = load_dataset("yelp_review_full", split="test")
@@ -225,7 +236,9 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
         test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, **kwargs)
 
     elif args.data == "wiki":
-        path = os.path.join(args.dataset, model_name)
+        valid_name = polish_name(model_name)
+        path = os.path.join(args.dataset, valid_name)
+        os.makedirs(args.dataset, exist_ok=True)
         if not os.path.exists(path):
             train_dataset, max_len_train = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='train'))
             test_dataset, max_len_test = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='test'))
@@ -240,20 +253,11 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
                 [max_len_train, max_len_test] = pickle.load(f)
 
         tmp = [max_len_train, max_len_test]
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
-        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, num_workers=4, 
+                        pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
+        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, num_workers=4, 
+                        pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
     return train_loader, test_loader, tmp
-
-
-def polish_name(model_name):
-    updated_name = ''
-    for c in model_name:
-        if c in string.punctuation:
-            updated_name += '_'
-        else:
-            updated_name += c
-
-    return updated_name.replace(' ', '_').replace('__', '_')
 
 
 def get_str_type(input_str):
@@ -455,12 +459,12 @@ class TrainModel(tune.Trainable):
                 self.model = get_cv_model(**args_model)
             else:
                 self.model = ptcv_get_model(temp_model_name, pretrained=False, num_classes=num_classes)
-
+                
         elif args.task == "nlp_cls":
             self.model, self.tokenizer = load_cls_model(temp_model_name)
         elif args.task == "nlp_nwp":
             self.tokenizer = load_nwp_tokenizer(temp_model_name)
-            self.model, self.tokenizer = load_nwp_model(temp_model_name)
+            self.model = load_nwp_model(temp_model_name)
         elif args.task == "ensemble":
             model_config = config['config']['setup']
             self.model = VGG(make_layers(model_config[0], batch_norm=True, k=model_config[1], num_of_class=num_classes))
