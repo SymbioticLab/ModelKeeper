@@ -17,7 +17,8 @@ def collate(examples, tokenizer):
 def tokenize_datset(tokenizer, data, block_size=256):
     data_iter = []
     for text in data:
-        tokenized_text = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(text))
+        # tokenized_text = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(text))
+        tokenized_text = tokenizer.encode(text, max_length=512)
         for i in range(0, len(tokenized_text) - block_size + 1, block_size):  # Truncate in block of block_size
             data_iter.append(torch.tensor(tokenizer.build_inputs_with_special_tokens(tokenized_text[i:i + block_size])))
 
@@ -63,7 +64,7 @@ def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device
     print(f"Avg training loss: {total_loss/len(train_loader)}")
 
 def load_nwp_model(name, max_text_length=256):
-    name = name.replace('/', '_')
+    # name = name.replace('/', '_')
 
     tokenizer = AutoTokenizer.from_pretrained(name)
     config = AutoConfig.from_pretrained(name)
