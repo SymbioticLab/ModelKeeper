@@ -1,5 +1,6 @@
 import torchtext
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForMaskedLM,  AutoConfig
+from transformers import DataCollatorForLanguageModeling
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 import torch
@@ -15,7 +16,7 @@ tokenizer = None
 
 path = '/users/fanlai/experiment/nwp_zoo'
 
-device = 'cuda'
+device = 'cpu'
 
 def collate(examples):
     if tokenizer._pad_token is None:
@@ -49,32 +50,40 @@ def train_nwp(model_name):
     pure_name = model_name.replace('/', '_')
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+   
     config = AutoConfig.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_config(config)
+    config.max_length = max_text_length
+    config.max_position_embeddings = max_text_length
+    model = AutoModelForMaskedLM.from_config(config)
+    # model = AutoModelForCausalLM.from_config(config)
     #model = AutoModelForCausalLM.from_pretrained(model_name)
-    model.config.max_length = max_text_length
-    model.config.max_position_embeddings = max_text_length
+   
     tokenizer.max_length = max_text_length
 
+    if not os.path.exists(f'{pure_name}_train') and not os.path.exists(f'{pure_name}_test'):
+        train_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='train'))
+        test_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='test'))
 
-    train_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='train'))
-    test_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='test'))
+        with open(f'{pure_name}_train', 'wb') as fout:
+            pickle.dump(train_dataset, fout)
 
-    with open(f'{pure_name}_train', 'wb') as fout:
-        pickle.dump(train_dataset, fout)
-
-    with open(f'{pure_name}_test', 'wb') as fout:
-        pickle.dump(test_dataset, fout)
+        with open(f'{pure_name}_test', 'wb') as fout:
+            pickle.dump(test_dataset, fout)
+    else:
+        with open(f'{pure_name}_train', 'rb') as fin:
+            train_dataset = pickle.load(fin)
+        with open(f'{pure_name}_test', 'rb') as fin:
+            test_dataset = pickle.load(fin)
 
     batch_size = 16
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=collate)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=collate)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
 
-    optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-5, eps=1e-8)
+    optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=4e-5, eps=1e-8)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=4, verbose=True, min_lr=0, factor=0.5)
 
-    EPOCHS = 100
-    step_interval = 10000
+    EPOCHS = 1
+    step_interval = 100
     cur_step = 0
 
     model = model.to(device=device)
@@ -84,9 +93,9 @@ def train_nwp(model_name):
         model.train()
 
         for inputs in train_loader:
-            inputs = inputs.to(device=device)
+            inputs = {k: inputs[k].to(device) for k in inputs}
             optimizer.zero_grad()
-            outputs = model(inputs, labels=inputs)
+            outputs = model(**inputs)
             loss = outputs.loss
 
             total_loss += loss.item()
@@ -99,9 +108,10 @@ def train_nwp(model_name):
                 print(f"(step {cur_step}) Avg training loss: {total_loss/cur_step}")
                 scheduler.step(total_loss-last_loss)
                 last_loss = total_loss
-
-        eval_nwp(model, test_loader)
-        print(f"(epoch {epoch}) Avg training loss: {total_loss/len(train_loader)}")
+            print(f"(step {cur_step}) Avg training loss: {total_loss/cur_step}")
+            break
+        # eval_nwp(model, test_loader)
+        # print(f"(epoch {epoch}) Avg training loss: {total_loss/len(train_loader)}")
 
     # pure_name = model_name.replace('/', '_')
     # os.makedirs(os.path.join(path, pure_name), exist_ok=True)
@@ -114,5 +124,9 @@ def train_nwp(model_name):
     #         input_names=['input_ids'])
     #     break
 
-train_nwp("bert-base-cased")
+with open("./nlp_nwp_zoo", 'r') as f:
+    models = [s.split(':')[0] for s in f.readlines()]
+    for model in models:
+        print(model)
+        train_nwp(model)
 

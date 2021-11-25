@@ -49,7 +49,7 @@ import inspect
 import torchtext
 from datasets import load_dataset, load_metric
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoConfig, AutoModelForCausalLM
-from transformers import Trainer, TrainingArguments, get_linear_schedule_with_warmup
+from transformers import Trainer, TrainingArguments, get_linear_schedule_with_warmup, DataCollatorForLanguageModeling
 from utils.nlp_cls_utils import train_nlp_cls, eval_nlp_cls, load_cls_model
 from utils.nlp_nwp_utils import train_nlp_nwp, eval_nlp_nwp, load_nwp_model, collate, tokenize_datset
 
@@ -233,8 +233,8 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
                 train_dataset = pickle.load(f)
                 test_dataset = pickle.load(f)
 
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=lambda b: collate(b, tokenizer))
-        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=lambda b: collate(b, tokenizer))
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
+        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
 
     return train_loader, test_loader, None
 
@@ -688,7 +688,7 @@ if __name__ == "__main__":
     GRACE_PERIOD = 7
     CPU_RESOURCES_PER_TRIAL = 2
     GPU_RESOURCES_PER_TRIAL = 0
-    METRIC = 'accuracy'  # or 'loss'
+    METRIC = 'loss'  # or 'loss'
 
     if args.task == "torchcv":
         temp_conf = []
@@ -709,7 +709,7 @@ if __name__ == "__main__":
     CONFIG = {
         "config": tune.grid_search(temp_conf),
     }
-    ray.init()
+    ray.init(address=f"{args.address}")
 
     if METRIC=='accuracy':
         sched = AsyncHyperBandScheduler(time_attr="training_epoch",

@@ -1,5 +1,5 @@
 import torchtext
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, AutoModelForMaskedLM
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 import torch
@@ -63,13 +63,13 @@ def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device
     print(f"Avg training loss: {total_loss/len(train_loader)}")
 
 def load_nwp_model(name, max_text_length=256):
-    pure_name = name.replace('/', '_')
+    name = name.replace('/', '_')
 
     tokenizer = AutoTokenizer.from_pretrained(name)
     config = AutoConfig.from_pretrained(name)
     config.max_length = max_text_length
     config.max_position_embeddings = max_text_length
-    model = AutoModelForCausalLM.from_config(config)
+    model = AutoModelForMaskedLM.from_config(config)
     #model = AutoModelForCausalLM.from_pretrained(model_name)
     tokenizer.max_length = max_text_length
     return model, tokenizer
