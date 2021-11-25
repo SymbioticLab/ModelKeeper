@@ -42,7 +42,7 @@ def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device
     total_loss = last_loss = cur_step = 0
     model.train()
     eval_step = 1/4.
-    breakdown_length = len(train_loader) * eval_step
+    breakdown_length = int(len(train_loader) * eval_step)
 
     for inputs in train_loader:
         inputs = {k: inputs[k].to(device) for k in inputs}
