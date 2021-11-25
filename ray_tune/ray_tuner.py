@@ -443,7 +443,7 @@ class TrainModel(tune.Trainable):
 
         temp_model_name = config['config']['name']
         num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120}
-        num_classes = num_labels[args.data]
+        num_classes = num_labels.get(args.data, 0)
 
         if args.task == "nasbench":
             self.model = get_cell_based_tiny_net(conf_list[temp_model_name])
@@ -455,7 +455,7 @@ class TrainModel(tune.Trainable):
                 self.model = get_cv_model(**args_model)
             else:
                 self.model = ptcv_get_model(temp_model_name, pretrained=False, num_classes=num_classes)
-                
+
         elif args.task == "nlp_cls":
             self.model, self.tokenizer = load_cls_model(temp_model_name)
         elif args.task == "nlp_nwp":
