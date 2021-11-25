@@ -51,7 +51,7 @@ from datasets import load_dataset, load_metric
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoConfig, AutoModelForCausalLM
 from transformers import Trainer, TrainingArguments, get_linear_schedule_with_warmup, DataCollatorForLanguageModeling
 from utils.nlp_cls_utils import train_nlp_cls, eval_nlp_cls, load_cls_model
-from utils.nlp_nwp_utils import train_nlp_nwp, eval_nlp_nwp, load_nwp_model, collate, tokenize_datset
+from utils.nlp_nwp_utils import train_nlp_nwp, eval_nlp_nwp, load_nwp_model, collate, tokenize_datset, load_nwp_tokenizer
 
 ray.tune.ray_trial_executor.DEFAULT_GET_TIMEOUT = 600
 os.environ['TUNE_PLACEMENT_GROUP_RECON_INTERVAL'] = '60'
@@ -170,7 +170,7 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
 
 
     kwargs = {'num_workers': 4, 'pin_memory': True} if args.cuda else {}
-
+    tmp = None
     if args.data == 'cifar10':
 
         train_loader = torch.utils.data.DataLoader(
@@ -223,20 +223,22 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
     elif args.data == "wiki":
         path = os.path.join(args.dataset, model_name)
         if not os.path.exists(path):
-            train_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='train'))
-            test_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='test'))
+            train_dataset, max_len_train = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='train'))
+            test_dataset, max_len_test = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='test'))
             with open(path, 'wb') as f:
                 pickle.dump(train_dataset, f, -1)
                 pickle.dump(test_dataset, f, -1)
+                pickle.dump([max_len_train, max_len_test], f, -1)
         else:
             with open(path, 'rb') as f:
                 train_dataset = pickle.load(f)
                 test_dataset = pickle.load(f)
+                [max_len_train, max_len_test] = pickle.load(f)
 
+        tmp = [max_len_train, max_len_test]
         train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
         test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, num_workers=4, pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
-
-    return train_loader, test_loader, None
+    return train_loader, test_loader, tmp
 
 
 def polish_name(model_name):
@@ -453,17 +455,21 @@ class TrainModel(tune.Trainable):
         elif args.task == "nlp_cls":
             self.model, self.tokenizer = load_cls_model(temp_model_name)
         elif args.task == "nlp_nwp":
-            self.model, self.tokenizer = load_nwp_model(temp_model_name)
+            self.tokenizer = load_nwp_tokenizer(temp_model_name)
         else:
             assert("Have not implemented!")
 
         self.model_name = polish_name(temp_model_name) #'model_' + '_'.join([str(val) for val in config.values()])
         self.export_path = self.model_name + '.onnx'
 
-        self.interest_args = get_interest_args(self.model) if args.task == "nlp_nwp" or args.task == "nlp_cls" else None
-
-        self.train_loader, self.test_loader, _ = get_data_loaders(
-                            args.batch_size, args.test_batch_size, self.tokenizer, self.model_name, interest_args=self.interest_args)
+        self.interest_args = get_interest_args(self.model) if args.task == "nlp_cls" else None
+        if args.task == "nlp_nwp":
+            self.train_loader, self.test_loader, [max_len_train, max_len_test] = \
+                get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name, interest_args=self.interest_args)
+            self.model  = load_nwp_model(temp_model_name, max(max_len_train, max_len_test))
+        else:
+            self.train_loader, self.test_loader, _ = \
+                get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name, interest_args=self.interest_args)
         arrival_time = config['config'].get('arrival', 0)
         self.logger.info(f"Setup for model {self.model_name} ..., supposed {arrival_time}")
 
@@ -621,9 +627,9 @@ class TrainModel(tune.Trainable):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PyTorch Cifar10 Example")
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=16, metavar='N',
                     help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=64, metavar='N',
+    parser.add_argument('--test-batch-size', type=int, default=16, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=150, metavar='N',
                         help='number of epochs to train (default: 10)')
@@ -686,7 +692,7 @@ if __name__ == "__main__":
 
     REDUCTION_FACTOR = 1.000001
     GRACE_PERIOD = 7
-    CPU_RESOURCES_PER_TRIAL = 2
+    CPU_RESOURCES_PER_TRIAL = 20
     GPU_RESOURCES_PER_TRIAL = 0
     METRIC = 'loss'  # or 'loss'
 
@@ -709,7 +715,8 @@ if __name__ == "__main__":
     CONFIG = {
         "config": tune.grid_search(temp_conf),
     }
-    ray.init(address=f"{args.address}")
+    # ray.init(address=f"{args.address}")
+    ray.init()
 
     if METRIC=='accuracy':
         sched = AsyncHyperBandScheduler(time_attr="training_epoch",
@@ -745,7 +752,7 @@ if __name__ == "__main__":
             verbose=3,
             checkpoint_at_end=False,
             checkpoint_freq=10000,
-            max_failures=3,
+            max_failures=1,
             config=CONFIG,
             local_dir=os.path.join(os.environ['HOME'], 'experiment/ray_results')
         )

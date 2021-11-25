@@ -1,4 +1,3 @@
-import torchtext
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForMaskedLM,  AutoConfig
 from transformers import DataCollatorForLanguageModeling
 from torch.nn.utils.rnn import pad_sequence
@@ -6,7 +5,7 @@ from torch.utils.data import DataLoader
 import torch
 import logging
 import os
-import pickle
+import pickle, torchtext
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -24,13 +23,17 @@ def collate(examples):
     return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
 
 def tokenize_datset(tokenizer, data, block_size=256):
-    data_iter = []
-    for text in data:
-        tokenized_text = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(text))
-        for i in range(0, len(tokenized_text) - block_size + 1, block_size):  # Truncate in block of block_size
-            data_iter.append(torch.tensor(tokenizer.build_inputs_with_special_tokens(tokenized_text[i:i + block_size])))
 
-    return data_iter
+    batch_encoding = tokenizer([x for x in data if len(x)>0 and not x.isspace()], 
+                        add_special_tokens=True, truncation=True, max_length=block_size)
+    examples = batch_encoding["input_ids"]
+    data = []
+    max_len = 0
+    for e in examples:
+        data.append({"input_ids": torch.tensor(e, dtype=torch.long)})
+        max_len = max(max_len, len(e))
+
+    return data, max_len + 8
 
 def eval_nwp(model, test_loader):
     total_loss = 0
@@ -50,19 +53,14 @@ def train_nwp(model_name):
     pure_name = model_name.replace('/', '_')
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-   
-    config = AutoConfig.from_pretrained(model_name)
-    config.max_length = max_text_length
-    config.max_position_embeddings = max_text_length
-    model = AutoModelForMaskedLM.from_config(config)
     # model = AutoModelForCausalLM.from_config(config)
     #model = AutoModelForCausalLM.from_pretrained(model_name)
-   
+
     tokenizer.max_length = max_text_length
 
     if not os.path.exists(f'{pure_name}_train') and not os.path.exists(f'{pure_name}_test'):
-        train_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='train'))
-        test_dataset = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='test'))
+        train_dataset, max_len_train = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='train'))
+        test_dataset, max_len_test = tokenize_datset(tokenizer, torchtext.datasets.WikiText103(root='~/experiment', split='test'))
 
         with open(f'{pure_name}_train', 'wb') as fout:
             pickle.dump(train_dataset, fout)
@@ -75,12 +73,20 @@ def train_nwp(model_name):
         with open(f'{pure_name}_test', 'rb') as fin:
             test_dataset = pickle.load(fin)
 
+    max_text_length_model = max(max_len_train, max_len_test)
+    config = AutoConfig.from_pretrained(model_name)
+    config.max_length = max_text_length_model
+    config.max_position_embeddings = max_text_length_model
+    model = AutoModelForMaskedLM.from_config(config)
+
     batch_size = 16
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, 
+                    num_workers=4, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, 
+                    num_workers=4, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
 
     optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=4e-5, eps=1e-8)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=4, verbose=True, min_lr=0, factor=0.5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=4, verbose=True, min_lr=1e-6, factor=0.5)
 
     EPOCHS = 1
     step_interval = 100
@@ -129,4 +135,3 @@ with open("./nlp_nwp_zoo", 'r') as f:
     for model in models:
         print(model)
         train_nwp(model)
-

@@ -15,14 +15,17 @@ def collate(examples, tokenizer):
     return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
 
 def tokenize_datset(tokenizer, data, block_size=256):
-    data_iter = []
-    for text in data:
-        # tokenized_text = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(text))
-        tokenized_text = tokenizer.encode(text, max_length=512)
-        for i in range(0, len(tokenized_text) - block_size + 1, block_size):  # Truncate in block of block_size
-            data_iter.append(torch.tensor(tokenizer.build_inputs_with_special_tokens(tokenized_text[i:i + block_size])))
+    
+    batch_encoding = tokenizer([x for x in data if len(x)>0 and not x.isspace()], 
+                        add_special_tokens=True, truncation=True, max_length=block_size)
+    examples = batch_encoding["input_ids"]
+    data = []
+    max_len = 0
+    for e in examples:
+        data.append({"input_ids": torch.tensor(e, dtype=torch.long)})
+        max_len = max(max_len, len(e))
 
-    return data_iter
+    return data, max_len + 8
 
 
 def eval_nlp_nwp(model, test_loader, device=torch.device("cuda")):
@@ -60,17 +63,23 @@ def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device
             print(f"(step {cur_step}) Avg training loss: {total_loss/cur_step}")
             scheduler.step(total_loss-last_loss)
             last_loss = total_loss
+        break
 
     print(f"Avg training loss: {total_loss/len(train_loader)}")
 
-def load_nwp_model(name, max_text_length=256):
+def load_nwp_tokenizer(name, max_text_length=256):
     # name = name.replace('/', '_')
 
     tokenizer = AutoTokenizer.from_pretrained(name)
+    tokenizer.max_length = max_text_length
+    return tokenizer
+
+def load_nwp_model(name, max_text_length=256):
+    # name = name.replace('/', '_')
+    max_text_length = max(256, max_text_length)
     config = AutoConfig.from_pretrained(name)
     config.max_length = max_text_length
     config.max_position_embeddings = max_text_length
     model = AutoModelForMaskedLM.from_config(config)
     #model = AutoModelForCausalLM.from_pretrained(model_name)
-    tokenizer.max_length = max_text_length
-    return model, tokenizer
+    return model
