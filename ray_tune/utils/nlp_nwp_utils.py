@@ -17,8 +17,8 @@ def collate(examples, tokenizer):
     return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
 
 def tokenize_datset(tokenizer, data, block_size=BLOCK_SIZE):
-    
-    batch_encoding = tokenizer([x for x in data if len(x)>0 and not x.isspace()], 
+
+    batch_encoding = tokenizer([x for x in data if len(x)>0 and not x.isspace()],
                         add_special_tokens=True, truncation=True, max_length=block_size)
     examples = batch_encoding["input_ids"]
     data = []
@@ -41,6 +41,7 @@ def eval_nlp_nwp(model, test_loader, device=torch.device("cuda")):
         loss = outputs.loss
 
         total_loss += loss.item()
+        break
 
     logging.info(f"Eval loss: {total_loss/len(test_loader)}")
     return 0, total_loss/len(test_loader)

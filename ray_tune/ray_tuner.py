@@ -253,9 +253,9 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
                 [max_len_train, max_len_test] = pickle.load(f)
 
         tmp = [max_len_train, max_len_test]
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, num_workers=4, 
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_bz, shuffle=True, num_workers=4,
                         pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
-        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, num_workers=4, 
+        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_bz, shuffle=True, num_workers=4,
                         pin_memory=True, collate_fn=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15))
     return train_loader, test_loader, tmp
 
@@ -443,15 +443,17 @@ class TrainModel(tune.Trainable):
         #torch.backends.cudnn.deterministic = True
 
         self.device = device if use_cuda else torch.device("cpu")
-        self.tokenizer = None
+        self.tokenizer = self.train_loader = self.test_loader = self.model = None
+        self.temp_model_name = config['config']['name']
+        self.task = args.task
 
         temp_model_name = config['config']['name']
         num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120}
         num_classes = num_labels.get(args.data, 0)
 
-        if args.task == "nasbench":
+        if self.task == "nasbench":
             self.model = get_cell_based_tiny_net(conf_list[temp_model_name])
-        elif args.task == 'torchcv':
+        elif self.task == 'torchcv':
             if '(' in temp_model_name:
                 args_model = get_model(temp_model_name)
                 args_model['num_classes'] = num_classes
@@ -459,13 +461,12 @@ class TrainModel(tune.Trainable):
                 self.model = get_cv_model(**args_model)
             else:
                 self.model = ptcv_get_model(temp_model_name, pretrained=False, num_classes=num_classes)
-                
-        elif args.task == "nlp_cls":
+
+        elif self.task == "nlp_cls":
             self.model, self.tokenizer = load_cls_model(temp_model_name)
-        elif args.task == "nlp_nwp":
-            self.tokenizer = load_nwp_tokenizer(temp_model_name)
-            self.model = load_nwp_model(temp_model_name)
-        elif args.task == "ensemble":
+        elif self.task == "nlp_nwp":
+            pass
+        elif self.task == "ensemble":
             model_config = config['config']['setup']
             self.model = VGG(make_layers(model_config[0], batch_norm=True, k=model_config[1], num_of_class=num_classes))
         else:
@@ -474,59 +475,29 @@ class TrainModel(tune.Trainable):
         self.model_name = polish_name(temp_model_name) #'model_' + '_'.join([str(val) for val in config.values()])
         self.export_path = self.model_name + '.onnx'
 
-        self.interest_args = get_interest_args(self.model) if args.task == "nlp_cls" else None
-        if args.task == "nlp_nwp":
-            self.train_loader, self.test_loader, [max_len_train, max_len_test] = \
-                get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name, interest_args=self.interest_args)
-            self.model  = load_nwp_model(temp_model_name, max(max_len_train, max_len_test))
+        if self.task == "nlp_nwp":
+            pass
         else:
             self.train_loader, self.test_loader, _ = \
-                get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name, interest_args=self.interest_args)
+                get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name)
         arrival_time = config['config'].get('arrival', 0)
         self.logger.info(f"Setup for model {self.model_name} ..., supposed {arrival_time}")
 
         self.use_keeper = args.use_keeper
 
         # Apply ModelKeeper to warm start
-        if self.use_keeper:
-            start_matching = time.time()
-
-            # Create a session to modelkeeper server
-            modelkeeper_client = ModelKeeperClient(modelkeeper_config)
-
-            self.model.eval()
-            self.model.to(device='cpu')
-
-            dummy_input = torch.rand(2, 3, 32, 32)
-            # export to onnx format; Some models may be slow in onnx
-            torch.onnx.export(self.model, dummy_input, self.export_path,
-                export_params=True, verbose=0, training=1, do_constant_folding=False)
-
-            weights, self.meta_info = modelkeeper_client.query_for_model(self.export_path)
-
-            if weights is not None:
-                for name, p in self.model.named_parameters():
-                    try:
-                        temp_data = (torch.from_numpy(weights[name])).data
-                        assert(temp_data.shape == p.data.shape)
-                        p.data = temp_data.to(dtype=p.data.dtype)
-                    except Exception as e:
-                        self.logger.error(f"Fail to load weight for {self.model_name}, as {e}")
-
-            self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {self.meta_info}")
-            modelkeeper_client.stop()
-
+        if self.use_keeper and self.model is not None:
+            self.warm_start()
 
         self.best_acc = 0
         self.best_loss = np.Infinity
         self.epoch = 0
-        if args.task == "nlp_cls":
+        if self.task == "nlp_cls":
             self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=args.lr, eps=1e-8)
             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=2,
                         verbose=True, min_lr=args.lr*1e-3, factor=0.5, threshold=0.01)
-        elif args.task == "nlp_nwp":
-            self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=1e-5, eps=1e-8)
-            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=4, verbose=True, min_lr=0, factor=0.5)
+        elif self.task == "nlp_nwp":
+            pass
         else:
             self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr,
                     weight_decay=args.weight_decay, momentum=args.momentum, nesterov=True)
@@ -537,8 +508,50 @@ class TrainModel(tune.Trainable):
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
 
 
+    def warm_start(self):
+        start_matching = time.time()
+
+        # Create a session to modelkeeper server
+        modelkeeper_client = ModelKeeperClient(modelkeeper_config)
+
+        self.model.eval()
+        self.model.to(device='cpu')
+
+        dummy_input = torch.rand(2, 3, 32, 32)
+        # export to onnx format; Some models may be slow in onnx
+        torch.onnx.export(self.model, dummy_input, self.export_path,
+            export_params=True, verbose=0, training=1, do_constant_folding=False)
+
+        weights, self.meta_info = modelkeeper_client.query_for_model(self.export_path)
+
+        if weights is not None:
+            for name, p in self.model.named_parameters():
+                try:
+                    temp_data = (torch.from_numpy(weights[name])).data
+                    assert(temp_data.shape == p.data.shape)
+                    p.data = temp_data.to(dtype=p.data.dtype)
+                except Exception as e:
+                    self.logger.error(f"Fail to load weight for {self.model_name}, as {e}")
+
+        self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {self.meta_info}")
+        modelkeeper_client.stop()
+
+
     def step(self):
         start_time = time.time()
+
+        if self.model is None and args.task == 'nlp_nwp':
+            self.tokenizer = load_nwp_tokenizer(self.temp_model_name)
+            self.model = load_nwp_model(self.temp_model_name)
+
+            self.train_loader, self.test_loader, [max_len_train, max_len_test] = \
+                get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name)
+            self.model = load_nwp_model(self.temp_model_name, max(max_len_train, max_len_test))
+            self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=1e-5, eps=1e-8)
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=4, verbose=True, min_lr=0, factor=0.5)
+
+            if self.use_keeper:
+                self.warm_start()
 
         if self.use_keeper and self.meta_info:
             # the first two epoch to warm up
@@ -705,8 +718,8 @@ if __name__ == "__main__":
 
     REDUCTION_FACTOR = 1.000001
     GRACE_PERIOD = 7
-    CPU_RESOURCES_PER_TRIAL = 20
-    GPU_RESOURCES_PER_TRIAL = 0
+    CPU_RESOURCES_PER_TRIAL = 5
+    GPU_RESOURCES_PER_TRIAL = 1
 
     METRIC = 'accuracy' if 'nlp' not in args.task else 'loss'
 
@@ -738,8 +751,8 @@ if __name__ == "__main__":
     CONFIG = {
         "config": tune.grid_search(temp_conf),
     }
-    # ray.init(address=f"{args.address}")
-    ray.init()
+    ray.init(address=f"{args.address}")
+    #ray.init()
 
     if METRIC=='accuracy':
         sched = AsyncHyperBandScheduler(time_attr="training_epoch",
