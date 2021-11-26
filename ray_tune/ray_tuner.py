@@ -51,7 +51,7 @@ from datasets import load_dataset, load_metric
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoConfig, AutoModelForCausalLM
 from transformers import Trainer, TrainingArguments, get_linear_schedule_with_warmup, DataCollatorForLanguageModeling
 from utils.nlp_cls_utils import train_nlp_cls, eval_nlp_cls, load_cls_model
-from utils.nlp_nwp_utils import train_nlp_nwp, eval_nlp_nwp, load_nwp_model, collate, tokenize_datset, load_nwp_tokenizer
+from utils.nlp_nwp_utils import train_nlp_nwp, eval_nlp_nwp, load_nwp_model, tokenize_datset, load_nwp_tokenizer
 from vgg import VGG, make_layers, vgg_zoo
 
 ray.tune.ray_trial_executor.DEFAULT_GET_TIMEOUT = 600
