@@ -36,5 +36,16 @@ def gen_trace(model_list):
         writer = csv.writer(f)
         writer.writerows(ans)
 
-gen_trace('../../zoo_analysis/nlp_nwp_zoo')
+def shrink_trace(file):
+    workload = pandas.read_csv(file)
+    factor = 3
+    ans = [['name', 'arrival']]
+    for row in workload.itertuples():
+        ans.append([row.name, int(row.arrival*factor)])
 
+    with open(f"new_{file}", 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerows(ans)
+
+# gen_trace('../../zoo_analysis/nlp_nwp_zoo')
+shrink_trace("nlp_nwp.csv")

@@ -782,7 +782,7 @@ if __name__ == "__main__":
         stopper = CombinedStopper(
                 MaximumIterationStopper(max_iter=args.epochs),
                 #BestAccuracyStopper(),
-                TrialPlateauStopper(metric='mean_loss', mode='min', std=2e-3, num_results=5, grace_period=GRACE_PERIOD),
+                TrialPlateauStopper(metric='mean_loss', mode='min', std=0.01, num_results=5, grace_period=GRACE_PERIOD),
             )
     else:
         stopper = CombinedStopper(
