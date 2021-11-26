@@ -441,7 +441,7 @@ class TrainModel(tune.Trainable):
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         #torch.backends.cudnn.deterministic = True
-        torch.set_num_threads(60)
+        torch.set_num_threads(args.cpu_cores)
 
         self.device = device if use_cuda else torch.device("cpu")
         self.tokenizer = self.train_loader = self.test_loader = self.model = None
@@ -682,6 +682,7 @@ if __name__ == "__main__":
     parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
                         help='how many batches to wait before logging status')
     parser.add_argument('--data', type=str, default='cifar100')
+    parser.add_argument('--cpu-cores', type=int, default=39)
     parser.add_argument('--dataset', type=str, default=f'{os.environ["HOME"]}/experiment/data')
     parser.add_argument('--trace', type=str, default=f'{os.environ["HOME"]}/experiment/ModelKeeper/ray_tune/workloads/torchcv_list.csv')
     parser.add_argument('--meta', type=str, default=f'{os.environ["HOME"]}/experiment/data')
@@ -816,3 +817,4 @@ if __name__ == "__main__":
 
     # if keeper_service is not None:
     #     keeper_service.stop_service()
+
