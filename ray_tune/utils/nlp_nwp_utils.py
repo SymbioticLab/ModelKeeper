@@ -7,7 +7,7 @@ import os
 import pickle
 import logging
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+#os.environ["TOKENIZERS_PARALLELISM"] = "false"
 BLOCK_SIZE = 128
 
 def tokenize_datset(tokenizer, data, block_size=BLOCK_SIZE):
@@ -41,7 +41,7 @@ def eval_nlp_nwp(model, test_loader, device=torch.device("cuda")):
 def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device("cuda"), scheduler=None):
     total_loss = last_loss = cur_step = 0
     model.train()
-    eval_step = 1/5.
+    eval_step = 1/20.
     breakdown_length = int(len(train_loader) * eval_step)
 
     for inputs in train_loader:
@@ -64,7 +64,6 @@ def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device
         #     logging.info(f"(step {cur_step}) Avg training loss: {total_loss/cur_step}")
         #     scheduler.step(total_loss-last_loss)
         #     last_loss = total_loss
-        # break
 
     logging.info(f"Avg training loss: {total_loss/cur_step}")
 
@@ -84,4 +83,3 @@ def load_nwp_model(name, max_text_length=BLOCK_SIZE):
     #model = AutoModelForCausalLM.from_pretrained(model_name)
 
     return model
-

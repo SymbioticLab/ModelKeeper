@@ -551,7 +551,7 @@ class TrainModel(tune.Trainable):
             WARMUP_STEPS = int(0.2*len(self.train_loader))
             self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=8e-5, eps=1e-8)
             self.scheduler = get_linear_schedule_with_warmup(self.optimizer, num_warmup_steps=WARMUP_STEPS,
-                                            num_training_steps=len(self.train_loader)*args.epochs)
+                                            num_training_steps=len(self.train_loader)*6)
 
             if self.use_keeper:
                 self.warm_start()
@@ -611,11 +611,21 @@ class TrainModel(tune.Trainable):
         self.best_acc = max(acc, self.best_acc)
         self.best_loss = min(loss, self.best_loss)
 
+        if 'nlp' in args.task:
+            self.save_model(self.export_path+'_'+str(self.epoch))
+
         if METRIC == 'accuracy':
             return {"mean_accuracy": acc}
         else:
             return {"mean_loss": loss}
 
+
+    def save_model(self, name):
+        local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
+        os.makedirs(local_path, exist_ok=True)
+        export_path = os.path.join(local_path, name)
+        with open(export_path, 'wb') as fout:
+            pickle.dump(self.model, fout, -1)
 
     def stop(self):
         self.logger.info(f"Training of {self.model_name} completed with {self.history[self.epoch]}")
@@ -636,11 +646,7 @@ class TrainModel(tune.Trainable):
             os.system(f"nohup python {os.environ['HOME']}/experiment/ModelKeeper/ray_tune/keeper_offline.py --model_file={export_path} --accuracy={self.history[self.epoch]['acc']} &")
             self.logger.info("Call keeper offline register API")
         else:
-            local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
-            os.makedirs(local_path, exist_ok=True)
-            export_path = os.path.join(local_path, self.export_path)
-            with open(export_path, 'wb') as fout:
-                pickle.dump(self.model, fout, -1)
+            self.save_model(self.export_path)
 
     def creat_my_log(self):
         log_dir = f"{os.environ['HOME']}/experiment/ray_logs"
