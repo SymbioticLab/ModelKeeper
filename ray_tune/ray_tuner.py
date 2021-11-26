@@ -441,6 +441,7 @@ class TrainModel(tune.Trainable):
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         #torch.backends.cudnn.deterministic = True
+        torch.set_num_threads(60)
 
         self.device = device if use_cuda else torch.device("cpu")
         self.tokenizer = self.train_loader = self.test_loader = self.model = None
@@ -617,6 +618,8 @@ class TrainModel(tune.Trainable):
 
 
     def stop(self):
+        self.logger.info(f"Training of {self.model_name} completed with {self.history[self.epoch]}")
+
         if args.use_keeper:
             self.model.to(device='cpu')
             self.model.eval()
@@ -632,9 +635,12 @@ class TrainModel(tune.Trainable):
             # Call the offline API to register the model
             os.system(f"nohup python {os.environ['HOME']}/experiment/ModelKeeper/ray_tune/keeper_offline.py --model_file={export_path} --accuracy={self.history[self.epoch]['acc']} &")
             self.logger.info("Call keeper offline register API")
-
-        self.logger.info(f"Training of {self.model_name} completed with {self.history[self.epoch]}")
-
+        else:
+            local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
+            os.makedirs(local_path, exist_ok=True)
+            export_path = os.path.join(local_path, self.export_path)
+            with open(export_path, 'wb') as fout:
+                pickle.dump(self.model, fout, -1)
 
     def creat_my_log(self):
         log_dir = f"{os.environ['HOME']}/experiment/ray_logs"
@@ -720,8 +726,8 @@ if __name__ == "__main__":
 
     REDUCTION_FACTOR = 1.000001
     GRACE_PERIOD = 7
-    CPU_RESOURCES_PER_TRIAL = 5
-    GPU_RESOURCES_PER_TRIAL = 1
+    CPU_RESOURCES_PER_TRIAL = 10
+    GPU_RESOURCES_PER_TRIAL = 2
 
     METRIC = 'accuracy' if 'nlp' not in args.task else 'loss'
 

@@ -28,20 +28,20 @@ def eval_nlp_nwp(model, test_loader, device=torch.device("cuda")):
     total_loss = 0
     model.eval()
     model = model.to(device=device)
-
+    steps = 1e-3
     for inputs in test_loader:
         inputs = {k: inputs[k].to(device) for k in inputs}
         outputs = model(**inputs)
         loss = outputs.loss
         total_loss += loss.item()
-
-    logging.info(f"Eval loss: {total_loss/len(test_loader)}")
+        steps += 1
+    logging.info(f"Eval loss: {total_loss/steps}")
     return 0, total_loss/len(test_loader)
 
 def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device("cuda"), scheduler=None):
     total_loss = last_loss = cur_step = 0
     model.train()
-    eval_step = 1/4.
+    eval_step = 1/5.
     breakdown_length = int(len(train_loader) * eval_step)
 
     for inputs in train_loader:
@@ -60,7 +60,6 @@ def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device
             break
         if scheduler is not None:
             scheduler.step()
-
         # if cur_step % 100 == 0:
         #     logging.info(f"(step {cur_step}) Avg training loss: {total_loss/cur_step}")
         #     scheduler.step(total_loss-last_loss)
