@@ -18,7 +18,7 @@ parser.add_argument('--user_name', type=str, default='', help='User name in acce
 # Parameters
 parser.add_argument('--neigh_threshold', type=float, default=0.1,
                     help='Threshold of evicting neighbors a if score(a,b)<T and acc(a)<acc(b)')
-parser.add_argument('--zoo_size', type=int, default=10000,
-                    help='Number of models kept in the zoo')
+parser.add_argument('--zoo_capacity', type=int, default=1024*1024*100,
+                    help='Physical capacity (100TB)')
 
 modelkeeper_config, unknown = parser.parse_known_args()

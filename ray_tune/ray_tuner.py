@@ -441,7 +441,7 @@ class TrainModel(tune.Trainable):
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         #torch.backends.cudnn.deterministic = True
-        torch.set_num_threads(args.cpu_cores)
+        #torch.set_num_threads(args.cpu_cores)
 
         self.device = device if use_cuda else torch.device("cpu")
         self.tokenizer = self.train_loader = self.test_loader = self.model = None
@@ -733,8 +733,8 @@ if __name__ == "__main__":
 
     REDUCTION_FACTOR = 1.000001
     GRACE_PERIOD = 7
-    CPU_RESOURCES_PER_TRIAL = 10
-    GPU_RESOURCES_PER_TRIAL = 2
+    CPU_RESOURCES_PER_TRIAL = 2
+    GPU_RESOURCES_PER_TRIAL = 1
 
     METRIC = 'accuracy' if 'nlp' not in args.task else 'loss'
 

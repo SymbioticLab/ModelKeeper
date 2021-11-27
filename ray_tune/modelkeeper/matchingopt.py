@@ -24,6 +24,7 @@ sys.path.append('./modelkeeper')
 from mappingopt import MappingOperator
 # Libs for model clustering
 from clustering import k_medoids
+from evictor import mip
 
 # Call C backend
 clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'backend/bin/matcher.so'))
@@ -35,7 +36,7 @@ distance_lookup = None
 SCORE_THRESHOLD = float('-inf')
 THRESHOLD = 0.1 # more than X% layers can be transferred from the parent
 MAX_MATCH_NODES=1000
-
+HIT_BENEFIT=1.0
 
 log_path = './modelkeeper_log'
 with open(log_path, 'w') as fout:
@@ -154,6 +155,10 @@ class MatchingOperator(object):
 
         self.init_parent_index()
 
+        # for eviction
+        self.model_value = 1.
+        self.model_weight = 1.
+
     def init_parent_index(self):
         # generate a dict of (nodeID) -> (index into nodelist (and thus matrix))
         for (index, nidx) in enumerate(self.parentidx_order):
@@ -170,6 +175,7 @@ class MatchingOperator(object):
                         }
 
         self.meta_data['len_parent'] = len(self.parentidx_order)
+
 
     def align_child(self, child, read_mapping):
         start_time = time.time()
@@ -328,6 +334,12 @@ class MatchingOperator(object):
 
         return strindexes, matches
 
+    def increase_value(self, new_v):
+        self.model_value += new_v
+
+    def update_weight(self, new_w):
+        self.model_weight = new_w
+
 
 def mapping_func(parent_opt, child, read_mapping=False, return_child_name=False):
     parent_name = parent_opt.parent.graph['name']
@@ -370,6 +382,9 @@ class ModelKeeper(object):
         self.skip_opts = {'Constant'}
         self.opt_annotation = set(['key', 'value', 'query'])
         self.outlier_factor = 3.0
+        self.zoo_storage = 0.
+        self.VALUE_DECAY_FACTOR = 0.99
+        self.zoo_capacity = self.args.zoo_capacity
 
         if args.zoo_path is not None:
             self.init_model_zoo(args.zoo_path)
@@ -429,6 +444,10 @@ class ModelKeeper(object):
             if acc >= accuracy_mean - self.outlier_factor*accuracy_std:
                 decent_models.append(m)
 
+        # decay model value by factor
+        for m in self.model_zoo:
+            self.model_zoo[m].model_value *= self.VALUE_DECAY_FACTOR
+
         is_update = False
         for model_path in decent_models:
             logging.info(f"Try to add {model_path} to zoo ...")
@@ -439,22 +458,57 @@ class ModelKeeper(object):
                     model_graph, model_weight = self.load_model_meta(model_path)
                     model_graph.graph['model_id'] = str(self.zoo_model_id)
 
+                    model_size = os.path.getsize(model_path)/1024./1024. # MB
                     #with self.zoo_lock:
                     self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
+                    self.model_zoo[model_path].update_weight(model_size) # MB
 
                     self.zoo_model_id += 1
+                    self.zoo_storage += model_size
                     is_update = True
 
                     logging.info(f"Added {model_path} to zoo ...")
                 except Exception as e:
                     logging.info(f"Error: {e} for {model_path}")
 
+        # Evict models to cap zoo size
+        if is_update and self.zoo_storage > self.zoo_capacity:
+            logging.info(f"Try to evict model to cap size")
+
+            total_util, models_to_evict = self.get_models_evict()
+            size_before_evict = int(self.zoo_storage)
+            util_before_evict = int(sum([self.model_zoo[m].model_value for m in self.model_zoo]))
+
+            logging.info(f"Evict model {[(self.model_zoo[m].model_weight, m) for m in models_to_evict]}")
+
+            self.remove_from_zoo(models_to_evict)
+            
+            logging.info(f"Zoo storage ({size_before_evict} MB, {util_before_evict}) updates to ({int(self.zoo_storage)} MB,"+
+                f" {total_util}), target ({self.zoo_capacity} MB), {len(self.model_zoo)} models left")
+
         # Update model zoo
         if is_update and self.mode_threshold < len(self.model_zoo):
             self.update_model_clusters()
 
 
+    def get_models_evict(self):
+
+        """Solve the knapsack problem to pick models"""
+
+        model_names = list(self.model_zoo.keys())
+        weight_list = [self.model_zoo[m].model_weight for m in model_names]
+        util_list = [self.model_zoo[m].model_value for m in model_names]
+
+        logging.info(weight_list)
+        total_util, res = mip(self.zoo_capacity, weight_list, util_list)
+        evict_models = [model_names[i] for i in range(len(res)) if res[i] == 0]
+        logging.info(res)
+
+        return int(total_util), evict_models
+
+
     def remove_from_zoo(self, model_paths):
+        is_update = False
 
         if not isinstance(model_paths, list):
             model_paths = [model_paths]
@@ -462,12 +516,14 @@ class ModelKeeper(object):
         for model_path in model_paths:
             if model_path in self.model_zoo:
                 #with self.zoo_lock:
+                self.zoo_storage -= self.model_zoo[model_path].model_weight
                 del self.model_zoo[model_path]
+                is_update = True
             else:
                 logging.warning(f"Fail to remove {model_path} from zoo, as it does not exist")
 
         # Update model zoo asyn
-        if self.mode_threshold < len(self.model_zoo):
+        if is_update and self.mode_threshold < len(self.model_zoo):
             self.update_model_clusters()
 
 
@@ -867,6 +923,9 @@ class ModelKeeper(object):
                 }
             logging.info(f"Querying model {child.graph['name']} completes with meta: {meta_data}")
 
+            # update model value
+            self.model_zoo[parent.graph['name']].increase_value(HIT_BENEFIT)
+
         return weights, meta_data
 
 
@@ -1099,3 +1158,4 @@ def test():
 
 #test()
 #test_fake()
+
