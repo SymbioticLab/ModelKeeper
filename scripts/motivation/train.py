@@ -14,6 +14,7 @@ import torchvision.models as tormodels
 import pickle
 import logging
 from vgg import *
+from resnet import *
 
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
                 datefmt='%H:%M:%S',
@@ -32,7 +33,7 @@ parser.add_argument('--epoch', type=int, default=300, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=224, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--lr', type=float, default=0.02, metavar='LR',
+parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)') #0.002
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                     help='SGD momentum (default: 0.5)')
