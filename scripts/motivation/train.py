@@ -60,7 +60,7 @@ if args.cuda:
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
 
-kwargs = {'num_workers': 10, 'pin_memory': True} if args.cuda else {}
+kwargs = {'num_workers': 4, 'pin_memory': True} if args.cuda else {}
 
 train_transform = transforms.Compose(
              [transforms.RandomCrop(32, padding=4),
@@ -136,10 +136,7 @@ elif args.data == 'ImageNet120':
         test_data, batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
 
-try:
-    model = eval(f"{args.model}({data_categories[args.data]})")#
-except Exception as e:
-    model = tormodels.__dict__[args.model](num_classes=data_categories[args.data])
+model = eval(f"{args.model}({data_categories[args.data]})")#
 
 if args.cuda:
     model.cuda()
@@ -313,7 +310,7 @@ vgg13_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg13_bn_cifar10
 model = model.to(device=device)
 
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay) #optim.Adam(model.parameters(), lr=args.lr)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, verbose=True, min_lr=1e-4, factor=0.5) #torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, verbose=True, min_lr=5e-4, factor=0.5) #torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch)
 
 for epoch in range(args.epoch):
     #adjust_learning_rate(optimizer, epoch)
@@ -321,5 +318,5 @@ for epoch in range(args.epoch):
     test_acc, test_loss = test()
     scheduler.step(test_loss)
 
-    if (1+epoch) % 10 == 0:
+    if epoch % 5 == 0:
         dump_model(epoch, optimizer, model)
