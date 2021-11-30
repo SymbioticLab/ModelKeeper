@@ -24,4 +24,5 @@ dependencies:
     - ray[tune]
     - sentencepiece
     - datasets
+    - ortools
     - torch

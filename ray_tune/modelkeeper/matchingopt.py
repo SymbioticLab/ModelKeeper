@@ -18,6 +18,7 @@ from itertools import repeat
 import shutil
 import random
 import numpy as np
+import bisect
 
 sys.path.append('./modelkeeper')
 
@@ -386,6 +387,10 @@ class ModelKeeper(object):
         self.VALUE_DECAY_FACTOR = 0.99
         self.zoo_capacity = self.args.zoo_capacity
 
+        # Bucketing model selection
+        self.bucket_selection = False
+        self.bucket_interval = 10
+
         if args.zoo_path is not None:
             self.init_model_zoo(args.zoo_path)
 
@@ -690,8 +695,7 @@ class ModelKeeper(object):
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
             try:
-                for model, score in executor.map(mapping_func, [self.model_zoo[p] for p in parents],
-                    repeat(child), timeout=timeout):
+                for model, score in executor.map(mapping_func, parents, repeat(child), timeout=timeout):
                     scores.append((model, score))
             except Exception as e:
                 for pid, process in executor._processes.items():
@@ -715,7 +719,7 @@ class ModelKeeper(object):
         medoid_dist = []
 
         if len(medoids) > 0:
-            medoid_dist = self.query_scores(medoids, child, self.args.num_of_processes)
+            medoid_dist = self.query_scores([self.model_zoo[p] for p in medoids], child, self.args.num_of_processes)
             #self.model_clusters.sort(key=lambda k:medoid_dist[k.kernel][1], reverse=True)
             medoid_dist.sort(key=lambda k:k[1], reverse=True)
 
@@ -772,6 +776,27 @@ class ModelKeeper(object):
 
         return parent, mappings, best_score
 
+    def bucketing_selection(self, results, _max, _min):
+        if len(results) == 0:
+            return None, None
+
+        score_range = _max - _min + 1e-4
+        _gap = score_range/self.bucket_interval
+
+        bucket_boundary = [i*_gap for i in range(self.bucket_interval)]
+        buckets = [[] for _ in range(self.bucket_interval)]
+
+        for (p, s) in results:
+            norm_score = (s-_min)/score_range
+            bucket_id = min(bisect.bisect_left(bucket_boundary, norm_score), self.bucket_interval-1)
+            buckets[bucket_id].append((p, s, self.model_zoo[p].parent.graph['accuracy']))
+
+        for i in range(self.bucket_interval-1, -1, -1):
+            if len(buckets[i]) > 0:
+                p, s = max(buckets[i], key=lambda k:k[-1])
+                return p, s
+
+        return None, None
 
     def get_best_mapping(self, child, blacklist=set(), model_name=None, return_weight=True, timeout=180):
         """
@@ -781,16 +806,27 @@ class ModelKeeper(object):
         self.query_model = child
 
         parent_models = [model for model in self.model_zoo.keys() if model not in blacklist]
-        results = self.query_scores(parent_models, child, self.args.num_of_processes)
+        results = self.query_scores([self.model_zoo[p] for p in parent_models]+[MatchingOperator(child)], child, self.args.num_of_processes)
 
         parent_path = mappings = parent = None
-        best_score = SCORE_THRESHOLD
+        best_score, self_score = SCORE_THRESHOLD, 0
+        worst_score = -float('inf')
 
+        matching_results = []
         for (p, s) in results:
             #logging.info(f"For mapping pair ({model_name}, {p.graph['name']}) score is {s}")
             logging.info(f"For mapping pair ({model_name}, {p}) score is {s}")
-            if s > best_score:
-                parent_path, best_score = p, s
+            if p != child.graph['name']:
+                if s > best_score:
+                    parent_path, best_score = p, s
+                if s < worst_score:
+                    worst_score = s 
+                matching_results.append((p, s))
+            else:
+                self_score = s
+
+        if self.bucket_selection == True:
+            parent_path, best_score = self.bucketing_selection(matching_results, self_score, worst_score)
 
         if parent_path is not None and return_weight:
             with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
@@ -1058,104 +1094,4 @@ class ModelKeeper(object):
         except Exception as e:
             # Python > 3.4 will throw errors
             pass
-
-
-def faked_graph():
-    graph = nx.DiGraph(name='faked')
-    attr1={'dims': [64, 32, 3, 3], 'op_type': 'cov1',}
-
-    graph.add_node(0, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'0'})
-
-    graph.add_node(1, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'1'})
-    graph.add_node(2, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
-
-    #graph.add_node(5, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'5'})
-    #graph.add_node(3, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
-
-    graph.add_node(4, attr={'dims': [5, 32, 3, 3], 'op_type': 'cov1', 'name':'4'})
-
-    graph.add_edge(0, 1)
-    graph.add_edge(1, 2)
-    graph.add_edge(2, 4)
-    #graph.add_edge(0, 5)
-    #graph.add_edge(5, 3)
-    #graph.add_edge(3, 4)
-
-    return graph
-
-def faked_graph2():
-    graph = nx.DiGraph(name='faked')
-    attr1={'dims': [64, 32, 3, 3], 'op_type': 'cov1',}
-
-    graph.add_node(0, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'0'})
-
-    graph.add_node(1, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'1'})
-    graph.add_node(2, attr={'dims': [1, 32, 3, 3], 'op_type': 'cov1', 'name':'2'})
-
-    graph.add_node(5, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'5'})
-    graph.add_node(3, attr={'dims': [2, 32, 3, 3], 'op_type': 'cov1', 'name':'3'})
-
-    graph.add_node(4, attr={'dims': [5, 32, 3, 3], 'op_type': 'cov1', 'name':'4'})
-
-    graph.add_edge(0, 1)
-    graph.add_edge(1, 2)
-    graph.add_edge(2, 4)
-    graph.add_edge(0, 5)
-    graph.add_edge(5, 3)
-    graph.add_edge(3, 4)
-
-    return graph
-
-
-def mapping_faked(parent, child_graph):
-    opt = MatchingOperator(parent=parent)
-    mappings, score = opt.get_mappings(child=child_graph)
-
-    logging.info(opt.alignmentStrings()[0])
-    logging.info("\n\n")
-    logging.info(opt.alignmentStrings()[1])
-    logging.info("\n\n")
-    logging.info(opt.graphStrings()[0])
-    logging.info("\n\n")
-    logging.info(opt.graphStrings()[1])
-    return (parent, mappings, score)
-
-def test_fake():
-    parent, child = faked_graph(), faked_graph2()
-
-    mapper = MatchingOperator(parent=parent)
-    logging.info(mapper.get_mappings(child))
-
-
-def test():
-    # import argparse
-
-    # start_time = time.time()
-    # zoo_path = '/mnt/zoo/tests/'
-
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('--zoo_path', type=str, default=zoo_path)
-    # parser.add_argument('--num_of_processes', type=int, default=30)
-    # parser.add_argument('--neigh_threshold', type=float, default=0.05)
-
-    # args = parser.parse_args()
-    from config import modelkeeper_config
-    zoo_path = '/users/fanlai/experiment/temp_zoo'
-    modelkeeper_config.zoo_path = zoo_path
-
-    mapper = ModelKeeper(modelkeeper_config)
-
-    #models = ["resnesta18@0.6394.onnx"]
-    models = os.listdir(zoo_path)
-
-    for model in models:
-        child_onnx_path = os.path.join(zoo_path, model)
-        weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([child_onnx_path]))
-
-        logging.info("\n\nMatching {}, results: {}\n".format(child_onnx_path, meta_data))
-
-    # time.sleep(40)
-
-#test()
-#test_fake()
 
