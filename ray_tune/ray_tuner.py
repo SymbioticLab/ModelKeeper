@@ -558,11 +558,14 @@ class TrainModel(tune.Trainable):
 
         if self.use_keeper and self.meta_info:
             # the first two epoch to warm up
-            if self.epoch == 0:
-                warm_up_lr = args.lr * max(0.5, 1.-self.meta_info['num_of_matched']/self.meta_info['parent_layers'])
+            if self.epoch < args.warm_start_epoch:
+                tranferred_lr = max(0.2, 1.-meta_info['num_of_matched']/meta_info['parent_layers'])
+                warm_up_lr = args.lr*((1.-tranferred_lr)/args.warm_start_epoch * epoch + tranferred_lr)
                 change_opt_lr(self.optimizer, warm_up_lr)
+                # warm_up_lr = args.lr * max(0.5, 1.-self.meta_info['num_of_matched']/self.meta_info['parent_layers'])
+                # change_opt_lr(self.optimizer, warm_up_lr)
             # roll back to the original lr
-            elif self.epoch == 2:
+            elif self.epoch == args.warm_start_epoch:
                 change_opt_lr(self.optimizer, args.lr)
 
         # Automatically change batch size if OOM
@@ -689,6 +692,7 @@ if __name__ == "__main__":
                         help='how many batches to wait before logging status')
     parser.add_argument('--data', type=str, default='cifar100')
     parser.add_argument('--cpu-cores', type=int, default=39)
+    parser.add_argument('--warm-start-epoch', type=int, default=5)
     parser.add_argument('--dataset', type=str, default=f'{os.environ["HOME"]}/experiment/data')
     parser.add_argument('--trace', type=str, default=f'{os.environ["HOME"]}/experiment/ModelKeeper/ray_tune/workloads/torchcv_list.csv')
     parser.add_argument('--meta', type=str, default=f'{os.environ["HOME"]}/experiment/data')
@@ -823,4 +827,3 @@ if __name__ == "__main__":
 
     # if keeper_service is not None:
     #     keeper_service.stop_service()
-
