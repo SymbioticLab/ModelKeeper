@@ -11,8 +11,8 @@ def gen_model_zoo(path):
             _, _, model = pickle.load(fin), pickle.load(fin), pickle.load(fin)
 
         model = model.to(device='cpu')
-        torch.onnx.export(model, dummy_input, file.replace('.pkl', '.onnx'), 
-                        export_params=True, verbose=0, training=1)
+        torch.onnx.export(model, dummy_input, file.replace('.pkl', '.onnx'),
+                        export_params=True, verbose=0, training=1, do_constant_folding=False)
 
         print(f"Done {file} ...")
 

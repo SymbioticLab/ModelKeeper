@@ -33,7 +33,7 @@ def register_model(model_file, export_path, accuracy):
         dummpy_input = pickle.load(fin)
 
     #os.remove(model_file)
-    torch.onnx.export(model, dummpy_input, export_path, export_params=True, verbose=0, training=1)
+    torch.onnx.export(model, dummpy_input, export_path, export_params=True, verbose=0, training=1, do_constant_folding=False)
 
     # register model to the zoo
     modelkeeper_client = ModelKeeperClient(modelkeeper_config)
