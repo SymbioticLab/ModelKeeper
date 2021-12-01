@@ -388,8 +388,8 @@ class ModelKeeper(object):
         self.zoo_capacity = self.args.zoo_capacity
 
         # Bucketing model selection
-        self.bucket_selection = False
-        self.bucket_interval = 10
+        self.bucket_selection = args.bucketing_selection
+        self.bucket_interval = args.bucket_interval
 
         if args.zoo_path is not None:
             self.init_model_zoo(args.zoo_path)
@@ -487,7 +487,7 @@ class ModelKeeper(object):
             logging.info(f"Evict model {[(self.model_zoo[m].model_weight, m) for m in models_to_evict]}")
 
             self.remove_from_zoo(models_to_evict)
-            
+
             logging.info(f"Zoo storage ({size_before_evict} MB, {util_before_evict}) updates to ({int(self.zoo_storage)} MB,"+
                 f" {total_util}), target ({self.zoo_capacity} MB), {len(self.model_zoo)} models left")
 
@@ -781,9 +781,8 @@ class ModelKeeper(object):
             return None, None
 
         score_range = _max - _min + 1e-4
-        _gap = score_range/self.bucket_interval
 
-        bucket_boundary = [i*_gap for i in range(self.bucket_interval)]
+        bucket_boundary = [i*1./self.bucket_interval for i in range(self.bucket_interval)]
         buckets = [[] for _ in range(self.bucket_interval)]
 
         for (p, s) in results:
@@ -791,9 +790,10 @@ class ModelKeeper(object):
             bucket_id = min(bisect.bisect_left(bucket_boundary, norm_score), self.bucket_interval-1)
             buckets[bucket_id].append((p, s, self.model_zoo[p].parent.graph['accuracy']))
 
+        logging.info(f"bucketing information:\n{buckets}\n, max {_max}, min {_min}")
         for i in range(self.bucket_interval-1, -1, -1):
             if len(buckets[i]) > 0:
-                p, s = max(buckets[i], key=lambda k:k[-1])
+                (p, s, a) = max(buckets[i], key=lambda k:k[-1])
                 return p, s
 
         return None, None
@@ -810,7 +810,7 @@ class ModelKeeper(object):
 
         parent_path = mappings = parent = None
         best_score, self_score = SCORE_THRESHOLD, 0
-        worst_score = -float('inf')
+        worst_score = float('inf')
 
         matching_results = []
         for (p, s) in results:
@@ -820,7 +820,7 @@ class ModelKeeper(object):
                 if s > best_score:
                     parent_path, best_score = p, s
                 if s < worst_score:
-                    worst_score = s 
+                    worst_score = s
                 matching_results.append((p, s))
             else:
                 self_score = s

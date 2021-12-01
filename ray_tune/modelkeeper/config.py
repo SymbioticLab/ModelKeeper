@@ -20,5 +20,7 @@ parser.add_argument('--neigh_threshold', type=float, default=0.1,
                     help='Threshold of evicting neighbors a if score(a,b)<T and acc(a)<acc(b)')
 parser.add_argument('--zoo_capacity', type=int, default=1024*1024*100,
                     help='Physical capacity (100TB)')
+parser.add_argument('--bucketing_selection', action='store_true', default=False)
+parser.add_argument('--bucket_interval', type=int, default=10)
 
 modelkeeper_config, unknown = parser.parse_known_args()
