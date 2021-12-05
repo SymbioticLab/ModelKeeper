@@ -1,3 +1,5 @@
+import os, sys
+sys.path.append(f'{os.environ["HOME"]}/experiment/ModelKeeper/ray_tune/modelkeeper')
 from modelkeeper.config import modelkeeper_config
 from modelkeeper.matchingopt import ModelKeeper
 
@@ -6,7 +8,7 @@ import logging
 import pickle
 import torch
 import time
-import os, sys
+#import os, sys
 
 log_path = './modelkeeper_log'
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
