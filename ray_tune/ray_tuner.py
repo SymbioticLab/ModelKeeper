@@ -785,7 +785,7 @@ if __name__ == "__main__":
     REDUCTION_FACTOR = 1.000001
     GRACE_PERIOD = 7
     CPU_RESOURCES_PER_TRIAL = 2
-    GPU_RESOURCES_PER_TRIAL = 1
+    GPU_RESOURCES_PER_TRIAL = 2
 
     METRIC = 'accuracy' if 'nlp' not in args.task else 'loss'
 
