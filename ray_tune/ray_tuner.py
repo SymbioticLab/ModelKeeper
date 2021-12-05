@@ -574,8 +574,10 @@ class TrainModel(tune.Trainable):
             self.meta_info = pickle.load(fin)
         #weights, self.meta_info = mapper.map_for_onnx(model_export, set([]), model_name.split('/')[-1])
         failed_layers = 0
+        total_layers = 0
         if weights is not None:
             for name, p in self.model.named_parameters():
+                total_layers += 1
                 try:
                     temp_data = (torch.from_numpy(weights[name])).data
                     assert(temp_data.shape == p.data.shape)
@@ -584,7 +586,7 @@ class TrainModel(tune.Trainable):
                     self.logger.error(f"Fail to load weight for {self.model_name}, as {e}")
                     failed_layers += 1
 
-        self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {self.meta_info}, {failed_layers} layers failed to load")
+        self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {self.meta_info}, {failed_layers}/{total_layers} layers failed to load")
 
     def step(self):
         start_time = time.time()
@@ -596,8 +598,9 @@ class TrainModel(tune.Trainable):
             self.train_loader, self.test_loader, [max_len_train, max_len_test] = \
                 get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name)
             self.model = load_nwp_model(self.temp_model_name, max(max_len_train, max_len_test))
+
             WARMUP_STEPS = int(0.2*len(self.train_loader))
-            self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=8e-5, eps=1e-8)
+            self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=args.lr, eps=1e-8)
             self.scheduler = get_linear_schedule_with_warmup(self.optimizer, num_warmup_steps=WARMUP_STEPS,
                                             num_training_steps=len(self.train_loader)*6)
 
@@ -612,9 +615,18 @@ class TrainModel(tune.Trainable):
                 #change_opt_lr(self.optimizer, warm_up_lr)
                 warm_up_lr = args.lr * max(0.5, 1.-self.meta_info['num_of_matched']/self.meta_info['parent_layers'])
                 change_opt_lr(self.optimizer, warm_up_lr)
+
+                # tricky linear scheduler
+                if args.task == 'nlp_nwp':
+                    for idx in range(len(self.scheduler.base_lrs)):
+                        self.scheduler.base_lrs[idx] = warm_up_lr
+
             # roll back to the original lr
             elif self.epoch == args.warm_start_epoch:
                 change_opt_lr(self.optimizer, args.lr)
+                if args.task == 'nlp_nwp':
+                    for idx in range(len(self.scheduler.base_lrs)):
+                        self.scheduler.base_lrs[idx] = args.lr
 
         # Automatically change batch size if OOM
         recovery_trials = 3
