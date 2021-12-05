@@ -485,7 +485,10 @@ class TrainModel(tune.Trainable):
         self.export_path = self.model_name + '.onnx'
 
         if self.task == "nlp_nwp":
-            pass
+            if self.use_keeper:
+                zoo_path = '/users/fanlai/experiment/data/my_zoo'
+                modelkeeper_config.zoo_path = zoo_path
+                self.mapper = ModelKeeper(modelkeeper_config)
         else:
             self.train_loader, self.test_loader, _ = \
                 get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name)
@@ -551,8 +554,7 @@ class TrainModel(tune.Trainable):
         self.model.eval()
         self.model.to(device='cpu')
 
-        modelkeeper_config.zoo_path = zoo_path
-        mapper = ModelKeeper(modelkeeper_config)
+        mapper = self.mapper
 
         model_folders = os.listdir(zoo_path)
         models = []
