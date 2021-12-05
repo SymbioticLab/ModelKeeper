@@ -573,7 +573,7 @@ class TrainModel(tune.Trainable):
             weights = pickle.load(fin)
             self.meta_info = pickle.load(fin)
         #weights, self.meta_info = mapper.map_for_onnx(model_export, set([]), model_name.split('/')[-1])
-
+        failed_layers = 0
         if weights is not None:
             for name, p in self.model.named_parameters():
                 try:
@@ -582,8 +582,9 @@ class TrainModel(tune.Trainable):
                     p.data = temp_data.to(dtype=p.data.dtype)
                 except Exception as e:
                     self.logger.error(f"Fail to load weight for {self.model_name}, as {e}")
+                    failed_layers += 1
 
-        self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {self.meta_info}")
+        self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {self.meta_info}, {failed_layers} layers failed to load")
 
     def step(self):
         start_time = time.time()
@@ -785,7 +786,7 @@ if __name__ == "__main__":
     REDUCTION_FACTOR = 1.000001
     GRACE_PERIOD = 7
     CPU_RESOURCES_PER_TRIAL = 2
-    GPU_RESOURCES_PER_TRIAL = 2
+    GPU_RESOURCES_PER_TRIAL = 1
 
     METRIC = 'accuracy' if 'nlp' not in args.task else 'loss'
 
