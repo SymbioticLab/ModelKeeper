@@ -28,6 +28,7 @@ from torchvision import datasets, transforms
 import socket
 from random import Random
 from collections import defaultdict, deque
+from torch.onnx import TrainingMode
 
 import sys
 from utils.ImageNet import ImageNet16
@@ -523,13 +524,13 @@ class TrainModel(tune.Trainable):
         # Create a session to modelkeeper server
         modelkeeper_client = ModelKeeperClient(modelkeeper_config)
 
-        self.model.eval()
+        #self.model.eval()
         self.model.to(device='cpu')
 
         dummy_input = torch.rand(2, 3, 32, 32)
         # export to onnx format; Some models may be slow in onnx
         torch.onnx.export(self.model, dummy_input, self.export_path,
-            export_params=True, verbose=0, training=1, do_constant_folding=False)
+            export_params=True, verbose=0, training=TrainingMode.TRAINING, do_constant_folding=False)
 
         weights, self.meta_info = modelkeeper_client.query_for_model(self.export_path)
 
@@ -551,7 +552,7 @@ class TrainModel(tune.Trainable):
         path = os.environ["HOME"]
         pure_name = self.model_name
 
-        self.model.eval()
+        #self.model.eval()
         self.model.to(device='cpu')
 
         text = "Replace me by any text you'd like."
@@ -563,7 +564,7 @@ class TrainModel(tune.Trainable):
         os.makedirs(os.path.join(path, pure_name+'_query'), exist_ok=True)
         model_export = os.path.join(path, pure_name+'_query', f"{pure_name}.onnx")
         torch.onnx.export(self.model, dummy_inputs,
-            model_export, export_params=True, verbose=0, training=1, opset_version=13,
+            model_export, export_params=True, verbose=0, training=TrainingMode.TRAINING, opset_version=13,
             do_constant_folding=False, use_external_data_format=True,
             input_names=input_names)
 
