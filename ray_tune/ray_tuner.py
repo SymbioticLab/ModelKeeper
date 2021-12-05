@@ -31,6 +31,7 @@ from collections import defaultdict, deque
 
 import sys
 from utils.ImageNet import ImageNet16
+sys.path.append(f'{os.environ["HOME"]}/experiment/ModelKeeper/ray_tune/modelkeeper')
 
 # ModelKeeper dependency
 from modelkeeper.config import modelkeeper_config
@@ -290,7 +291,7 @@ def get_args_pair(inputs, _args, _default):
         arg_inputs.append(inputs.get(_arg, _default[idx]))
     return tuple(arg_inputs)
 
-    
+
 def change_opt_lr(optim, lr):
     for g in optim.param_groups:
         g['lr'] = lr
@@ -564,13 +565,13 @@ class TrainModel(tune.Trainable):
 
         text = "Replace me by any text you'd like."
         encoded_input = self.tokenizer(text, return_tensors='pt')
-        
+
         input_names = inspect.getargspec(self.model.forward).args[1:]
         dummy_inputs = get_args_pair(encoded_input, input_names, inspect.getargspec(self.model.forward).defaults)
 
         os.makedirs(os.path.join(path, pure_name+'_query'), exist_ok=True)
         model_export = os.path.join(path, pure_name+'_query', f"{pure_name}.onnx")
-        torch.onnx.export(self.model, dummy_inputs, 
+        torch.onnx.export(self.model, dummy_inputs,
             model_export, export_params=True, verbose=0, training=1, opset_version=13,
             do_constant_folding=False, use_external_data_format=True,
             input_names=input_names)
