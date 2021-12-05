@@ -485,10 +485,7 @@ class TrainModel(tune.Trainable):
         self.export_path = self.model_name + '.onnx'
 
         if self.task == "nlp_nwp":
-            if self.use_keeper:
-                zoo_path = '/users/fanlai/experiment/data/my_zoo'
-                modelkeeper_config.zoo_path = zoo_path
-                self.mapper = ModelKeeper(modelkeeper_config)
+            pass
         else:
             self.train_loader, self.test_loader, _ = \
                 get_data_loaders(args.batch_size, args.test_batch_size, self.tokenizer, self.model_name)
@@ -550,20 +547,12 @@ class TrainModel(tune.Trainable):
 
     def warm_start_local(self):
         start_matching = time.time()
-        zoo_path = '/users/fanlai/experiment/data/my_zoo'
+        zoo_path = f'{os.environ["HOME"]}/experiment/data/my_zoo'
+        path = os.environ["HOME"]
+        pure_name = self.model_name
+
         self.model.eval()
         self.model.to(device='cpu')
-
-        mapper = self.mapper
-
-        model_folders = os.listdir(zoo_path)
-        models = []
-        for idx, model_path in enumerate(model_folders):
-            if os.path.isdir(os.path.join(zoo_path, model_path)):
-                model_name = [x for x in os.listdir(os.path.join(zoo_path, model_path)) if '.onnx' in x]
-                if len(model_name) == 1:
-                    models.append(os.path.join(zoo_path, model_path, model_name[0]))
-                    mapper.add_to_zoo(models[-1])
 
         text = "Replace me by any text you'd like."
         encoded_input = self.tokenizer(text, return_tensors='pt')
@@ -578,7 +567,12 @@ class TrainModel(tune.Trainable):
             do_constant_folding=False, use_external_data_format=True,
             input_names=input_names)
 
-        weights, self.meta_info = mapper.map_for_onnx(model_export, set([]), model_name.split('/')[-1])
+        os.system(f"python {os.environ['HOME']}/experiment/ModelKeeper/ray_tune/local_keeper.py {model_export}")
+
+        with open(f"{model_export}_keeper.pkl", 'rb') as fin:
+            weights = pickle.load(fin)
+            self.meta_info = pickle.load(fin)
+        #weights, self.meta_info = mapper.map_for_onnx(model_export, set([]), model_name.split('/')[-1])
 
         if weights is not None:
             for name, p in self.model.named_parameters():
