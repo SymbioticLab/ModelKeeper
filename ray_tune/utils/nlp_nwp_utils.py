@@ -41,7 +41,7 @@ def eval_nlp_nwp(model, test_loader, device=torch.device("cuda")):
 def train_nlp_nwp(model, tokenizer, train_loader, optimizer, device=torch.device("cuda"), scheduler=None):
     total_loss = last_loss = cur_step = 0
     model.train()
-    eval_step = 1/200.
+    eval_step = 1/20.
     breakdown_length = int(len(train_loader) * eval_step)
 
     for inputs in train_loader:

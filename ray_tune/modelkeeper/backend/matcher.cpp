@@ -207,7 +207,7 @@ inline double Matcher::cal_score(Node parent_node, Node child_node){
         //double match_score = inherited_param/max(num_parent_param, num_child_param);
 
         // lose too much information
-        if (match_score > 0.25) {
+        if (match_score > 0.4) {
             return match_score * _matchscore;
         }
 

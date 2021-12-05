@@ -288,10 +288,12 @@ def get_model(temp_model_name):
 
 def get_args_pair(inputs, _args, _default):
     arg_inputs = []
+    input_names = []
     for idx, _arg in enumerate(_args):
-        arg_inputs.append(inputs.get(_arg, _default[idx]))
-    return tuple(arg_inputs)
-
+        if _arg in inputs:
+            arg_inputs.append(inputs[_arg])#inputs.get(_arg, _default[idx]))
+            input_names.append(_arg)
+    return tuple(arg_inputs), input_names
 
 def change_opt_lr(optim, lr):
     for g in optim.param_groups:
@@ -552,17 +554,18 @@ class TrainModel(tune.Trainable):
         path = os.environ["HOME"]
         pure_name = self.model_name
 
-        #self.model.eval()
-        self.model.to(device='cpu')
+        self.model = self.model.train()
+        self.model = self.model.to(device='cpu')
 
         text = "Replace me by any text you'd like."
         encoded_input = self.tokenizer(text, return_tensors='pt')
 
         input_names = inspect.getargspec(self.model.forward).args[1:]
-        dummy_inputs = get_args_pair(encoded_input, input_names, inspect.getargspec(self.model.forward).defaults)
+        dummy_inputs, input_names = get_args_pair(encoded_input, input_names, inspect.getargspec(self.model.forward).defaults)
 
         os.makedirs(os.path.join(path, pure_name+'_query'), exist_ok=True)
         model_export = os.path.join(path, pure_name+'_query', f"{pure_name}.onnx")
+
         torch.onnx.export(self.model, dummy_inputs,
             model_export, export_params=True, verbose=0, training=TrainingMode.TRAINING, opset_version=13,
             do_constant_folding=False, use_external_data_format=True,
@@ -573,6 +576,7 @@ class TrainModel(tune.Trainable):
         with open(f"{model_export}_keeper.pkl", 'rb') as fin:
             weights = pickle.load(fin)
             self.meta_info = pickle.load(fin)
+
         #weights, self.meta_info = mapper.map_for_onnx(model_export, set([]), model_name.split('/')[-1])
         failed_layers = 0
         total_layers = 0

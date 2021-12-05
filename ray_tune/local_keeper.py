@@ -34,13 +34,12 @@ def mapper_model(model_export):
           if len(model_name) == 1:
               models.append(os.path.join(zoo_path, model_path, model_name[0]))
               mapper.add_to_zoo(models[-1])
-              #if query_model_name in models[-1]:
-              #  black_list.append(models[-1])
+              if query_model_name in models[-1]:
+                black_list.append(models[-1])
 
   weights, meta_info = mapper.map_for_onnx(model_export, set(black_list), query_model_name)
-
   with open(f"{model_export}_keeper.pkl", 'wb') as fout:
-    pickle.dump(weights, fout)
-    pickle.dump(meta_info, fout)
+    pickle.dump(weights, fout, -1)
+    pickle.dump(meta_info, fout, -1)
 
 mapper_model(sys.argv[1])

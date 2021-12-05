@@ -36,7 +36,7 @@ random.seed(1)
 distance_lookup = None
 SCORE_THRESHOLD = float('-inf')
 THRESHOLD = 0.1 # more than X% layers can be transferred from the parent
-MAX_MATCH_NODES=1000
+MAX_MATCH_NODES=5000
 HIT_BENEFIT=1.0
 
 log_path = './modelkeeper_log'
@@ -941,7 +941,7 @@ class ModelKeeper(object):
 
         # if mappings is not None:
         #     assert (any([x[0]!=x[1] for x in mappings))
-            #print(mappings, f"\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
+        logging.info(f"{mappings}\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
 
         if parent is not None:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
