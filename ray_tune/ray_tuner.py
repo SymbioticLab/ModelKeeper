@@ -284,6 +284,13 @@ def get_model(temp_model_name):
     args_model['name'] = model_type
     return args_model
 
+def get_args_pair(inputs, _args, _default):
+    arg_inputs = []
+    for idx, _arg in enumerate(_args):
+        arg_inputs.append(inputs.get(_arg, _default[idx]))
+    return tuple(arg_inputs)
+
+    
 def change_opt_lr(optim, lr):
     for g in optim.param_groups:
         g['lr'] = lr
@@ -441,7 +448,7 @@ class TrainModel(tune.Trainable):
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         #torch.backends.cudnn.deterministic = True
-        #torch.set_num_threads(args.cpu_cores)
+        torch.set_num_threads(args.cpu_cores)
 
         self.device = device if use_cuda else torch.device("cpu")
         self.tokenizer = self.train_loader = self.test_loader = self.model = None
@@ -537,6 +544,49 @@ class TrainModel(tune.Trainable):
         self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {self.meta_info}")
         modelkeeper_client.stop()
 
+    def warm_start_local(self):
+        start_matching = time.time()
+        zoo_path = '/users/fanlai/experiment/data/my_zoo'
+        self.model.eval()
+        self.model.to(device='cpu')
+
+        modelkeeper_config.zoo_path = zoo_path
+        mapper = ModelKeeper(modelkeeper_config)
+
+        model_folders = os.listdir(zoo_path)
+        models = []
+        for idx, model_path in enumerate(model_folders):
+            if os.path.isdir(os.path.join(zoo_path, model_path)):
+                model_name = [x for x in os.listdir(os.path.join(zoo_path, model_path)) if '.onnx' in x]
+                if len(model_name) == 1:
+                    models.append(os.path.join(zoo_path, model_path, model_name[0]))
+                    mapper.add_to_zoo(models[-1])
+
+        text = "Replace me by any text you'd like."
+        encoded_input = self.tokenizer(text, return_tensors='pt')
+        
+        input_names = inspect.getargspec(self.model.forward).args[1:]
+        dummy_inputs = get_args_pair(encoded_input, input_names, inspect.getargspec(self.model.forward).defaults)
+
+        os.makedirs(os.path.join(path, pure_name+'_query'), exist_ok=True)
+        model_export = os.path.join(path, pure_name+'_query', f"{pure_name}.onnx")
+        torch.onnx.export(self.model, dummy_inputs, 
+            model_export, export_params=True, verbose=0, training=1, opset_version=13,
+            do_constant_folding=False, use_external_data_format=True,
+            input_names=input_names)
+
+        weights, self.meta_info = mapper.map_for_onnx(model_export, set([]), model_name.split('/')[-1])
+
+        if weights is not None:
+            for name, p in self.model.named_parameters():
+                try:
+                    temp_data = (torch.from_numpy(weights[name])).data
+                    assert(temp_data.shape == p.data.shape)
+                    p.data = temp_data.to(dtype=p.data.dtype)
+                except Exception as e:
+                    self.logger.error(f"Fail to load weight for {self.model_name}, as {e}")
+
+        self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {self.meta_info}")
 
     def step(self):
         start_time = time.time()
@@ -554,7 +604,7 @@ class TrainModel(tune.Trainable):
                                             num_training_steps=len(self.train_loader)*6)
 
             if self.use_keeper:
-                self.warm_start()
+                self.warm_start_local()
 
         if self.use_keeper and self.meta_info:
             # the first two epoch to warm up
@@ -633,7 +683,7 @@ class TrainModel(tune.Trainable):
     def stop(self):
         self.logger.info(f"Training of {self.model_name} completed with {self.history[self.epoch]}")
 
-        if args.use_keeper:
+        if args.use_keeper and args.task != 'nlp_nwp':
             self.model.to(device='cpu')
             self.model.eval()
             local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
