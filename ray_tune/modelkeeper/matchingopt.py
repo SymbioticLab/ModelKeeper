@@ -147,7 +147,7 @@ class MatchingOperator(object):
         self.childNodeIDtoIndex = {}
 
         self.parentidx_order = topological_sorting(self.parent)
-        self.parentPrevIndicesList = []
+        self.parentPrevIndicesList = {}
 
         self.match_res = None
         self.meta_data = {}
@@ -166,13 +166,13 @@ class MatchingOperator(object):
             self.nodeIDtoIndex[nidx] = index
 
         # initiate prevs for parent and child graph
-        self.parentPrevIndicesList = []
+        self.parentPrevIndicesList = {}
         for (index, nidx) in enumerate(self.parentidx_order):
-            self.parentPrevIndicesList.append(self.parentPrevIndices(nidx))
+            self.parentPrevIndicesList[nidx] = self.parentPrevIndices(nidx)
 
         self.meta_data['parent']= {'opts':[self.parent.nodes[x]['attr']['op_type'] for x in self.parentidx_order],
                                   'dims':[self.parent.nodes[x]['attr']['dims'] for x in self.parentidx_order],
-                                  'parents':[self.parentPrevIndicesList[i] for i in range(len(self.parentidx_order))]
+                                  'parents':[self.parentPrevIndicesList[x] for x in self.parentidx_order]
                         }
 
         self.meta_data['len_parent'] = len(self.parentidx_order)
@@ -183,7 +183,6 @@ class MatchingOperator(object):
 
         # reset all parameters
         self.child = child
-        self.parentPrevIndicesList = []
         self.childNodeIDtoIndex = {}
 
         self.childidx_order = topological_sorting(self.child)
@@ -240,7 +239,8 @@ class MatchingOperator(object):
         self.meta_data['len_child'] = len(self.childidx_order)
         self.meta_data['child'] = {'opts':[self.child.nodes[x]['attr']['op_type'] for x in self.childidx_order],
                                    'dims':[self.child.nodes[x]['attr']['dims'] for x in self.childidx_order],
-                                   'parents':[self.childPrevIndicesList[x]  for x in self.childidx_order]}
+                                   'parents':[self.childPrevIndicesList[x] for x in self.childidx_order]}#,
+                                   ##'out_degrees':[self.child.out_degree(x) for x in self.childidx_order]}
         json_str = json.dumps(self.meta_data)
 
         return json_str
@@ -332,7 +332,6 @@ class MatchingOperator(object):
 
         strindexes.reverse()
         matches.reverse()
-
         return strindexes, matches
 
     def increase_value(self, new_v):
@@ -467,7 +466,6 @@ class ModelKeeper(object):
                     #with self.zoo_lock:
                     self.model_zoo[model_path] = MatchingOperator(parent=model_graph)
                     self.model_zoo[model_path].update_weight(model_size) # MB
-
                     self.zoo_model_id += 1
                     self.zoo_storage += model_size
                     is_update = True
@@ -681,7 +679,9 @@ class ModelKeeper(object):
             for input_node in input_nodes:
                 for s in edge_source[input_node]:
                     graph.add_edge(s, idx)
-
+        # import matplotlib.pyplot as plt
+        # nx.draw_spectral(graph,node_size=10, arrowsize=5)
+        # plt.savefig(f"{graph.graph['name']}.pdf")
         return graph, onnx_model
 
 
@@ -840,8 +840,8 @@ class ModelKeeper(object):
                     logging.warning(f"Query scores for {child.graph['name']} fails, as: {e}")
 
         if parent is not None:
-            logging.info("{} find best mappings {} (score: {}) takes {:.2f} sec\n\n".format(
-                        child.graph['name'], parent.graph['name'], round(best_score,4), time.time() - start_time))
+            logging.info("{} find best mappings {} (score: {}, {}) takes {:.2f} sec\n\n".format(
+                        child.graph['name'], parent.graph['name'], round(best_score,4), round(best_score/self_score, 4), time.time() - start_time))
         else:
             logging.info("{} does not find best mapping, takes {:.2f} sec\n\n".format(
                         child.graph['name'], time.time() - start_time))
@@ -939,9 +939,15 @@ class ModelKeeper(object):
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
 
-        # if mappings is not None:
+        #if mappings is not None:
+        #    for p, s in mappings:
+        #        if p != s:
+        #           logging.info(f"Mismatch {parent.nodes[p]} to {child.nodes[s]}")
         #     assert (any([x[0]!=x[1] for x in mappings))
-        logging.info(f"{mappings}\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
+        #for n in range(parent.number_of_nodes()):
+        #    logging.info(f"{n}, {parent.nodes[n]}, {parent.in_degree(n)}, {parent.out_degree(n)}")
+            #logging.info(f"{[(n, parent.nodes[n]) for n in range(parent.number_of_nodes())]}")
+        logging.info(f"{sorted(mappings)}\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
 
         if parent is not None:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
@@ -1094,4 +1100,5 @@ class ModelKeeper(object):
         except Exception as e:
             # Python > 3.4 will throw errors
             pass
+
 

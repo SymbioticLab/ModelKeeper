@@ -1,1 +1,3 @@
+gcc matcher.cpp -fPIC -shared -o matcher.so -std=c++11
 gcc matcher.cpp -fPIC -shared -o2 matcher.so -std=c++11
+mv matcher.so ./bin/

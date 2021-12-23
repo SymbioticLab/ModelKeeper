@@ -13,14 +13,14 @@
 using json=nlohmann::json;
 
 #define MATCH 1
-#define MISMATCH 0
+#define MISMATCH -1
 #define DEL -1
-#define INS -2
+#define INS 0
 
 #define _matchscore 1
-#define _mismatchscore -2 // may miss better skip/insert, so take (ins+del)/2.0
-#define ins_gap -0.5  // insert identity mapping, insert too many is bad. so slightly negative
-#define del_gap -2  // lose all information
+#define _mismatchscore -1 // may miss better skip/insert, so take (ins+del)/2.0
+#define ins_gap -0.25  // insert identity mapping, insert too many is bad. so slightly negative
+#define del_gap -1  // lose all information
 
 using namespace std;
 
@@ -107,7 +107,7 @@ void Matcher::init_score(){
         for (int j=0; j < parent_nodes[i].parents.size(); ++j) {
             best = max(best, scores[1+parent_nodes[i].parents[j]][0]);
         }
-        scores[i+1][0] = (best + del_gap)/parent_nodes[i].parents.size();
+        scores[i+1][0] = (best + del_gap);///parent_nodes[i].parents.size();
     }
 
     for (int i=0; i < child_nodes.size(); ++i) {
@@ -116,7 +116,7 @@ void Matcher::init_score(){
         for (int j=0; j < child_nodes[i].parents.size(); ++j){
             best = max(best, scores[0][1+child_nodes[i].parents[j]]);
         }
-        scores[0][i+1] = (best + ins_gap)/child_nodes[i].parents.size();
+        scores[0][i+1] = (best + ins_gap);//child_nodes[i].parents.size();
     }
 
     long long num_parent_param=1;
@@ -200,14 +200,14 @@ inline double Matcher::cal_score(Node parent_node, Node child_node){
 
         double match_score = inherited_param;
         if (num_parent_param > num_child_param) {
-            match_score = inherited_param/num_parent_param/2.0; // lost information of the parent
+            match_score = inherited_param/num_parent_param/1.5; // lost information of the parent
         } else {
             match_score = inherited_param/num_child_param; // padding too many ones
         }
         //double match_score = inherited_param/max(num_parent_param, num_child_param);
 
         // lose too much information
-        if (match_score > 0.4) {
+        if (match_score > 0.5) {
             return match_score * _matchscore;
         }
 
@@ -224,6 +224,7 @@ void Matcher::align_child_parent(){
     int cprev = 0, is_match=1, predIndex=0;
     map<string, vector<int> >::iterator iter;
     vector<int> temp_vec;
+    bool is_branch;
 
     // Dynamic Programming
     for (int i=0; i < parent_nodes.size(); ++i){
@@ -233,6 +234,7 @@ void Matcher::align_child_parent(){
             Node child_node = child_nodes[j];
             match_score = cal_score(parent_node, child_node);
             is_match = match_score > _mismatchscore ? MATCH:MISMATCH;
+            is_branch = (child_node.parents.size() > 1);
 
             vector<vector<node_pair> > temp_ans;
 
@@ -249,7 +251,8 @@ void Matcher::align_child_parent(){
                 for (int m=0; m < parent_node.parents.size(); ++m) {
                     predIndex = parent_node.parents[m];
                     temp.push_back(node_pair(scores[predIndex+1][cprev+1] + match_score, predIndex+1, cprev+1, is_match));
-                    temp.push_back(node_pair(scores[predIndex+1][j+1] + del_gap, predIndex+1, j+1, DEL)); // skip a child node
+                    if (is_branch == false)
+                       temp.push_back(node_pair(scores[predIndex+1][j+1] + del_gap, predIndex+1, j+1, DEL)); // skip a child node
                 }
                 
                 sort(temp.begin(), temp.end(), cmp_function);
@@ -262,7 +265,7 @@ void Matcher::align_child_parent(){
             merge_score = merge_branch_mapping(temp_ans, parent_list, child_list);
 
             // treat multi branches as a single chain 
-            scores[i+1][j+1] = merge_score/child_node.parents.size();//max(parent_node.parents.size(), child_node.parents.size());
+            scores[i+1][j+1] = merge_score;///child_node.parents.size();//max(parent_node.parents.size(), child_node.parents.size());
 
             if (dump_mapping){
                 backParentIdx.insert({encode_hash(i+1, j+1), parent_list});
@@ -270,6 +273,7 @@ void Matcher::align_child_parent(){
             }
         }
     }
+
 }
 
 extern "C"{
