@@ -690,7 +690,7 @@ class ModelKeeper(object):
         return (self.model_zoo[parent_path].parent, mapping_res, score)
 
 
-    def query_scores(self, parents, child, threads=20, timeout=180):
+    def query_scores(self, parents, child, threads=20, timeout=600):
         scores = []
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
@@ -709,7 +709,7 @@ class ModelKeeper(object):
 
     def query_best_mapping(self, child, blacklist=set(),
                             model_name=None, return_weight=True,
-                            score_threshold=0.95, timeout=180, threads=20):
+                            score_threshold=0.95, timeout=600, threads=20):
 
         start_time = time.time()
         self.query_model = child
@@ -798,7 +798,7 @@ class ModelKeeper(object):
 
         return None, None
 
-    def get_best_mapping(self, child, blacklist=set(), model_name=None, return_weight=True, timeout=180):
+    def get_best_mapping(self, child, blacklist=set(), model_name=None, return_weight=True, timeout=600):
         """
             Enumerate all possible model pairs. Not as efficient as the clustering one.
         """
@@ -1101,5 +1101,3 @@ class ModelKeeper(object):
         except Exception as e:
             # Python > 3.4 will throw errors
             pass
-
-
