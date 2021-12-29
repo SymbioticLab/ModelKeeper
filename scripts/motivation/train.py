@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
-import sys
+import sys, os
 #sys.path.append('../')
 #from net2net import *
 import copy
@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
 parser.add_argument('--model', type=str, default="vgg19_bn")
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 64)')
-parser.add_argument('--epoch', type=int, default=300, metavar='N',
+parser.add_argument('--epoch', type=int, default=120, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=224, metavar='N',
                     help='input batch size for testing (default: 1000)')
@@ -39,12 +39,14 @@ parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                     help='SGD momentum (default: 0.5)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
+parser.add_argument('--use_keeper', action='store_true', default=False,
+                    help='disables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging status')
-parser.add_argument('--data', type=str, default='cifar100')
-parser.add_argument('--weight_decay', type=float, default=1e-4)
+parser.add_argument('--data', type=str, default='cifar10')
+parser.add_argument('--weight_decay', type=float, default=2e-4)
 
 
 args = parser.parse_args()
@@ -223,18 +225,13 @@ def modelkeeper(model):
             p.data = temp_data.to(dtype=p.data.dtype)
 
     print(f"ModelKeeper mapping meta: \n{meta_data}")
-    args.lr *= (1.-meta_data['matching_score']+1e-4)
+    #args.lr *= (1.-meta_data['matching_score']+1e-4)
+    return meta_data
 
 
-def adjust_learning_rate(optimizer, epoch):
+def adjust_learning_rate(optimizer, lr):
     """Sets the learning rate to the initial LR decayed by 2 every 30 epochs"""
     # lr = args.lr * (0.5 ** (epoch // 20))
-    if epoch < 120:
-        lr = 0.02
-    elif epoch < 160:
-        lr = 0.004
-    else:
-        lr = 0.0008
 
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
@@ -295,7 +292,9 @@ def test():
     return 100. * top_1 / test_data_len, test_loss
 
 def dump_model(epoch, optimizer, model):
-    with open(f"./zoo/{args.model}_{args.data}_{epoch}.pkl", 'wb') as fout:
+    path = f'warm_{args.data}' if args.use_keeper else f'cold_{args.data}'
+    os.makedirs(path, exist_ok=True)
+    with open(f"./{path}/{args.model}_{args.data}_{epoch}.pkl", 'wb') as fout:
         pickle.dump(epoch, fout)
         pickle.dump(optimizer, fout)
         pickle.dump(model, fout)
@@ -304,19 +303,31 @@ vgg16_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg16_bn_cifar10
 vgg11_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg11_bn_cifar100_299.pkl'
 vgg13_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg13_bn_cifar100_299.pkl'
 
+warm_start = 5
 
 #prefix_warmup(vgg16_match)
-#modelkeeper(model)
+if args.use_keeper:
+    meta_data = modelkeeper(model)
 model = model.to(device=device)
 
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay) #optim.Adam(model.parameters(), lr=args.lr)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, verbose=True, min_lr=5e-4, factor=0.5) #torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch)
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch, eta_min=1e-3)#torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, verbose=True, min_lr=5e-4, factor=0.5) #torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch)
 
 for epoch in range(args.epoch):
-    #adjust_learning_rate(optimizer, epoch)
+    if epoch < warm_start:
+        if args.use_keeper:
+            adjust_learning_rate(optimizer, args.lr*meta_data['num_of_matched']/max(meta_data['parent_layers'], meta_data['child_layers']))
+        else:
+            adjust_learning_rate(optimizer, args.lr)
+    elif epoch == warm_start:
+        adjust_learning_rate(optimizer, args.lr)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch, eta_min=1e-3)
+    else:
+        scheduler.step()
+
     train(epoch)
     test_acc, test_loss = test()
-    scheduler.step(test_loss)
 
-    if epoch % 5 == 0:
+
+    if epoch % 2 == 0:
         dump_model(epoch, optimizer, model)
