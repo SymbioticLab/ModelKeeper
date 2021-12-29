@@ -35,25 +35,29 @@ def analyze_zoo():
     from config import modelkeeper_config
 
     start_time = time.time()
-    zoo_path = '/mnt/zoo/temp'#nlp/bert-base-cased'#'/mnt/zoo/'
+    zoo_path = "/users/fanlai/experiment/keeper/model_zoo"#'/mnt/zoo'
 
     modelkeeper_config.zoo_path = zoo_path
     mapper = ModelKeeper(modelkeeper_config)
 
-    models = sorted(os.listdir(zoo_path))
+    models = [x for x in os.listdir(zoo_path) if '.onnx' in x]#["/users/fanlai/model_zoo/ShuffleNetV2_net_size_2_@0.7142.onnx"]
 
     #black_list = get_mapped('/users/fanlai/torchcv_scores')
     #models = [x for x in os.listdir(zoo_path) if x not in black_list]
     #print(models)
     #print(len(models))
+    all_models = [os.path.join(zoo_path, x) for x in models]
     for idx, model_name in enumerate(models):
         try:
             child_onnx_path = os.path.join(zoo_path, model_name)
             # child, child_onnx = mapper.load_model_meta(child_onnx_path)
             # child.graph['model_id'] = str(idx)
 
+            black_list = set(all_models[:])
+            black_list.discard(child_onnx_path)
+            black_list = set()
             # find the best mapping from the zoo
-            weights, meta_data = mapper.map_for_onnx(child_onnx_path, set([child_onnx_path]), model_name)
+            weights, meta_data = mapper.map_for_onnx(child_onnx_path, black_list, model_name)
             print(meta_data)
             gc.collect()
         except Exception as e:
@@ -67,13 +71,14 @@ def analyze_zoo_folder():
     from config import modelkeeper_config
 
     start_time = time.time()
-    zoo_path = '/mnt/transformers/'
+    zoo_path = '/users/fanlai/experiment/data/my_zoo'
 
     modelkeeper_config.zoo_path = zoo_path
     mapper = ModelKeeper(modelkeeper_config)
 
-    model_folders = os.listdir(zoo_path)
-    models = []
+    model_folders = [x for x in os.listdir(zoo_path) if os.path.isdir(os.path.join(zoo_path, x))]
+    models = []#model_folders#["/users/fanlai/experiment/data/my_zoo/funnel_transformer_small/funnel_transformer_small.onnx"]
+    #model_folders = models
     for idx, model_path in enumerate(model_folders):
         model_name = [x for x in os.listdir(os.path.join(zoo_path, model_path)) if '.onnx' in x]
         if len(model_name) == 1:
@@ -86,9 +91,10 @@ def analyze_zoo_folder():
         child_onnx_path = model_name #os.path.join(zoo_path, model_name)
         # child, child_onnx = mapper.load_model_meta(child_onnx_path)
         # child.graph['model_id'] = str(idx)
-
+        black_list = set(models[:])
+        black_list.discard(child_onnx_path)
         # find the best mapping from the zoo
-        weights, meta_data = mapper.map_for_onnx(child_onnx_path, set([]), model_name.split('/')[-1])
+        weights, meta_data = mapper.map_for_onnx(child_onnx_path, black_list, model_name.split('/')[-1])
         print(meta_data)
         gc.collect()
 
@@ -97,3 +103,4 @@ def analyze_zoo_folder():
 
 #analyze_zoo_folder()
 analyze_zoo()
+

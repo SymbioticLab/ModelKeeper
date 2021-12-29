@@ -547,6 +547,10 @@ class TrainModel(tune.Trainable):
 
         self.logger.info(f"ModelKeeper warm starts {self.model_name} in {int(time.time() - start_matching)} sec, meta: {self.meta_info}")
         modelkeeper_client.stop()
+        try:
+            os.remove(self.export_path)
+        except:
+            pass
 
     def warm_start_local(self):
         start_matching = time.time()
@@ -618,7 +622,7 @@ class TrainModel(tune.Trainable):
                 #tranferred_lr = max(0.2, 1.-self.meta_info['num_of_matched']/self.meta_info['parent_layers'])
                 #warm_up_lr = args.lr*((1.-tranferred_lr)/args.warm_start_epoch * self.epoch + tranferred_lr)
                 #change_opt_lr(self.optimizer, warm_up_lr)
-                warm_up_lr = args.lr * max(0.5, 1.-self.meta_info['num_of_matched']/self.meta_info['parent_layers'])
+                warm_up_lr = args.lr * min(1.0, max(0.3, 1.-self.meta_info['num_of_matched']/self.meta_info['parent_layers']))
                 change_opt_lr(self.optimizer, warm_up_lr)
 
                 # tricky linear scheduler
@@ -892,3 +896,4 @@ if __name__ == "__main__":
 
     # if keeper_service is not None:
     #     keeper_service.stop_service()
+

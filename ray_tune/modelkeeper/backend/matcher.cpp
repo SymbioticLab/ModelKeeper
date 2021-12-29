@@ -143,7 +143,7 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
     priority_queue<pair<double, int> > queue;
 
     for(int i=0; i < lists.size(); ++i){
-        queue.push(make_pair(lists[i][0].val, i));
+        queue.push(make_pair(lists[i][0].val, -i));
     }
 
     vector<int> inbranch_idx(lists.size(), 0);
@@ -157,7 +157,7 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
         pair<double, int> temp_pair = queue.top();
         queue.pop();
 
-        branch = temp_pair.second;
+        branch = -temp_pair.second;
         inbranch = inbranch_idx[branch];
 
         //if (lists[branch][inbranch].opt == MATCH){
@@ -168,7 +168,7 @@ inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, ve
             if (inbranch + 1 < lists[branch].size()){
                 inbranch += 1;
                 inbranch_idx[branch] = inbranch;
-                queue.push(make_pair(lists[branch][inbranch].val, branch));
+                queue.push(make_pair(lists[branch][inbranch].val, -branch));
             }
         } else{
             parent_node_set.insert(parent_node);
@@ -200,14 +200,14 @@ inline double Matcher::cal_score(Node parent_node, Node child_node){
 
         double match_score = inherited_param;
         if (num_parent_param > num_child_param) {
-            match_score = inherited_param/num_parent_param/1.5; // lost information of the parent
+            match_score = inherited_param/num_parent_param/1.2; // lost information of the parent
         } else {
             match_score = inherited_param/num_child_param; // padding too many ones
         }
         //double match_score = inherited_param/max(num_parent_param, num_child_param);
 
         // lose too much information
-        if (match_score > 0.5) {
+        if (match_score > 0.3) {
             return match_score * _matchscore;
         }
 
@@ -216,7 +216,15 @@ inline double Matcher::cal_score(Node parent_node, Node child_node){
     }
 }
 
-bool cmp_function(node_pair i, node_pair j) { return (i.val>=j.val); }
+
+bool cmp_function(node_pair i, node_pair j) { 
+    if (i.val > j.val)
+        return true;
+    if (i.val < j.val)
+        return false;
+    return i.opt > j.opt;
+}
+
 
 void Matcher::align_child_parent(){
 
@@ -233,7 +241,7 @@ void Matcher::align_child_parent(){
         for (int j=0; j < child_nodes.size(); ++j){
             Node child_node = child_nodes[j];
             match_score = cal_score(parent_node, child_node);
-            is_match = match_score > _mismatchscore ? MATCH:MISMATCH;
+            is_match = match_score > 0 ? MATCH:MISMATCH;
             is_branch = (child_node.parents.size() > 1);
 
             vector<vector<node_pair> > temp_ans;
@@ -274,6 +282,9 @@ void Matcher::align_child_parent(){
         }
     }
 
+    // for (int i = 0; i < child_nodes.size(); ++i)
+    //     cout << scores[parent_nodes.size()][i] << " ";
+    // cout << endl;
 }
 
 extern "C"{

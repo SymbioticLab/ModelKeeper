@@ -809,7 +809,7 @@ class ModelKeeper(object):
         results = self.query_scores([self.model_zoo[p] for p in parent_models]+[MatchingOperator(child)], child, self.args.num_of_processes)
 
         parent_path = mappings = parent = None
-        best_score, self_score = SCORE_THRESHOLD, 0
+        best_score, self_score = SCORE_THRESHOLD, 1
         worst_score = float('inf')
 
         matching_results = []
@@ -898,11 +898,12 @@ class ModelKeeper(object):
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
 
-        #if mappings is not None:
-        #    print(mappings, f"# of parent nodes: {parent.graph['num_tensors']}, # of child nodes: {child.graph['num_tensors']}, # of mapped pairs: {len(mappings)}")
+        if mappings is not None and len(mappings) > 0:
+            logging.info(f"{sorted(mappings)}\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
+            #print(mappings, f"# of parent nodes: {parent.graph['num_tensors']}, # of child nodes: {child.graph['num_tensors']}, # of mapped pairs: {len(mappings)}")
         if parent is not None:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
-            if num_of_matched > THRESHOLD * parent.graph['num_tensors']:
+            if num_of_matched > THRESHOLD * max(parent.graph['num_tensors'], child.graph['num_tensors']):
                 parent_name = parent.graph['name']
 
                 meta_data = {
@@ -939,7 +940,7 @@ class ModelKeeper(object):
         weights, num_of_matched = None, 0
         parent_name, meta_data = 'None', {}
 
-        #if mappings is not None:
+        if mappings is not None and len(mappings) > 0:
         #    for p, s in mappings:
         #        if p != s:
         #           logging.info(f"Mismatch {parent.nodes[p]} to {child.nodes[s]}")
@@ -947,11 +948,11 @@ class ModelKeeper(object):
         #for n in range(parent.number_of_nodes()):
         #    logging.info(f"{n}, {parent.nodes[n]}, {parent.in_degree(n)}, {parent.out_degree(n)}")
             #logging.info(f"{[(n, parent.nodes[n]) for n in range(parent.number_of_nodes())]}")
-        logging.info(f"{sorted(mappings)}\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
+            logging.info(f"{sorted(mappings)}\n# of parent nodes: {parent.number_of_nodes()}, # of child nodes: {child.number_of_nodes()}, # of mapped pairs: {len(mappings)}\n\n")
 
         if parent is not None:
             weights, num_of_matched, layer_mappings = self.warm_weights(parent, child, mappings)
-            if num_of_matched > THRESHOLD * parent.graph['num_tensors']:
+            if num_of_matched > THRESHOLD * max(parent.graph['num_tensors'], child.graph['num_tensors']):
                 parent_name = parent.graph['name']
 
                 meta_data = {
