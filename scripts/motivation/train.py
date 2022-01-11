@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
 parser.add_argument('--model', type=str, default="vgg19_bn")
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 64)')
-parser.add_argument('--epoch', type=int, default=120, metavar='N',
+parser.add_argument('--epoch', type=int, default=150, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=224, metavar='N',
                     help='input batch size for testing (default: 1000)')
@@ -41,12 +41,12 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
 parser.add_argument('--use_keeper', action='store_true', default=False,
                     help='disables CUDA training')
-parser.add_argument('--seed', type=int, default=1, metavar='S',
+parser.add_argument('--seed', type=int, default=0, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging status')
 parser.add_argument('--data', type=str, default='cifar10')
-parser.add_argument('--weight_decay', type=float, default=2e-4)
+parser.add_argument('--weight_decay', type=float, default=1e-4)
 
 
 args = parser.parse_args()
@@ -58,6 +58,8 @@ if args.cuda:
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
+else:
+    torch.set_num_threads(63)
 
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
@@ -257,6 +259,9 @@ def train(epoch):
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
 
+        if batch_idx % int(0.5*len(train_loader)) == 0:
+            dump_model(f"{epoch}_{batch_idx}", optimizer, model)
+
     logging.info('====Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
         epoch, batch_idx * len(data), len(train_loader.dataset),
         100. * batch_idx / len(train_loader), loss.item()))
@@ -294,16 +299,20 @@ def test():
 def dump_model(epoch, optimizer, model):
     path = f'warm_{args.data}' if args.use_keeper else f'cold_{args.data}'
     os.makedirs(path, exist_ok=True)
+
+    gradients = []
+    for p in model.parameters():
+        if p.requires_grad:
+            gradients.append(p.grad)
+        else:
+            gradients.append([])
+
     with open(f"./{path}/{args.model}_{args.data}_{epoch}.pkl", 'wb') as fout:
-        pickle.dump(epoch, fout)
-        pickle.dump(optimizer, fout)
+        #pickle.dump(epoch, fout)
+        pickle.dump(gradients, fout)
         pickle.dump(model, fout)
 
-vgg16_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg16_bn_cifar100_299.pkl' #70%: 4, 70%:, 85%: 24, 90%:199
-vgg11_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg11_bn_cifar100_299.pkl'
-vgg13_match = '/users/fanlai/ModelKeeper/scripts/motivation/zoo/vgg13_bn_cifar100_299.pkl'
-
-warm_start = 5
+warm_start = 2
 
 #prefix_warmup(vgg16_match)
 if args.use_keeper:
@@ -327,7 +336,3 @@ for epoch in range(args.epoch):
 
     train(epoch)
     test_acc, test_loss = test()
-
-
-    if epoch % 2 == 0:
-        dump_model(epoch, optimizer, model)
