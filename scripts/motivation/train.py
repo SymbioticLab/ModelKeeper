@@ -15,6 +15,9 @@ import pickle
 import logging
 from vgg import *
 from resnet import *
+from resnet_cifar import *
+from ror_cifar import *
+torch.cuda.set_device(1)
 
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
                 datefmt='%H:%M:%S',
@@ -29,11 +32,11 @@ parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
 parser.add_argument('--model', type=str, default="vgg19_bn")
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 64)')
-parser.add_argument('--epoch', type=int, default=150, metavar='N',
+parser.add_argument('--epoch', type=int, default=200, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=224, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
                     help='learning rate (default: 0.01)') #0.002
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                     help='SGD momentum (default: 0.5)')
@@ -213,7 +216,7 @@ def modelkeeper(model):
     from matchingopt import ModelKeeper
     from config import modelkeeper_config
 
-    modelkeeper_config.zoo_path = '/mnt/zoo/vgg_zoo'
+    modelkeeper_config.zoo_path = '/users/fanlai/zoo'
     mapper = ModelKeeper(modelkeeper_config)
     model = model.to(device='cpu')
 
@@ -238,6 +241,9 @@ def adjust_learning_rate(optimizer, lr):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
+def get_current_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
 
 def train(epoch):
     model.train()
@@ -246,6 +252,10 @@ def train(epoch):
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
+
+        if batch_idx == 0 or batch_idx == int(0.5*len(train_loader)):
+            dump_model(f"{epoch}_{batch_idx}", optimizer, model)
+
         data, target = Variable(data), Variable(target)
 
         output = model(data)
@@ -259,8 +269,6 @@ def train(epoch):
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
 
-        if batch_idx % int(0.5*len(train_loader)) == 0:
-            dump_model(f"{epoch}_{batch_idx}", optimizer, model)
 
     logging.info('====Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
         epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -300,16 +308,17 @@ def dump_model(epoch, optimizer, model):
     path = f'warm_{args.data}' if args.use_keeper else f'cold_{args.data}'
     os.makedirs(path, exist_ok=True)
 
-    gradients = []
-    for p in model.parameters():
-        if p.requires_grad:
-            gradients.append(p.grad)
-        else:
-            gradients.append([])
+    # gradients = []
+    # for p in model.parameters():
+    #     if p.requires_grad:
+    #         gradients.append(p.grad)
+    #     else:
+    #         gradients.append([])
 
     with open(f"./{path}/{args.model}_{args.data}_{epoch}.pkl", 'wb') as fout:
         #pickle.dump(epoch, fout)
-        pickle.dump(gradients, fout)
+        #pickle.dump(gradients, fout)
+        pickle.dump(get_current_lr(optimizer), fout)
         pickle.dump(model, fout)
 
 warm_start = 2
@@ -330,9 +339,10 @@ for epoch in range(args.epoch):
             adjust_learning_rate(optimizer, args.lr)
     elif epoch == warm_start:
         adjust_learning_rate(optimizer, args.lr)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch, eta_min=1e-3)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch, eta_min=0)
     else:
-        scheduler.step()
+        scheduler.step()    
 
     train(epoch)
     test_acc, test_loss = test()
+

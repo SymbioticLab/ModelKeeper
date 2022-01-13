@@ -8,7 +8,7 @@ def gen_model_zoo(path):
 
     for file in files:
         with open(file, 'rb') as fin:
-            _, _, model = pickle.load(fin), pickle.load(fin), pickle.load(fin)
+            _, model = pickle.load(fin), pickle.load(fin)
 
         model = model.to(device='cpu')
         torch.onnx.export(model, dummy_input, file.replace('.pkl', '.onnx'),
@@ -17,4 +17,4 @@ def gen_model_zoo(path):
         print(f"Done {file} ...")
 
 
-gen_model_zoo('/mnt/zoo/vgg_zoo/')
+gen_model_zoo("/users/fanlai/zoo/")

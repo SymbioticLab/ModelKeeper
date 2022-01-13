@@ -12,7 +12,7 @@ __all__ = ['CIFARResNet', 'resnet14_cifar10',
            'resnet542bn_cifar10', 'resnet542bn_cifar100', 'resnet542bn_svhn',
            'resnet1001_cifar10', 'resnet1001_cifar100', 'resnet1001_svhn',
            'resnet1202_cifar10', 'resnet1202_cifar100', 'resnet1202_svhn',
-           'resnet101_cifar10']
+           'resnet101_cifar10', 'resnet32_cifar10']
 
 import os
 import torch.nn as nn
@@ -435,6 +435,22 @@ def resnet20_svhn(num_classes=10, **kwargs):
     return get_resnet_cifar(num_classes=num_classes, blocks=20, bottleneck=False, model_name="resnet20_svhn",
                             **kwargs)
 
+
+def resnet32_cifar10(num_classes=10, **kwargs):
+    """
+    ResNet-56 model for CIFAR-10 from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
+
+    Parameters:
+    ----------
+    num_classes : int, default 10
+        Number of classification classes.
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    root : str, default '~/.torch/models'
+        Location for keeping the model parameters.
+    """
+    return get_resnet_cifar(num_classes=num_classes, blocks=32, bottleneck=False, model_name="resnet32_cifar10",
+                            **kwargs)
 
 def resnet56_cifar10(num_classes=10, **kwargs):
     """
