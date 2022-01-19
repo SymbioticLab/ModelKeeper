@@ -1,0 +1,5 @@
+name,arrival,batch_size
+ResNet50(),0,16
+ResNet50(),0,32
+ResNet50(),0,64
+ResNet50(),0,128
