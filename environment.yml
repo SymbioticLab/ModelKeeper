@@ -15,7 +15,7 @@ dependencies:
     - tensorboardX==2.1
     - PyYAML
     - gdown
-    - ray
+    - ray==1.8.0
     - networkx
     - onnx
     - paramiko
