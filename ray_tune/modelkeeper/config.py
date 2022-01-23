@@ -23,4 +23,9 @@ parser.add_argument('--zoo_capacity', type=int, default=1024*1024*100,
 parser.add_argument('--bucketing_selection', action='store_true', default=False)
 parser.add_argument('--bucket_interval', type=int, default=10)
 
+# AED Matcher
+parser.add_argument('--aed_match', action='store_true', default=False)
+parser.add_argument('--aed_path', type=str, default=f'./aed_store.pkl')
+
+
 modelkeeper_config, unknown = parser.parse_known_args()

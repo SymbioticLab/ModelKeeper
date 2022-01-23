@@ -88,7 +88,8 @@ class MappingOperator(object):
             try:
             # Get trainable weights
                 #logging.info(f"map parent layer: {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}")
-                if not validate_score(self.parent.nodes[parent_layer]['attr']['dims'], self.child.nodes[child_layer]['attr']['dims']):
+                if self.parent.nodes[parent_layer]['attr']['op_type'] != self.child.nodes[child_layer]['attr']['op_type'] or \
+                    not validate_score(self.parent.nodes[parent_layer]['attr']['dims'], self.child.nodes[child_layer]['attr']['dims']):
                     continue
                 parent_w, parent_b = self.get_weights(self.parent, self.parent_weights, parent_layer)
                 child_w, child_b = self.get_weights(self.child, self.child_weights, child_layer)

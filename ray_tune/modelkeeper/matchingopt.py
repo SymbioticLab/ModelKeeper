@@ -27,6 +27,9 @@ from mappingopt import MappingOperator
 from clustering import k_medoids
 from evictor import mip
 
+# AED
+from aed_matcher import AEDMatcher
+
 # Call C backend
 clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'backend/bin/matcher.so'))
 clib_matcher.get_matching_score.restype = ctypes.c_char_p
@@ -38,6 +41,8 @@ SCORE_THRESHOLD = float('-inf')
 THRESHOLD = 0.1 # more than X% layers can be transferred from the parent
 MAX_MATCH_NODES=5000
 HIT_BENEFIT=1.0
+IS_AED = False
+AED_PATH = None
 
 log_path = './modelkeeper_log'
 with open(log_path, 'w') as fout:
@@ -129,6 +134,10 @@ def topological_sorting(graph):
     #print('** Sink: ', sum([1 for node in graph.nodes() if graph.out_degree(node) == 0]))
     return ret[:MAX_MATCH_NODES]
 
+
+def get_onnx_name(file):
+    return file.split('/')[-1].split('@')[0]
+
 class MatchingOperator(object):
 
     def __init__(self, parent):
@@ -160,6 +169,9 @@ class MatchingOperator(object):
         self.model_value = 1.
         self.model_weight = 1.
 
+        global IS_AED, AED_PATH
+        self.aed_matcher = AEDMatcher(AED_PATH, get_onnx_name(parent.graph['name'])) if IS_AED else None
+
     def init_parent_index(self):
         # generate a dict of (nodeID) -> (index into nodelist (and thus matrix))
         for (index, nidx) in enumerate(self.parentidx_order):
@@ -179,6 +191,7 @@ class MatchingOperator(object):
 
 
     def align_child(self, child, read_mapping):
+
         start_time = time.time()
 
         # reset all parameters
@@ -188,6 +201,11 @@ class MatchingOperator(object):
         self.childidx_order = topological_sorting(self.child)
 
         self.init_child_index()
+
+        # AED Matcher will directly read the storage
+        if self.aed_matcher is not None:
+            self.match_score, self.match_res = self.aed_matcher.query_child(get_onnx_name(child.graph['name']))
+            return self.match_score
 
         # call C lib to get mapping
         json_string = self.dump_meta_json()
@@ -216,6 +234,10 @@ class MatchingOperator(object):
         return score/len(self.childidx_order)# child.graph['num_tensors']
 
     def get_mappings(self):
+        # AED Matcher will directly read the storage
+        if self.aed_matcher is not None:
+            self.match_score, self.match_res = self.aed_matcher.query_child(get_onnx_name(self.child.graph['name']))
+            return self.match_res, self.match_score
 
         matches = self.backtrack(*self.match_res)
         self.matchidxs, self.parentidxs = matches
@@ -390,11 +412,17 @@ class ModelKeeper(object):
         self.bucket_selection = args.bucketing_selection
         self.bucket_interval = args.bucket_interval
 
+        if args.aed_match:
+            global IS_AED, AED_PATH
+            IS_AED = args.aed_match
+            AED_PATH = args.aed_path
+
         if args.zoo_path is not None:
             self.init_model_zoo(args.zoo_path)
 
         self.init_execution_store()
         self.service_thread = None
+
 
     def init_model_zoo(self, zoo_path):
         if os.path.exists(zoo_path):
@@ -1101,3 +1129,4 @@ class ModelKeeper(object):
         except Exception as e:
             # Python > 3.4 will throw errors
             pass
+

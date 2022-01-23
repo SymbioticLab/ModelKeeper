@@ -44,7 +44,7 @@ def mapping_func(g1, g2, f2):
 
 if __name__ == '__main__':
 
-    path_dataset = './nas_gml'
+    path_dataset = './zoo_gml'
     # name_dataset = './zoo_gml'
 
     # aed = VanillaAED()
@@ -76,7 +76,7 @@ if __name__ == '__main__':
 
         for res in temp_results:
             distHED, _H, hed_dur, f2 = res.get()
-
+            #_H = (_H[0], _H[1][::-1])
             results[get_name(f1)][get_name(f2)] = {'Duration': hed_dur, 'Path': _H, 'GED': distHED}
             print(f"{get_name(f1)} to {get_name(f2)}, {results[get_name(f1)][get_name(f2)]}")
             # print(_A, _H)
