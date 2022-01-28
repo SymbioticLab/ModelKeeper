@@ -417,6 +417,7 @@ class ModelKeeper(object):
             IS_AED = args.aed_match
             AED_PATH = args.aed_path
 
+        self.DISABLE_TANSFORMER = args.disable_transformer
         if args.zoo_path is not None:
             self.init_model_zoo(args.zoo_path)
 
@@ -879,7 +880,7 @@ class ModelKeeper(object):
 
     def warm_weights(self, parent, child, mappings):
 
-        mapper = MappingOperator(parent, child, mappings)
+        mapper = MappingOperator(parent, child, mappings, breakdown=self.DISABLE_TANSFORMER)
         mapper.cascading_mapping()
         mapper.pad_mapping()
         weights, num_of_matched, layer_mappings = mapper.get_mapping_weights()
