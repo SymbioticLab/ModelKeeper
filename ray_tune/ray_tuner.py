@@ -305,30 +305,6 @@ def get_interest_args(model):
 
 from ray.tune.stopper import Stopper
 class TrialPlateauStopper(Stopper):
-    """Early stop single trials when they reached a plateau.
-
-    When the standard deviation of the `metric` result of a trial is
-    below a threshold `std`, the trial plateaued and will be stopped
-    early.
-
-    Args:
-        metric (str): Metric to check for convergence.
-        std (float): Maximum metric standard deviation to decide if a
-            trial plateaued. Defaults to 0.01.
-        num_results (int): Number of results to consider for stdev
-            calculation.
-        grace_period (int): Minimum number of timesteps before a trial
-            can be early stopped
-        metric_threshold (Optional[float]):
-            Minimum or maximum value the result has to exceed before it can
-            be stopped early.
-        mode (Optional[str]): If a `metric_threshold` argument has been
-            passed, this must be one of [min, max]. Specifies if we optimize
-            for a large metric (max) or a small metric (min). If max, the
-            `metric_threshold` has to be exceeded, if min the value has to
-            be lower than `metric_threshold` in order to early stop.
-    """
-
     def __init__(self,
                  metric: str,
                  std: float = 0.01,
@@ -392,24 +368,10 @@ class TrialPlateauStopper(Stopper):
 class BestAccuracyStopper(Stopper):
     """Early stops the training if validation loss doesn't improve after a given patience."""
     def __init__(self, patience=10, verbose=False, delta=0, trace_func=logging.info):
-        """
-        Args:
-            patience (int): How long to wait after last time validation loss improved.
-                            Default: 7
-            verbose (bool): If True, prints a message for each validation loss improvement.
-                            Default: False
-            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
-                            Default: 0
-            path (str): Path for the checkpoint to be saved to.
-                            Default: 'checkpoint.pt'
-            trace_func (function): trace print function.
-                            Default: print
-        """
         self.patience = patience
         self.verbose = verbose
         self.counter = collections.defaultdict(int)
         self.best_score = {}
-        self.early_stop = False
         self.delta = delta
         self.trace_func = trace_func
 
@@ -518,6 +480,8 @@ class TrainModel(tune.Trainable):
         self.criterion = nn.CrossEntropyLoss()
 
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
+        self.start_training_time = time.time()
+        self.model_is_registered = False
 
 
     def warm_start(self):
@@ -686,6 +650,11 @@ class TrainModel(tune.Trainable):
         if 'nlp' in args.task:
             self.save_model(self.export_path+'_'+str(self.epoch))
 
+        if args.use_keeper and args.task != 'nlp_nwp' and not self.model_is_registered and \
+            (time.time()-self.start_training_time)>args.register_time:
+            self.model_is_registered = True 
+            self.register_model()
+
         if METRIC == 'accuracy':
             return {"mean_accuracy": acc}
         else:
@@ -699,23 +668,26 @@ class TrainModel(tune.Trainable):
         with open(export_path, 'wb') as fout:
             pickle.dump(self.model, fout, -1)
 
+    def register_model(self):
+        self.model.to(device='cpu')
+        self.model.eval()
+        local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
+        os.makedirs(local_path, exist_ok=True)
+        export_path = os.path.join(local_path, self.export_path)
+        dummy_input = torch.rand((2, 3, 32, 32))
+
+        with open(export_path, 'wb') as fout:
+            pickle.dump(self.model, fout)
+            pickle.dump(dummy_input, fout)
+
+        # Call the offline API to register the model
+        os.system(f"nohup python {os.environ['HOME']}/experiment/ModelKeeper/ray_tune/keeper_offline.py --model_file={export_path} --accuracy={self.history[self.epoch]['acc']} &")
+
     def stop(self):
         self.logger.info(f"Training of {self.model_name} completed with {self.history[self.epoch]}")
 
-        if args.use_keeper and args.task != 'nlp_nwp':
-            self.model.to(device='cpu')
-            self.model.eval()
-            local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
-            os.makedirs(local_path, exist_ok=True)
-            export_path = os.path.join(local_path, self.export_path)
-            dummy_input = torch.rand((2, 3, 32, 32))
-
-            with open(export_path, 'wb') as fout:
-                pickle.dump(self.model, fout)
-                pickle.dump(dummy_input, fout)
-
-            # Call the offline API to register the model
-            os.system(f"nohup python {os.environ['HOME']}/experiment/ModelKeeper/ray_tune/keeper_offline.py --model_file={export_path} --accuracy={self.history[self.epoch]['acc']} &")
+        if args.use_keeper and args.task != 'nlp_nwp' and not self.model_is_registered:
+            self.register_model()
             self.logger.info("Call keeper offline register API")
         else:
             self.save_model(self.export_path)
@@ -751,8 +723,8 @@ if __name__ == "__main__":
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='SGD momentum (default: 0.9)')
-    parser.add_argument('--weight_decay', type=float, default=5e-4, metavar='M',
-                        help='SGD momentum (default: 0.9)')
+    parser.add_argument('--weight_decay', type=float, default=5e-4, metavar='M')
+    parser.add_argument('--register_time', type=float, default=1e12)
     parser.add_argument('--cuda', action='store_true', default=True,
                         help='disables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -893,7 +865,4 @@ if __name__ == "__main__":
         logging.info("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
-
-    # if keeper_service is not None:
-    #     keeper_service.stop_service()
 
