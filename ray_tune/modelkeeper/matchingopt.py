@@ -44,7 +44,7 @@ HIT_BENEFIT=1.0
 IS_AED = False
 AED_PATH = None
 
-log_path = './modelkeeper_log'
+log_path = '~/modelkeeper_log'
 with open(log_path, 'w') as fout:
     pass
 
