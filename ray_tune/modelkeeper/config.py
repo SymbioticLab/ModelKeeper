@@ -22,7 +22,8 @@ parser.add_argument('--zoo_capacity', type=int, default=1024*1024*100,
                     help='Physical capacity (100TB)')
 parser.add_argument('--bucketing_selection', action='store_true', default=False)
 parser.add_argument('--disable_transformer', action='store_true', default=False)
-parser.add_argument('--bucket_interval', type=int, default=10)
+parser.add_argument('--bucket_interval', type=int, default=5)
+parser.add_argument('--zscore_disable', action='store_true', default=False)
 
 # AED Matcher
 parser.add_argument('--aed_match', action='store_true', default=False)
@@ -30,3 +31,4 @@ parser.add_argument('--aed_path', type=str, default=f'./aed_store.pkl')
 
 
 modelkeeper_config, unknown = parser.parse_known_args()
+
