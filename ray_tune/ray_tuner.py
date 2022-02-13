@@ -200,6 +200,14 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
             datasets.CIFAR100(args.dataset, train=False, download=True, transform=test_transform),
             batch_size=test_bz, shuffle=True, **kwargs)
 
+    elif args.data == 'fmnist':
+        train_loader = torch.utils.data.DataLoader(
+            datasets.FashionMNIST(args.dataset, train=True, download=True, transform=train_transform),
+            batch_size=train_bz, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(
+            datasets.FashionMNIST(args.dataset, train=False, download=True, transform=test_transform),
+            batch_size=test_bz, shuffle=True, **kwargs)
+
     elif args.data == 'ImageNet16-120':
         train_data = ImageNet16(os.path.join(args.dataset, 'ImageNet16-120'), True , train_transform, 32, 120)
         test_data  = ImageNet16(os.path.join(args.dataset, 'ImageNet16-120'), False, test_transform, 32, 120)
@@ -422,7 +430,7 @@ class TrainModel(tune.Trainable):
         self.task = args.task
 
         temp_model_name = config['config']['name']
-        num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120}
+        num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120, 'fmnist': 10}
         num_classes = num_labels.get(args.data, 0)
 
         if self.task == "nasbench":
@@ -865,4 +873,5 @@ if __name__ == "__main__":
         logging.info("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
+
 
