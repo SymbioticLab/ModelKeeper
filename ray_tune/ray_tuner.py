@@ -168,6 +168,19 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
                 transforms.Normalize(mean, std)]
         train_transform = transforms.Compose(lists)
         test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
+    elif args.data == 'fmnist':
+        train_transform = transforms.Compose(
+                [transforms.Lambda(lambda image: image.convert('RGB')),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomCrop(32, padding=2),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+        test_transform = transforms.Compose(
+                    [transforms.Lambda(lambda image: image.convert('RGB')),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
     else:
         train_transform = transforms.Compose(
                 [transforms.RandomHorizontalFlip(),
@@ -198,6 +211,14 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
             batch_size=train_bz, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(
             datasets.CIFAR100(args.dataset, train=False, download=True, transform=test_transform),
+            batch_size=test_bz, shuffle=True, **kwargs)
+
+    elif args.data == 'fmnist':
+        train_loader = torch.utils.data.DataLoader(
+            datasets.FashionMNIST(args.dataset, train=True, download=True, transform=train_transform),
+            batch_size=train_bz, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(
+            datasets.FashionMNIST(args.dataset, train=False, download=True, transform=test_transform),
             batch_size=test_bz, shuffle=True, **kwargs)
 
     elif args.data == 'ImageNet16-120':
@@ -422,7 +443,7 @@ class TrainModel(tune.Trainable):
         self.task = args.task
 
         temp_model_name = config['config']['name']
-        num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120}
+        num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120, 'fmnist': 10}
         num_classes = num_labels.get(args.data, 0)
 
         if self.task == "nasbench":
@@ -865,4 +886,5 @@ if __name__ == "__main__":
         logging.info("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
+
 
