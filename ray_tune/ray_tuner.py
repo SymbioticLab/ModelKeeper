@@ -168,6 +168,19 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
                 transforms.Normalize(mean, std)]
         train_transform = transforms.Compose(lists)
         test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
+    elif args.data == 'fmnist':
+        train_transform = transforms.Compose(
+                [transforms.Lambda(lambda image: image.convert('RGB')),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomCrop(32, padding=2),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+        test_transform = transforms.Compose(
+                    [transforms.Lambda(lambda image: image.convert('RGB')),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
     else:
         train_transform = transforms.Compose(
                 [transforms.RandomHorizontalFlip(),
