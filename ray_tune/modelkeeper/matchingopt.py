@@ -457,25 +457,29 @@ class ModelKeeper(object):
         if len(model_paths) == 0:
             return
 
-        model_accuracies = [p.parent.graph['accuracy'] for p in self.model_zoo.values()]
-        new_model_accuracies = []
-        for m in model_paths:
-            model_acc = self.get_model_accuracy(m)
-            new_model_accuracies.append(model_acc)
+        if self.args.zscore_disable is False:
+            model_accuracies = [p.parent.graph['accuracy'] for p in self.model_zoo.values()]
+            new_model_accuracies = []
+            for m in model_paths:
+                model_acc = self.get_model_accuracy(m)
+                new_model_accuracies.append(model_acc)
 
-        # remove outliers
-        model_accuracies = np.array(model_accuracies+new_model_accuracies)
-        accuracy_std, accuracy_mean = model_accuracies.std(), model_accuracies.mean()
+            # remove outliers
+            model_accuracies = np.array(model_accuracies+new_model_accuracies)
+            accuracy_std, accuracy_mean = model_accuracies.std(), model_accuracies.mean()
 
-        existing_zoo = list(self.model_zoo.keys())
-        for m in existing_zoo:
-            if self.model_zoo[m].parent.graph['accuracy'] < accuracy_mean - self.outlier_factor*accuracy_std:
-                del self.model_zoo[m]
+            existing_zoo = list(self.model_zoo.keys())
+            for m in existing_zoo:
+                if self.model_zoo[m].parent.graph['accuracy'] < accuracy_mean - self.outlier_factor*accuracy_std:
+                    del self.model_zoo[m]
 
-        decent_models = []
-        for acc, m in zip(new_model_accuracies, model_paths):
-            if acc >= accuracy_mean - self.outlier_factor*accuracy_std:
-                decent_models.append(m)
+            decent_models = []
+            for acc, m in zip(new_model_accuracies, model_paths):
+                # Z-Score principle
+                if acc >= accuracy_mean - self.outlier_factor*accuracy_std:
+                    decent_models.append(m)
+        else:
+            decent_models = model_paths
 
         # decay model value by factor
         for m in self.model_zoo:
