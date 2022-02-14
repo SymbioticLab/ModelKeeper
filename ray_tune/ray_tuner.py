@@ -171,13 +171,15 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
     elif args.data == 'fmnist':
         train_transform = transforms.Compose(
                 [transforms.Lambda(lambda image: image.convert('RGB')),
+                transforms.RandomResizedCrop(32),
                 transforms.RandomHorizontalFlip(),
-                transforms.RandomCrop(32, padding=2),
+                #transforms.RandomCrop(32, padding=2),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
         test_transform = transforms.Compose(
                     [transforms.Lambda(lambda image: image.convert('RGB')),
+                    transforms.Resize(32),
                     transforms.ToTensor(),
                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
