@@ -192,7 +192,8 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
         test_transform = transforms.Compose(
-                    [transforms.ToTensor(),
+                    [transforms.Resize(32),
+                    transforms.ToTensor(),
                     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
 
@@ -216,7 +217,7 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
             datasets.CIFAR100(args.dataset, train=False, download=True, transform=test_transform),
             batch_size=test_bz, shuffle=True, **kwargs)
 
-    if args.data == 'flower':
+    elif args.data == 'flower':
 
         train_loader = torch.utils.data.DataLoader(
             Flowers102(args.dataset, split='train', download=True, transform=train_transform),
