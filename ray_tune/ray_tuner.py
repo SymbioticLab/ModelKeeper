@@ -32,6 +32,7 @@ from torch.onnx import TrainingMode
 
 import sys
 from utils.ImageNet import ImageNet16
+from utils.Flowers102 import Flowers102
 sys.path.append(f'{os.environ["HOME"]}/experiment/ModelKeeper/ray_tune/modelkeeper')
 
 # ModelKeeper dependency
@@ -213,6 +214,15 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
             batch_size=train_bz, shuffle=True, **kwargs)
         test_loader = torch.utils.data.DataLoader(
             datasets.CIFAR100(args.dataset, train=False, download=True, transform=test_transform),
+            batch_size=test_bz, shuffle=True, **kwargs)
+
+    if args.data == 'flower':
+
+        train_loader = torch.utils.data.DataLoader(
+            Flowers102(args.dataset, split='train', download=True, transform=train_transform),
+            batch_size=train_bz, shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(
+            Flowers102(args.dataset, split='test', download=True, transform=test_transform),
             batch_size=test_bz, shuffle=True, **kwargs)
 
     elif args.data == 'fmnist':
@@ -445,7 +455,7 @@ class TrainModel(tune.Trainable):
         self.task = args.task
 
         temp_model_name = config['config']['name']
-        num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120, 'fmnist': 10}
+        num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120, 'fmnist': 10, 'flower': 102}
         num_classes = num_labels.get(args.data, 0)
 
         if self.task == "nasbench":
@@ -675,7 +685,7 @@ class TrainModel(tune.Trainable):
 
         if args.use_keeper and args.task != 'nlp_nwp' and not self.model_is_registered and \
             (time.time()-self.start_training_time)>args.register_time:
-            self.model_is_registered = True 
+            self.model_is_registered = True
             self.register_model()
 
         if METRIC == 'accuracy':
@@ -888,5 +898,3 @@ if __name__ == "__main__":
         logging.info("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
-
-
