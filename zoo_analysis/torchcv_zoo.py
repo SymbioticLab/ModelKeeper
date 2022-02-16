@@ -1,4 +1,4 @@
-import os 
+import os
 import sys
 
 sys.path.insert(0, '../ray_tune/models/')
@@ -13,28 +13,40 @@ from cifarmodels import *
 import torch
 from torch.autograd import Variable
 import pickle
-import string   
+import string
 
 def export_onnx():
-    size = 32
+    size = 224
 
     dummy_input = torch.rand(2, 3, size, size) #  batch:32; 3 channels; 32 x 32 size
-    path = '/mnt/zoo/torchcv'
+    path = f'{os.environ["HOME"]}/experiments/zoo'
+    os.makedirs(path, exist_ok=True)
+
     cnt = 0
     params_set = set()
-    cifar_first = [m for m in model_zoo if 'cifar10' in m]
-    cifar_first += [x for x in model_zoo if x not in cifar_first]
+    name_list = ['_cifar10', '_cifar100', '_svhn', '_cub', '_voc', '_coco', '_ade20k', '_cityscapes', '_celebamaskhq']
+    # cifar_first = [m for m in model_zoo if 'cifar10' in m]
+    # cifar_first += [x for x in model_zoo if x not in cifar_first]
+    models = []
+    for m in model_zoo:
+        is_small = False
+        for n in name_list:
+            if n in m:
+                is_small = True
+                break
+        if not is_small:
+            models.append(m)
 
-    for model_name in cifar_first:
+    for model_name in models:
         try:
-            model = ptcv_get_model(model_name, pretrained=False, num_classes=100)
+            model = ptcv_get_model(model_name, pretrained=False, num_classes=103)
             num_params = sum(p.numel() for p in model.parameters())
-            
+
             if num_params in params_set:
                 print(f"{model_name} is repeated")
                 continue
             output = model(dummy_input)
-            torch.onnx.export(model, dummy_input, os.path.join(path, model_name+".onnx"), 
+            torch.onnx.export(model, dummy_input, os.path.join(path, model_name+".onnx"),
                               export_params=False, verbose=0, training=1)
 
             print(f"Successfully generate {model_name}, # of params {num_params}")
@@ -83,13 +95,13 @@ def validate_list():
                 model = ptcv_get_model(model_name, pretrained=False, num_classes=num_classes)
 
             num_params = sum(p.numel() for p in model.parameters())
-            
+
             updated_name = polish_name(model_name)
             if num_params in params_set:
                 print(f"{updated_name} is repeated")
                 continue
             output = model(dummy_input)
-            torch.onnx.export(model, dummy_input, os.path.join(path, updated_name+".onnx"), 
+            torch.onnx.export(model, dummy_input, os.path.join(path, updated_name+".onnx"),
                               export_params=False, verbose=0, training=1)
 
             print(f"Successfully generate {updated_name}, # of params {num_params}")
@@ -105,7 +117,14 @@ def validate_list():
     print("============")
     print(f"Generate {cnt} models in total, failed {len(model_zoo)-cnt} models")
 
+def clean_up_logs(file):
+    with open(file) as f:
+        lines = [x for x in f.readlines() if 'Successfully' in x]
 
-# export_onnx()
-validate_list()
+    with open('model-zoo', 'w') as fout:
+        for line in lines:
+            fout.writelines(line.split()[2].strip()[:-1] + '\n')
 
+#export_onnx()
+clean_up_logs('model-export-list')
+#validate_list()

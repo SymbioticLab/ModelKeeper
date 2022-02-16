@@ -183,7 +183,18 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
                     transforms.Resize(32),
                     transforms.ToTensor(),
                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+    elif args.data == 'flower':
+        train_transform = transforms.Compose(
+                [transforms.Resize((224, 224)),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomCrop((224,224)),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
+        test_transform = transforms.Compose(
+                    [transforms.Resize((224, 224)),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
     else:
         train_transform = transforms.Compose(
                 [transforms.RandomHorizontalFlip(),
@@ -456,7 +467,7 @@ class TrainModel(tune.Trainable):
         self.task = args.task
 
         temp_model_name = config['config']['name']
-        num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120, 'fmnist': 10, 'flower': 102}
+        num_labels = {'cifar10': 10, "cifar100": 100, "ImageNet16-120": 120, 'fmnist': 10, 'flower': 103}
         num_classes = num_labels.get(args.data, 0)
 
         if self.task == "nasbench":

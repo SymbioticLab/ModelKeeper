@@ -33,4 +33,4 @@ def gen_trace(model_list):
         writer = csv.writer(f)
         writer.writerows(ans)
 
-gen_trace('torchcv_list')
+gen_trace('../../zoo_analysis/imgclsmob-large')
