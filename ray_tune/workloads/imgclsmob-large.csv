@@ -8,7 +8,7 @@ resnet12,1315
 darknet19,1585
 mnasnet_b1,1817
 sqnxt23_w3d2,1916
-bn_vgg13,1924
+mobilenet_w1,1924
 drnd38,2438
 peleenet,2518
 mixnet_s,2535
@@ -27,7 +27,7 @@ scneta50,4101
 sharesnet152,4948
 bam_resnet34,4949
 resnetd101b,4955
-mobilenet_w1,5172
+bn_vgg13,5172
 sparsenet161,5277
 sqnxt23v5_w1,5285
 hrnetv2_w64,6136

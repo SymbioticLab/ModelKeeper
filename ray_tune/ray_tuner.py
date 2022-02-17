@@ -183,16 +183,19 @@ def get_data_loaders(train_bz, test_bz, tokenizer=None, model_name=None, interes
                     transforms.Resize(32),
                     transforms.ToTensor(),
                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
     elif args.data == 'flower':
         train_transform = transforms.Compose(
-                [transforms.Resize((224, 224)),
+                [transforms.Resize((256, 256)),
+                transforms.RandomRotation(30),
                 transforms.RandomHorizontalFlip(),
-                transforms.RandomCrop((224,224)),
+                transforms.RandomResizedCrop((224,224)),
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
         test_transform = transforms.Compose(
-                    [transforms.Resize((224, 224)),
+                    [transforms.Resize((256, 256)),
+                    transforms.CenterCrop(224),
                     transforms.ToTensor(),
                     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
     else:
@@ -521,7 +524,7 @@ class TrainModel(tune.Trainable):
             self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr,
                     weight_decay=args.weight_decay, momentum=args.momentum, nesterov=True)
             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=4,
-                        verbose=True, min_lr=1e-3, factor=0.5, threshold=0.01)
+                        verbose=True, min_lr=1e-3, factor=0.5, threshold=args.lr_plat)
         self.criterion = nn.CrossEntropyLoss()
 
         self.history = {0:{'time':0, 'acc':0, 'loss':0}}
@@ -769,6 +772,7 @@ if __name__ == "__main__":
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='SGD momentum (default: 0.9)')
     parser.add_argument('--weight_decay', type=float, default=5e-4, metavar='M')
+    parser.add_argument('--lr_plat', type=float, default=1e-3)
     parser.add_argument('--register_time', type=float, default=1e12)
     parser.add_argument('--cuda', action='store_true', default=True,
                         help='disables CUDA training')
@@ -910,3 +914,4 @@ if __name__ == "__main__":
         logging.info("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
+
