@@ -541,7 +541,11 @@ class TrainModel(tune.Trainable):
         #self.model.eval()
         self.model.to(device='cpu')
 
-        dummy_input = torch.rand(2, 3, 32, 32)
+        if args.data != 'flower':
+            dummy_input = torch.rand(2, 3, 32, 32)
+        else:
+            dummy_input = torch.rand(2, 3, 224, 224)
+            
         # export to onnx format; Some models may be slow in onnx
         torch.onnx.export(self.model, dummy_input, self.export_path,
             export_params=True, verbose=0, training=TrainingMode.TRAINING, do_constant_folding=False)
@@ -722,7 +726,10 @@ class TrainModel(tune.Trainable):
         local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
         os.makedirs(local_path, exist_ok=True)
         export_path = os.path.join(local_path, self.export_path)
-        dummy_input = torch.rand((2, 3, 32, 32))
+        if args.data != 'flower':
+            dummy_input = torch.rand(2, 3, 32, 32)
+        else:
+            dummy_input = torch.rand(2, 3, 224, 224)
 
         with open(export_path, 'wb') as fout:
             pickle.dump(self.model, fout)
@@ -914,4 +921,3 @@ if __name__ == "__main__":
         logging.info("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
-
