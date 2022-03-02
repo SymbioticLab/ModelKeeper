@@ -136,7 +136,8 @@ class MappingOperator(object):
                     logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
                                                                 child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
             except Exception as e:
-                logging.error(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
+                pass
+                #logging.error(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
 
         logging.debug("\n\nCascading mapping takes {:.2f} sec".format(time.time() - start_time))
 

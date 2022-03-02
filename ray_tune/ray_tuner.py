@@ -721,22 +721,25 @@ class TrainModel(tune.Trainable):
             pickle.dump(self.model, fout, -1)
 
     def register_model(self):
-        self.model.to(device='cpu')
-        self.model.eval()
-        local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
-        os.makedirs(local_path, exist_ok=True)
-        export_path = os.path.join(local_path, self.export_path)
-        if args.data != 'flower':
-            dummy_input = torch.rand(2, 3, 32, 32)
-        else:
-            dummy_input = torch.rand(2, 3, 224, 224)
+        try:
+            self.model.to(device='cpu')
+            self.model.eval()
+            local_path = f"{os.environ['HOME']}/experiment/ray_zoos"
+            os.makedirs(local_path, exist_ok=True)
+            export_path = os.path.join(local_path, self.export_path)
+            if args.data != 'flower':
+                dummy_input = torch.rand(2, 3, 32, 32)
+            else:
+                dummy_input = torch.rand(2, 3, 224, 224)
 
-        with open(export_path, 'wb') as fout:
-            pickle.dump(self.model, fout)
-            pickle.dump(dummy_input, fout)
+            with open(export_path, 'wb') as fout:
+                pickle.dump(self.model, fout)
+                pickle.dump(dummy_input, fout)
 
-        # Call the offline API to register the model
-        os.system(f"nohup python {os.environ['HOME']}/experiment/ModelKeeper/ray_tune/keeper_offline.py --model_file={export_path} --accuracy={self.history[self.epoch]['acc']} &")
+            # Call the offline API to register the model
+            os.system(f"nohup python {os.environ['HOME']}/experiment/ModelKeeper/ray_tune/keeper_offline.py --model_file={export_path} --accuracy={self.history[self.epoch]['acc']} &")
+        except Exception as e:
+            self.logger.info(f"Register model {self.export_path} fails, due to {e}")
 
     def stop(self):
         self.logger.info(f"Training of {self.model_name} completed with {self.history[self.epoch]}")
@@ -921,3 +924,4 @@ if __name__ == "__main__":
         logging.info("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
+
