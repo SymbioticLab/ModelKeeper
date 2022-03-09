@@ -703,7 +703,7 @@ class TrainModel(tune.Trainable):
             self.save_model(self.export_path+'_'+str(self.epoch))
 
         if args.use_keeper and args.task != 'nlp_nwp' and not self.model_is_registered and \
-            (time.time()-self.start_training_time)>args.register_time:
+            (time.time()-self.start_training_time)/60.>args.register_time:
             self.model_is_registered = True
             self.register_model()
 
@@ -924,4 +924,3 @@ if __name__ == "__main__":
         logging.info("Best config is:", analysis.get_best_config(metric="mean_accuracy", mode='max'))
     else:
         logging.info("Best config is:", analysis.get_best_config(metric="mean_loss", mode='min'))
-
