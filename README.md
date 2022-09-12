@@ -1,12 +1,57 @@
-# Net2Net
-Net2Net implementation on PyTorch for any possible vision layers (nn.Linear, nn.Conv2d, nn.Conv3D, even wider operator btw nn.ConvX to nn.Linear).
-Checkout the [paper](https://arxiv.org/abs/1511.05641:) for more detail
+# ModelKeeper
 
-## Observations:
+This repository contains the evvaluation artifacts of our NSDI '23 paper "[ModelKeeper: Accelerating DNN Training via Automated Training Warmup](https://www.usenix.org/conference/nsdi23/presentation/lai)".
 
-- Using BatchNorm between layers, improves the competence of Net2Net. Otherwise, Net2Net approach is not able to get
-comparable results to a network trained from scratch.
+**ModelKeeper has been merged as part of [FedScale](https://github.com/SymbioticLab/FedScale) and is actively maintained there. Please try it!**
 
-- Inducing noise to new units and connections prelude to better networks. The effect is more evident without BathNorm layer.
+# Overview
 
-- Normalizing layer weights before any Net2Net operation increases the speed of learning and gives better convergence. Even so, it worths to investgate better normalization methods than L2 norm.
+* [Getting Started](#getting-started)
+* [Run Experiments](#run-experiments)
+* [Repo Structure](#repo-structure)
+* [Contact](#contact)
+
+# Getting Started
+
+Our ```install.sh``` will install the following automatically:
+
+* Anaconda Package Manager
+* CUDA 10.2
+
+Note: if you prefer different versions of conda and CUDA, please check  comments in `install.sh` for details.
+
+Run the following commands to install ModelKeeper. 
+
+```
+source install.sh 
+pip install -e .
+```
+
+# Run Experiments
+
+# Repo Structure
+
+```
+Repo Root
+|---- modelkeeper   # Core implementation (e.g., Matcher).
+|---- engines       # MK support for different training backends
+    |---- ray_tune      # Ray experiments
+    |---- NNI           # Retiarii experiments
+|---- examples      # Toy experiments of model transformation
+```
+
+# Notes
+please consider to cite our paper if you use the code or data in your research project.
+```bibtex
+@inproceedings{modelkeeper-nsdi23,
+  title={ModelKeeper: Accelerating DNN Training via Automated Training Warmup},
+  author={Fan Lai and Yinwei Dai and Harsha V. Madhyastha and Mosharaf Chowdhury},
+  booktitle={USENIX Symposium on Networked Systems Design and Implementation (NSDI)},
+  year={2023}
+}
+```
+
+# Contact
+Fan Lai (fanlai@umich.edu) and Yinwei Dai (yinweid@princeton.edu).
+
+

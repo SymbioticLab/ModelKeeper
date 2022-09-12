@@ -52,7 +52,7 @@ from utils.nlp_cls_utils import eval_nlp_cls, load_cls_model, train_nlp_cls
 from utils.nlp_nwp_utils import (eval_nlp_nwp, load_nwp_model,
                                  load_nwp_tokenizer, tokenize_datset,
                                  train_nlp_nwp)
-from vgg import VGG, make_layers, vgg_zoo
+from models.vgg import VGG, make_layers, vgg_zoo
 
 from modelkeeper.clientservice import ModelKeeperClient
 # ModelKeeper dependency
