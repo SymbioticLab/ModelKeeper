@@ -1,10 +1,12 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import pytest
-import sys, os, glob
+import glob
 import itertools
+import os
+import sys
 
+import pytest
 from aproximated_ged import *
 
 

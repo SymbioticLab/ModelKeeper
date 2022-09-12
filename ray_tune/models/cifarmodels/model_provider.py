@@ -1,21 +1,20 @@
-from .vgg import *
-from .dpn import *
-from .senet import *
-from .pnasnet import *
 from .densenet import *
-from .shufflenet import *
-from .shufflenetv2 import *
+from .dla import *
+from .dla_simple import *
+from .dpn import *
+from .efficientnet import *
+from .mobilenetv2 import *
+from .mobilenetv3 import *
+from .pnasnet import *
+from .preact_resnet import *
+from .preactresnet import *
 from .resnet import *
 from .resnext import *
-from .preact_resnet import *
-from .mobilenetv3 import *
-from .mobilenetv2 import *
-from .efficientnet import *
-from .dla_simple import *
-from .dla import *
-from .preactresnet import *
+from .senet import *
+from .shufflenet import *
+from .shufflenetv2 import *
 from .stochasticdepth import *
-from .preact_resnet import *
+from .vgg import *
 
 __all__ = ['get_model']
 

@@ -2,15 +2,16 @@
     Offline register of model keeper client service
 '''
 
-from modelkeeper.config import modelkeeper_config
-from modelkeeper.clientservice import ModelKeeperClient
-
 import argparse
 import logging
-import pickle
-import torch
-import time
 import os
+import pickle
+import time
+
+import torch
+
+from modelkeeper.clientservice import ModelKeeperClient
+from modelkeeper.config import modelkeeper_config
 
 log_path = './modelkeeper_log'
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',

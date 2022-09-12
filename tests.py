@@ -1,10 +1,13 @@
 import unittest
+
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
-from net2net import wider, deeper
 
-noise_var=0#1e-2
+from net2net import deeper, wider
+
+noise_var = 0  # 1e-2
+
 
 class Net(nn.Module):
 
@@ -16,16 +19,14 @@ class Net(nn.Module):
         self.fc1 = nn.Linear(320, 50)
         self.fc2 = nn.Linear(50, 10)
 
-
     def forward(self, x):
         x = F.relu(F.max_pool2d(self.conv1(x), 2))
         x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, x.size(1)*x.size(2)*x.size(3))
+        x = x.view(-1, x.size(1) * x.size(2) * x.size(3))
         x = F.relu(self.fc1(x))
         x = F.dropout(x, training=self.training)
         x = self.fc2(x)
         return F.log_softmax(x)
-
 
 
 class Net3D(nn.Module):
@@ -38,24 +39,20 @@ class Net3D(nn.Module):
         self.fc1 = nn.Linear(320, 50)
         self.fc2 = nn.Linear(50, 10)
 
-
     def forward(self, x):
         x = F.relu(F.max_pool3d(self.conv1(x), 2))
         x = F.relu(F.max_pool3d(self.conv2(x), 2))
-        x = x.view(-1, x.size(1)*x.size(2)*x.size(3)*x.size(4))
+        x = x.view(-1, x.size(1) * x.size(2) * x.size(3) * x.size(4))
         x = F.relu(self.fc1(x))
         # x = F.dropout(x, training=self.training)
         x = self.fc2(x)
         return F.log_softmax(x)
 
 
-
 class TestOperators(unittest.TestCase):
-
 
     def _create_net(self):
         return Net()
-
 
     def test_wider(self):
         net = self._create_net()
@@ -140,7 +137,6 @@ class TestOperators(unittest.TestCase):
         #assert th.abs((out - nout).sum().data)[0] > 1e-1
         #assert nout.size(0) == 32 and nout.size(1) == 10
 
-
     def test_deeper(self):
         net = self._create_net()
         inp = th.autograd.Variable(th.rand(256, 1, 28, 28))
@@ -148,13 +144,25 @@ class TestOperators(unittest.TestCase):
         net.eval()
         out = net(inp)
 
-        s = deeper(net._modules['conv1'], nn.ReLU, bnorm_flag=True , noise_var=noise_var)
+        s = deeper(
+            net._modules['conv1'],
+            nn.ReLU,
+            bnorm_flag=True,
+            noise_var=noise_var)
         net._modules['conv1'] = s
 
-        s2 = deeper(net._modules['conv2'], nn.ReLU, bnorm_flag=True , noise_var=noise_var)
+        s2 = deeper(
+            net._modules['conv2'],
+            nn.ReLU,
+            bnorm_flag=True,
+            noise_var=noise_var)
         net._modules['conv2'] = s2
 
-        s3 = deeper(net._modules['fc1'], nn.ReLU, bnorm_flag=True , noise_var=noise_var)
+        s3 = deeper(
+            net._modules['fc1'],
+            nn.ReLU,
+            bnorm_flag=True,
+            noise_var=noise_var)
         net._modules['fc1'] = s3
 
         net.eval()
@@ -170,7 +178,11 @@ class TestOperators(unittest.TestCase):
         net.eval()
         out = net(inp)
 
-        s = deeper(net._modules['conv1'], nn.ReLU, bnorm_flag=False , noise_var=noise_var)
+        s = deeper(
+            net._modules['conv1'],
+            nn.ReLU,
+            bnorm_flag=False,
+            noise_var=noise_var)
         net._modules['conv1'] = s
 
         # s2 = deeper(net._modules['conv2'], nn.ReLU, bnorm_flag=False , noise=False)
@@ -181,7 +193,7 @@ class TestOperators(unittest.TestCase):
         print(th.abs((out - nout).sum().data), th.abs(nout).sum().data)
         #assert th.abs((out - nout).sum().data)[0] < 1e-1, "New layer changes values by {}".format(th.abs(out - nout).sum().data[0])
 
+
 tester = TestOperators()
 tester.test_wider()
 tester.test_deeper()
-

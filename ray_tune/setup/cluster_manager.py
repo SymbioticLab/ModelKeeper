@@ -1,11 +1,15 @@
 # Submit job to the remote cluster
 
-import yaml
+import datetime
+import os
+import pickle
+import random
+import subprocess
 import sys
 import time
-import random
-import os, subprocess
-import pickle, datetime
+
+import yaml
+
 
 def load_yaml_conf(yaml_file):
     with open(yaml_file) as fin:

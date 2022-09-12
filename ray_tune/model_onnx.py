@@ -1,8 +1,11 @@
-import torchvision.models as models
-import torch
-import os, pickle, sys
-from models import get_cell_based_tiny_net
+import os
+import pickle
+import sys
+
 import models.cell_infers
+import torch
+import torchvision.models as models
+from models import get_cell_based_tiny_net
 
 sys.modules['models'] = models
 sys.modules['models.cell_infers'] = models.cell_infers

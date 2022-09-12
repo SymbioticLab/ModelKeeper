@@ -2,6 +2,7 @@
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2019.01 #
 #####################################################
 import torch.nn as nn
+
 from ..cell_operations import ResNetBasicblock
 from .cells import InferCell
 

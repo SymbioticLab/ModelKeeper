@@ -1,17 +1,22 @@
 
-import onnx
-import numpy
-import networkx as nx
-import time, sys, os
-import functools, collections
-from oort.mappingopt import MappingOperator
-import logging
-from onnx import numpy_helper
-import multiprocessing
-import torch
+import collections
+import functools
 import heapq
-from multiprocessing import Manager
 import json
+import logging
+import multiprocessing
+import os
+import sys
+import time
+from multiprocessing import Manager
+
+import networkx as nx
+import numpy
+import onnx
+import torch
+from onnx import numpy_helper
+
+from modelkeeper.mapper import MappingOperator
 
 sys.setrecursionlimit(10000)
 #logging.basicConfig(filename='logging', level=logging.INFO)
@@ -403,7 +408,7 @@ def mapping_func(parent_opt, child):
     return (parent_opt.parent.graph['name'], score) #(self.model_zoo[parent_path].parent, mappings, score)
 
 
-class Oort(object):
+class modelkeeper(object):
 
     def __init__(self, args):
         self.args = args
@@ -675,7 +680,7 @@ def test():
     
     args = parser.parse_args()
 
-    mapper = Oort(args)
+    mapper = modelkeeper(args)
 
     child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/model_zoo/imagenet120/500_800/cos_lr/random/model_134.pth.onnx'
     child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/torchzoo/shufflenet_v2_x2_0.onnx'

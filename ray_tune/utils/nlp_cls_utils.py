@@ -1,15 +1,16 @@
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoConfig
-
-from datasets import load_dataset
-from transformers import Trainer
-import numpy as np
-from datasets import load_metric
-import pickle
-import torch, os
 import inspect
-from transformers import TrainingArguments, get_linear_schedule_with_warmup
-from torch.utils.data import DataLoader
 import logging
+import os
+import pickle
+
+import numpy as np
+import torch
+from datasets import load_dataset, load_metric
+from torch.utils.data import DataLoader
+from transformers import (AutoConfig, AutoModelForSequenceClassification,
+                          AutoTokenizer, Trainer, TrainingArguments,
+                          get_linear_schedule_with_warmup)
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 total_steps = 200

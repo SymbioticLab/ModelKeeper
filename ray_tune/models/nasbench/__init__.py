@@ -3,7 +3,13 @@
 ##################################################
 from os import path as osp
 from typing import List, Text
+
 import torch
+
+# useful modules
+from .configure_utils import dict2config
+# from models.SharedUtils import change_key
+from .genotypes import Structure as CellStructure
 
 # __all__ = ['change_key', 'get_cell_based_tiny_net', 'get_search_spaces', 'get_cifar_models', 'get_imagenet_models', \
 #            'obtain_model', 'obtain_search_model', 'load_net_from_checkpoint', \
@@ -13,10 +19,6 @@ import torch
 
 # __all__ = ['get_cell_based_tiny_net']
 
-# useful modules
-from .configure_utils import dict2config
-# from models.SharedUtils import change_key
-from .genotypes import Structure as CellStructure
 
 
 # Cell-based NAS Models

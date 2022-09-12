@@ -1,11 +1,11 @@
 from pathlib import Path
-from typing import Any, Tuple, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 import PIL.Image
-
-from torchvision.datasets.utils import check_integrity, download_and_extract_archive, download_url, verify_str_arg
+from torchvision.datasets.utils import (check_integrity,
+                                        download_and_extract_archive,
+                                        download_url, verify_str_arg)
 from torchvision.datasets.vision import VisionDataset
-
 
 
 class Flowers102(VisionDataset):

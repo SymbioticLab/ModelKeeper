@@ -6,10 +6,11 @@ resnet with stochastic depth
 
     https://arxiv.org/abs/1603.09382v3
 """
+import random
+
 import torch
 import torch.nn as nn
 from torch.distributions.bernoulli import Bernoulli
-import random
 
 
 class StochasticDepthBasicBlock(nn.Module):

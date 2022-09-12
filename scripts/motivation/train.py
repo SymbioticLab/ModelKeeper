@@ -1,22 +1,26 @@
 from __future__ import print_function
+
 import argparse
+#sys.path.append('../')
+#from net2net import *
+import copy
+import logging
+import os
+import pickle
+import sys
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torchvision import datasets, transforms
-from torch.autograd import Variable
-import sys, os
-#sys.path.append('../')
-#from net2net import *
-import copy
 import torchvision.models as tormodels
-import pickle
-import logging
-from vgg import *
 from resnet import *
 from resnet_cifar import *
 from ror_cifar import *
+from torch.autograd import Variable
+from torchvision import datasets, transforms
+from vgg import *
+
 torch.cuda.set_device(1)
 
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
@@ -213,8 +217,8 @@ def modelkeeper(model):
     import sys
     sys.path.insert(0,'../../ray_tune/modelkeeper')
 
-    from matchingopt import ModelKeeper
     from config import modelkeeper_config
+    from matcher import ModelKeeper
 
     modelkeeper_config.zoo_path = '/users/fanlai/zoo'
     mapper = ModelKeeper(modelkeeper_config)

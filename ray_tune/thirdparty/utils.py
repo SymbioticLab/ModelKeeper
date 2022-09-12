@@ -1,7 +1,8 @@
-import torch
-import numpy as np
-import networkx as nx
 from itertools import permutations
+
+import networkx as nx
+import numpy as np
+import torch
 
 
 def repackage_hidden(h):

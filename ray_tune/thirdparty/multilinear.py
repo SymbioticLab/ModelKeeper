@@ -1,8 +1,9 @@
+import math
+
 import torch
 import torch.nn
 import torch.nn.functional as F
 
-import math
 
 class MultiLinear(torch.nn.Module):
 

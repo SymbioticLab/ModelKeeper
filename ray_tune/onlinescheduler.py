@@ -1,10 +1,11 @@
-from ray.tune.schedulers import TrialScheduler
-import time
 import logging
+import time
+from typing import Dict, Optional
 
 from ray.tune import trial_runner
+from ray.tune.schedulers import TrialScheduler
 from ray.tune.trial import Trial
-from typing import Dict, Optional
+
 
 class OnlineScheduler(TrialScheduler):
     """Simple scheduler that just runs trials in submission order."""

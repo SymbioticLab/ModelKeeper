@@ -10,8 +10,8 @@
 __author__ = "Pau Riba, Anjan Dutta"
 __email__ = "priba@cvc.uab.cat, adutta@cvc.uab.cat"
 
-import networkx as nx
 import matplotlib.pyplot as plt
+import networkx as nx
 import numpy as np
 
 

@@ -1,16 +1,12 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-from __future__ import with_statement, print_function
-try:
-    range = xrange
-except NameError:
-    pass
+from __future__ import print_function, with_statement
 
-import random
 import logging
-from operator import itemgetter, __eq__
 import multiprocessing
+import random
+from operator import __eq__, itemgetter
 
 _MAX_ITER = int(1e3)
 random.seed(1)
@@ -30,7 +26,8 @@ class Medoid(object):
         return iter(self.elements)
 
     def compute_kernel(self, distance):
-        return min(self, key=lambda e: sum(distance(e, other) for other in self))
+        return min(self, key=lambda e: sum(distance(e, other)
+                                           for other in self))
 
     def compute_diameter(self, distance):
         return max(distance(a, b) for a in self for b in self)
@@ -64,7 +61,7 @@ def _k_medoids_spawn_once(points, k, distance,
 
     # Medoids initialization
     medoids = [Medoid(kernel=p) for p in random.sample(list(points), k)]
-    #if verbose:
+    # if verbose:
     #    print('* New chosen kernels: {0}'.format([m.kernel for m in medoids]))
 
     for n in range(1, 1 + max_iterations):
@@ -92,7 +89,7 @@ def _k_medoids_spawn_once(points, k, distance,
             break
 
     diameter = max(m.compute_diameter(distance) for m in medoids)
-    #if verbose:
+    # if verbose:
     #    print('* Iteration over after {} steps, max diameter {}'.format(n, diameter))
 
     return diameter, medoids
@@ -127,13 +124,21 @@ def k_medoids(points, k, distance, spawn,
 
     pool = multiprocessing.Pool(processes=threads)
 
-    ans = [pool.apply_async(_k_medoids_spawn_once, 
-                    (points, k, distance, equality, max_iterations, verbose)) for _ in range(spawn)]
+    ans = [
+        pool.apply_async(
+            _k_medoids_spawn_once,
+            (points,
+             k,
+             distance,
+             equality,
+             max_iterations,
+             verbose)) for _ in range(spawn)]
 
     pool.close()
     pool.join()
 
-    best_diameter, best_medoids = min([(x.get()) for x in ans], key=lambda k:k[0])
+    best_diameter, best_medoids = min(
+        [(x.get()) for x in ans], key=lambda k: k[0])
 
     return best_diameter, best_medoids
 
@@ -142,7 +147,7 @@ def k_medoids_auto_k(points, distance, spawn, diam_max,
                      equality=__eq__,
                      max_iterations=_MAX_ITER,
                      start_k=1,
-                     threads=1, 
+                     threads=1,
                      verbose=True):
     """
     Same as k_medoids, but we increase the number of clusters until we have a
@@ -159,7 +164,8 @@ def k_medoids_auto_k(points, distance, spawn, diam_max,
         a list of [kernel of the cluster, [elements in the cluster]]
     """
     if len(points) == 0:
-        # we do not test `if not points` to keep things compatible with numpy arrays
+        # we do not test `if not points` to keep things compatible with numpy
+        # arrays
         raise ValueError('No points given!')
 
     kw = {
@@ -181,16 +187,19 @@ def k_medoids_auto_k(points, distance, spawn, diam_max,
         diameter, medoids = k_medoids(points, mid, **kw)
 
         if diameter > diam_max:
-            print('*** {} clusters, diameter too big {:.3f} > {:.3f}\n'.format(mid, diameter, diam_max))
+            print(
+                '*** {} clusters, diameter too big {:.3f} > {:.3f}\n'.format(mid, diameter, diam_max))
             left = mid + 1
         else:
-            print('*** {} clusters, diameter too small {:.3f} < {:.3f}\n'.format(mid, diameter, diam_max))
-            right = mid 
+            print(
+                '*** {} clusters, diameter too small {:.3f} < {:.3f}\n'.format(mid, diameter, diam_max))
+            right = mid
 
     diameter, medoids = k_medoids(points, right, **kw)
 
     if verbose:
-        print('\n\n*** Diameter ok {:.3f} <= {:.3f}'.format(diameter, diam_max))
+        print(
+            '\n\n*** Diameter ok {:.3f} <= {:.3f}'.format(diameter, diam_max))
         print('*** Stopping, {} clusters enough ({} points initially)'.format(right, len(points)))
 
     return diameter, medoids

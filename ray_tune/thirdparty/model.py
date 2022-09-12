@@ -1,14 +1,13 @@
+import json
+
+import numpy as np
 import torch
 import torch.nn
-
+from thirdparty.custom_rnn import CustomRNN
 from thirdparty.embed_regularize import embedded_dropout
 from thirdparty.locked_dropout import LockedDropout
-from thirdparty.weight_drop import WeightDrop, ParameterListWeightDrop
+from thirdparty.weight_drop import ParameterListWeightDrop, WeightDrop
 
-from thirdparty.custom_rnn import CustomRNN
-
-import json
-import numpy as np
 
 class AWDRNNModel(torch.nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""

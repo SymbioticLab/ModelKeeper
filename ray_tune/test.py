@@ -1,6 +1,7 @@
+import torch
 from models.cifarmodels.model_provider import get_cv_model
 from models.torchcv.model_provider import get_model as ptcv_get_model
-import torch
+
 
 def get_str_type(input_str):
     input_str = input_str.strip()

@@ -1,6 +1,6 @@
 import numpy as np
-
 import torch
+
 
 def embedded_dropout(embed, words, dropout=0.1, scale=None):
   if dropout:

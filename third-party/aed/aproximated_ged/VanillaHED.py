@@ -10,17 +10,16 @@
     Basic implementation of edit cost operations.
 """
 
-from .HausdorffEditDistance import HausdorffEditDistance
-
-import os
 import glob
 import itertools
-
+import os
 from itertools import chain
-from scipy.spatial.distance import cdist
-import numpy as np
-import networkx as nx
 
+import networkx as nx
+import numpy as np
+from scipy.spatial.distance import cdist
+
+from .HausdorffEditDistance import HausdorffEditDistance
 from .Plotter import plot_assignment_hausdorff
 
 __author__ = "Pau Riba, Anjan Dutta"

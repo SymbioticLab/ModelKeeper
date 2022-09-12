@@ -3,17 +3,17 @@ import sys
 
 sys.path.insert(0, '../ray_tune/models/')
 
+import pickle
+import string
+
+import torch
+# Cifar zoo
+from cifarmodels import *
+from torch.autograd import Variable
 # Imgclsmob zoo
 from torchcv.model_provider import _models as model_zoo
 from torchcv.model_provider import get_model as ptcv_get_model
 
-# Cifar zoo
-from cifarmodels import *
-
-import torch
-from torch.autograd import Variable
-import pickle
-import string
 
 def export_onnx():
     size = 224

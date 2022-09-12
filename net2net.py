@@ -1,8 +1,10 @@
-import torch as th
-import numpy as np
-import numpy
 import copy
 import warnings
+
+import numpy
+import numpy as np
+import torch as th
+
 
 def get_mapping_index(layer, new_width, split_max=False):
     """Generate the unit index to replicate"""
@@ -10,16 +12,24 @@ def get_mapping_index(layer, new_width, split_max=False):
     old_width = layer.weight.size(0)
 
     if split_max:
-        replicate_unit = th.topk((th.dot(th.ones(old_width), layer.weight))+layer.bias, k=new_width-old_width)
+        replicate_unit = th.topk(
+            (th.dot(
+                th.ones(old_width),
+                layer.weight)) +
+            layer.bias,
+            k=new_width -
+            old_width)
         return replicate_unit.tolist()
     else:
         # replicate_unit = []
         # for i in range(old_width, new_width):
         #     replicate_unit.append(np.random.randint(0, i))
 
-        replicate_unit = np.random.randint(0, old_width, size=new_width-old_width).tolist()
+        replicate_unit = np.random.randint(
+            0, old_width, size=new_width - old_width).tolist()
 
         return replicate_unit
+
 
 def bn_identity(dim, width):
     if dim == 4:
@@ -36,6 +46,7 @@ def bn_identity(dim, width):
 
     return bnorm
 
+
 def bn_wider(bnorm, split_index, new_width):
     """Widen the BN layer"""
     old_width = bnorm.running_mean.size(0)
@@ -51,14 +62,14 @@ def bn_wider(bnorm, split_index, new_width):
 
     """Handle new units"""
     for i in range(old_width, new_width):
-        idx = split_index[i-old_width]
+        idx = split_index[i - old_width]
         bnorm.running_mean[i] = bnorm.running_mean[idx].clone()
         bnorm.running_var[i] = bnorm.running_var[idx].clone()
 
         if bnorm.affine:
             nweight[i] = nweight[idx].clone()
             nbias[i] = nbias[idx].clone()
-    
+
     if bnorm.affine:
         bnorm.weight.data = nweight
         bnorm.bias.data = nbias
@@ -67,7 +78,16 @@ def bn_wider(bnorm, split_index, new_width):
 
     return bnorm
 
-def wider(parent, child, new_width, bnorm=None, template_layer=None, out_size=None, mapping_index=None, noise_var=5e-2):
+
+def wider(
+        parent,
+        child,
+        new_width,
+        bnorm=None,
+        template_layer=None,
+        out_size=None,
+        mapping_index=None,
+        noise_var=5e-2):
     """
     Convert m1 layer to its wider version by adapthing next weight layer and
     possible batch norm layer in btw.
@@ -92,7 +112,7 @@ def wider(parent, child, new_width, bnorm=None, template_layer=None, out_size=No
     """
     m1, m2 = copy.deepcopy(parent), copy.deepcopy(child)
 
-    if template_layer is None: 
+    if template_layer is None:
         template_layer = m1
     else:
         new_width = template_layer.weight.size(0)
@@ -106,21 +126,30 @@ def wider(parent, child, new_width, bnorm=None, template_layer=None, out_size=No
     if "Conv" in new_layer_type or "Linear" in template_layer.__class__.__name__:
         # Convert Linear layers to Conv if linear layer follows target layer
         if "Conv" in new_layer_type and "Linear" in m2.__class__.__name__:
-            assert w2.size(1) % template_layer.weight.size(0) == 0, "Linear units need to be multiple"
+            assert w2.size(1) % template_layer.weight.size(
+                0) == 0, "Linear units need to be multiple"
             if template_layer.weight.dim() == 4:
-                factor = int(np.sqrt(w2.size(1) // template_layer.weight.size(0)))
-                w2 = w2.view(w2.size(0), w2.size(1)//factor**2, factor, factor)
+                factor = int(
+                    np.sqrt(
+                        w2.size(1) //
+                        template_layer.weight.size(0)))
+                w2 = w2.view(
+                    w2.size(0),
+                    w2.size(1) //
+                    factor**2,
+                    factor,
+                    factor)
             elif template_layer.weight.dim() == 5:
                 assert out_size is not None,\
-                       "For conv3d -> linear out_size is necessary"
+                    "For conv3d -> linear out_size is necessary"
                 factor = out_size[0] * out_size[1] * out_size[2]
-                w2 = w2.view(w2.size(0), w2.size(1)//factor, out_size[0],
+                w2 = w2.view(w2.size(0), w2.size(1) // factor, out_size[0],
                              out_size[1], out_size[2])
         else:
-            assert w1.size(0) == w2.size(1), "Module weights are not compatible"
+            assert w1.size(0) == w2.size(
+                1), "Module weights are not compatible"
         assert new_width >= w1.size(0), "New size should be larger"
 
-        
         nw1 = th.zeros([new_width] + list(template_layer.weight.size())[1:])
         nw2 = th.zeros([w2.size(0), new_width] + list(w2.size())[2:])
         nb1 = th.zeros(new_width)
@@ -133,14 +162,15 @@ def wider(parent, child, new_width, bnorm=None, template_layer=None, out_size=No
         nw2.narrow(0, 0, old_width).copy_(w2)
         nb1.narrow(0, 0, old_width).copy_(b1)
 
-        # replicate weights randomly, instead of padding zero simply, as the latter is too sparse
+        # replicate weights randomly, instead of padding zero simply, as the
+        # latter is too sparse
         split_index = mapping_index
         if split_index is None:
             split_index = get_mapping_index(m1, new_width)
 
         tracking = dict()
         for i in range(old_width, new_width):
-            idx = split_index[i-old_width]
+            idx = split_index[i - old_width]
 
             if idx not in tracking:
                 tracking[idx] = [idx]
@@ -162,7 +192,7 @@ def wider(parent, child, new_width, bnorm=None, template_layer=None, out_size=No
         #     nw1.select(0, i).copy_(nw1.select(0, idx).clone())
         #     # bias layer
         #     nb1[i] = nb1[idx].clone()
-            
+
         #     # halve
         #     nw2.select(0, i).copy_(nw2.select(0, idx).clone().mul_(.5))
         #     nw2.select(0, idx).mul_(.5)
@@ -170,9 +200,14 @@ def wider(parent, child, new_width, bnorm=None, template_layer=None, out_size=No
         w2.transpose_(0, 1)
         nw2.transpose_(0, 1)
 
-        # add noise to break symmetry if we did not modify the parent layer before
+        # add noise to break symmetry if we did not modify the parent layer
+        # before
         if noise_var and mapping_index is None:
-            noise = np.random.normal(scale=noise_var * nw1.std().item(), size=list(nw1.size()))
+            noise = np.random.normal(
+                scale=noise_var *
+                nw1.std().item(),
+                size=list(
+                    nw1.size()))
             nw1 += th.FloatTensor(noise).type_as(nw1)
 
         template_layer.out_channels = new_width
@@ -183,21 +218,25 @@ def wider(parent, child, new_width, bnorm=None, template_layer=None, out_size=No
 
         if "Conv" in new_layer_type and "Linear" in m2.__class__.__name__:
             if w2.dim() == 4:
-                m2.weight.data = nw2.view(m2.weight.size(0), new_width*factor**2)
-                m2.in_features = new_width*factor**2
+                m2.weight.data = nw2.view(
+                    m2.weight.size(0), new_width * factor**2)
+                m2.in_features = new_width * factor**2
             elif w2.dim() == 5:
-                m2.weight.data = nw2.view(m2.weight.size(0), new_width*factor)
-                m2.in_features = new_width*factor
+                m2.weight.data = nw2.view(
+                    m2.weight.size(0), new_width * factor)
+                m2.in_features = new_width * factor
         else:
             m2.weight.data = nw2
 
         nbnorm = None
         if bnorm is not None:
-            nbnorm = bn_wider(copy.deepcopy(bnorm), split_index, new_width) 
+            nbnorm = bn_wider(copy.deepcopy(bnorm), split_index, new_width)
 
         return template_layer, m2, nbnorm
 
 # Leave different kernel size to the widen operation
+
+
 def deeper(m, nonlin, bnorm_flag=False, noise_var=5e-2):
     """
     Deeper operator adding a new layer on topf of the given layer.
@@ -224,14 +263,27 @@ def deeper(m, nonlin, bnorm_flag=False, noise_var=5e-2):
         if m.weight.dim() == 4:
             pad_h = m.kernel_size[0] // 2
             pad_w = m.kernel_size[1] // 2
-            m2 = th.nn.Conv2d(m.out_channels, m.out_channels, kernel_size=m.kernel_size, padding=(pad_h, pad_w))
-            c_d = m.kernel_size[0] // 2 # center location of the kernel
+            m2 = th.nn.Conv2d(
+                m.out_channels,
+                m.out_channels,
+                kernel_size=m.kernel_size,
+                padding=(
+                    pad_h,
+                    pad_w))
+            c_d = m.kernel_size[0] // 2  # center location of the kernel
             c_wh = m.kernel_size[1] // 2
 
         elif m.weight.dim() == 5:
             pad_hw = m.kernel_size[1] // 2  # pad height and width
             pad_d = m.kernel_size[0] // 2  # pad depth
-            m2 = th.nn.Conv3d(m.out_channels, m.out_channels, kernel_size=m.kernel_size, padding=(pad_d, pad_hw, pad_hw))
+            m2 = th.nn.Conv3d(
+                m.out_channels,
+                m.out_channels,
+                kernel_size=m.kernel_size,
+                padding=(
+                    pad_d,
+                    pad_hw,
+                    pad_hw))
             c_wh = m.kernel_size[1] // 2
             c_d = m.kernel_size[0] // 2
 
@@ -241,27 +293,68 @@ def deeper(m, nonlin, bnorm_flag=False, noise_var=5e-2):
         restore = False
         if m2.weight.dim() == 2:
             restore = True
-            m2.weight.data = m2.weight.data.view(m2.weight.size(0), m2.in_channels, m2.kernel_size[0], m2.kernel_size[0])
+            m2.weight.data = m2.weight.data.view(
+                m2.weight.size(0),
+                m2.in_channels,
+                m2.kernel_size[0],
+                m2.kernel_size[0])
 
         for i in range(0, m.out_channels):
             if m.weight.dim() == 4:
-                m2.weight.data.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).fill_(1)
+                m2.weight.data.narrow(
+                    0,
+                    i,
+                    1).narrow(
+                    1,
+                    i,
+                    1).narrow(
+                    2,
+                    c_d,
+                    1).narrow(
+                    3,
+                    c_wh,
+                    1).fill_(1)
             elif m.weight.dim() == 5:
-                m2.weight.data.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).narrow(4, c_wh, 1).fill_(1)
+                m2.weight.data.narrow(
+                    0,
+                    i,
+                    1).narrow(
+                    1,
+                    i,
+                    1).narrow(
+                    2,
+                    c_d,
+                    1).narrow(
+                    3,
+                    c_wh,
+                    1).narrow(
+                    4,
+                    c_wh,
+                    1).fill_(1)
 
         if noise_var:
             # no need std here since it is eye
-            w_noise = np.random.normal(scale=noise_var, size=list(m2.weight.size()))
+            w_noise = np.random.normal(
+                scale=noise_var, size=list(
+                    m2.weight.size()))
             m2.weight.data += th.FloatTensor(w_noise).type_as(m2.weight.data)
 
-            bn_noise = np.random.normal(scale=noise_var, size=list(m2.bias.size()))
+            bn_noise = np.random.normal(
+                scale=noise_var, size=list(
+                    m2.bias.size()))
             m2.bias.data += th.FloatTensor(bn_noise).type_as(m2.bias.data)
 
         if restore:
-            m2.weight.data = m2.weight.data.view(m2.weight.size(0), m2.in_channels, m2.kernel_size[0], m2.kernel_size[0])
+            m2.weight.data = m2.weight.data.view(
+                m2.weight.size(0),
+                m2.in_channels,
+                m2.kernel_size[0],
+                m2.kernel_size[0])
 
     else:
-        raise RuntimeError("{} Module not supported".format(m.__class__.__name__))
+        raise RuntimeError(
+            "{} Module not supported".format(
+                m.__class__.__name__))
 
     s = th.nn.Sequential()
     s.add_module('conv', m)
@@ -270,6 +363,6 @@ def deeper(m, nonlin, bnorm_flag=False, noise_var=5e-2):
         s.add_module('bnorm', bnorm)
     if nonlin is not None:
         s.add_module('nonlin', nonlin())
-    s.add_module('new_'+new_layer_type, m2)
+    s.add_module('new_' + new_layer_type, m2)
 
     return s

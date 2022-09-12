@@ -1,10 +1,13 @@
 #####################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2019.01 #
 #####################################################
+from copy import deepcopy
+
 import torch
 import torch.nn as nn
-from copy import deepcopy
-from .cells import NASNetInferCell as InferCell, AuxiliaryHeadCIFAR
+
+from .cells import AuxiliaryHeadCIFAR
+from .cells import NASNetInferCell as InferCell
 
 
 # The macro structure is based on NASNet

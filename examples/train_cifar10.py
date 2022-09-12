@@ -1,24 +1,26 @@
 import argparse
+import sys
 import time
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torchvision import datasets, transforms
 from torch.autograd import Variable
-import sys
+from torchvision import datasets, transforms
+
 sys.path.append('../')
-from net2net import wider, deeper
 import copy
-import numpy as np
+import logging
 import pickle
 
-from utils import NLL_loss_instance
-from utils import PlotLearning
-from torchsummary import summary
+import numpy as np
 import torchvision.models as models
+from torchsummary import summary
+from utils import NLL_loss_instance, PlotLearning
 
-import logging
+from net2net import deeper, wider
+
 log_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/examples/logging'
 with open(log_path, 'w') as fout:
     pass

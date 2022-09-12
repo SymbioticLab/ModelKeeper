@@ -1,6 +1,8 @@
-import pandas
-import random
 import csv
+import random
+
+import pandas
+
 
 def gen_trace(model_list):
     # Pollux use workload 6

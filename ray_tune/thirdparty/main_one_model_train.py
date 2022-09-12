@@ -1,25 +1,23 @@
-import torch
-import torch.nn
-import torch.optim
-import torch.utils.data
-import torch.nn.functional as F
-from splitcross import SplitCrossEntropyLoss
-
-import numpy as np
-import networkx as nx
-import math
+import argparse
+import datetime
 import json
+import math
+import os
 import time
+from argparse import Namespace
 
 import data
-import os
-from utils import batchify
-from argparse import Namespace
+import networkx as nx
+import numpy as np
+import torch
+import torch.nn
+import torch.nn.functional as F
+import torch.optim
+import torch.utils.data
 from model import AWDRNNModel
-from train import train, evaluate
-import datetime
-
-import argparse
+from splitcross import SplitCrossEntropyLoss
+from train import evaluate, train
+from utils import batchify
 
 parser = argparse.ArgumentParser(description='PyTorch Custom RNN Language Model')
 

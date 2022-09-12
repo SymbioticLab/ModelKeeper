@@ -1,6 +1,5 @@
 import pickle
 
-
 with open('result.pkl', 'rb') as fout:
     result = pickle.load(fout)
 

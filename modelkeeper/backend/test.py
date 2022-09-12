@@ -1,20 +1,25 @@
-import onnx
-import numpy
-import networkx as nx
-import time, sys, os
-import functools, collections
-from oort.mappingopt import MappingOperator
-import logging
-from onnx import numpy_helper
-import multiprocessing
-import torch
-import heapq
-from multiprocessing import Manager
+import collections
 import ctypes
+import functools
+import heapq
 import json
+import logging
+import multiprocessing
+import os
+import sys
+import time
+from multiprocessing import Manager
+
+import networkx as nx
+import numpy
+import onnx
+import torch
+from onnx import numpy_helper
+
+from modelkeeper.mapper import MappingOperator
 
 # Call C backend
-clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'oort/backend/bin/matcher.so'))
+clib_matcher = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), 'modelkeeper/backend/bin/matcher.so'))
 clib_matcher.get_matching_score.restype = ctypes.c_double
 
 sys.setrecursionlimit(10000)
@@ -145,7 +150,7 @@ class MatchingOperator(object):
         self.init_child_index()
 
         child_exe_file = self.child.graph['model_id'] + '_' + self.parent.graph['model_id'] + '.json'
-        child_exe_file = os.path.join(os.path.dirname(__file__), 'oort/backend/bin/', child_exe_file)
+        child_exe_file = os.path.join(os.path.dirname(__file__), 'modelkeeper/backend/bin/', child_exe_file)
 
         # call C lib to get mapping
         self.dump_meta_json(child_exe_file)
@@ -293,11 +298,10 @@ def mapping_func(parent_opt, child, read_mapping=False):
     return (parent_opt.parent.graph['name'], score) #(self.model_zoo[parent_path].parent, mappings, score)
 
 
-class Oort(object):
+class ModelKeeper(object):
 
     def __init__(self, args):
         self.args = args
-
         self.model_zoo = collections.OrderedDict()
 
         if args.zoo_path is not None:
@@ -563,7 +567,7 @@ def test():
         
     args = parser.parse_args()
 
-    mapper = Oort(args)
+    mapper = ModelKeeper(args)
 
     child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/model_zoo/imagenet120/500_800/cos_lr/random/model_134.pth.onnx'
     child_onnx_path = '/gpfs/gpfs0/groups/chowdhury/fanlai/net_transformer/Net2Net/torchzoo/shufflenet_v2_x2_0.onnx'

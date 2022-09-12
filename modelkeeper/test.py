@@ -1,6 +1,8 @@
-from matchingopt import ModelKeeper
-import os 
 import logging
+import os
+
+from matcher import ModelKeeper
+
 
 def test():
     # import argparse
@@ -27,12 +29,15 @@ def test():
     match_list = ['../query_zoo/nin_cifar10.onnx']
     for model in match_list:
         child_onnx_path = os.path.join(zoo_path, model)
-        weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set([child_onnx_path]),
-                model_name=child_onnx_path.split('/')[-1])
+        weights, meta_data = mapper.map_for_onnx(child_onnx_path, blacklist=set(
+            [child_onnx_path]), model_name=child_onnx_path.split('/')[-1])
 
-        logging.info("\n\nMatching {}, results: {}\n".format(child_onnx_path, meta_data))
+        logging.info(
+            "\n\nMatching {}, results: {}\n".format(
+                child_onnx_path, meta_data))
 
     # time.sleep(40)
 
+
 test()
-#test_fake()
+# test_fake()

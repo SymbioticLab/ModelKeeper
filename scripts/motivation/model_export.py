@@ -1,6 +1,10 @@
-import torchvision.models as models
+import os
+import pickle
+import sys
+
 import torch
-import os, pickle, sys
+import torchvision.models as models
+
 
 def gen_model_zoo(path):
     dummy_input = torch.rand(8, 3, 32, 32) #  batch:32; 3 channels; 32 x 32 size

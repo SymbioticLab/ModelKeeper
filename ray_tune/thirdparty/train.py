@@ -1,9 +1,9 @@
+import math
+import time
+
+import numpy as np
 import torch
 import torch.nn
-import time
-import numpy as np
-import math
-
 from thirdparty.utils import get_batch, repackage_hidden
 
 

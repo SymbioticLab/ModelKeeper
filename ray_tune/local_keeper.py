@@ -1,13 +1,17 @@
-import os, sys
-sys.path.append(f'{os.environ["HOME"]}/experiment/ModelKeeper/ray_tune/modelkeeper')
-from modelkeeper.config import modelkeeper_config
-from modelkeeper.matchingopt import ModelKeeper
+import os
+import sys
 
+sys.path.append(f'{os.environ["HOME"]}/experiment/ModelKeeper/ray_tune/modelkeeper')
 import argparse
 import logging
 import pickle
-import torch
 import time
+
+import torch
+
+from modelkeeper.config import modelkeeper_config
+from modelkeeper.matcher import ModelKeeper
+
 #import os, sys
 
 log_path = './modelkeeper_log'

@@ -1,7 +1,9 @@
+import functools
+from functools import wraps
+
 import torch
 from torch.nn import Parameter
-from functools import wraps
-import functools
+
 
 class WeightDrop(torch.nn.Module):
     def __init__(self, module, weights, dropout=0, variational=False):

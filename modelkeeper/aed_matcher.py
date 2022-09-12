@@ -19,5 +19,6 @@ class AEDMatcher(object):
             return -float('inf'), []
 
         dist = self.mappings[child]['GED']
-        mappings = [(a,b) for a, b in zip(self.mappings[child]['Path'][0], self.mappings[child]['Path'][1])]
+        mappings = [(a, b) for a, b in zip(self.mappings[child][
+            'Path'][0], self.mappings[child]['Path'][1])]
         return -dist, mappings

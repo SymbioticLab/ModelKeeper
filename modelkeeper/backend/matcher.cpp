@@ -59,6 +59,7 @@ string Matcher::encode_hash(int i, int j){
 
 
 void parse_node_info(json metadata, vector<Node> & node_list){
+    // Load the model computation graph derived from ONNX
     json opt_list = metadata["opts"];
     json dim_list = metadata["dims"];
     json parent_list = metadata["parents"];
@@ -94,6 +95,7 @@ void Matcher::read_io(string json_s){
 
 
 void Matcher::init_score(){
+    // Initialize the DP score matrix
     scores = new double*[1+len_parent];
     for (int i=0; i < 1+len_parent; ++i) {
         scores[i] = new double[1+len_child]();
@@ -107,7 +109,7 @@ void Matcher::init_score(){
         for (int j=0; j < parent_nodes[i].parents.size(); ++j) {
             best = max(best, scores[1+parent_nodes[i].parents[j]][0]);
         }
-        scores[i+1][0] = (best + del_gap);///parent_nodes[i].parents.size();
+        scores[i+1][0] = (best + del_gap);
     }
 
     for (int i=0; i < child_nodes.size(); ++i) {
@@ -116,11 +118,12 @@ void Matcher::init_score(){
         for (int j=0; j < child_nodes[i].parents.size(); ++j){
             best = max(best, scores[0][1+child_nodes[i].parents[j]]);
         }
-        scores[0][i+1] = (best + ins_gap);//child_nodes[i].parents.size();
+        scores[0][i+1] = (best + ins_gap);
     }
 
     long long num_parent_param=1;
-    // calculate number of parameters
+    /* Calculate and cache the number of parameters of each tensor
+       to avoid expensive computation again in DP */
     for (int i=0; i < parent_nodes.size(); ++i) {
         num_parent_param = 1;
         for (int j=0; j < parent_nodes[i].shape.size(); ++j){
@@ -139,6 +142,8 @@ void Matcher::init_score(){
 }
 
 inline double Matcher::merge_branch_mapping(vector<vector<node_pair> > lists, vector<int> & parent_list, vector<int> & child_list){
+    /* Greedy merge: pick the path with maximum score, 
+    and then remove other paths that contain the accessed nodes*/
 
     priority_queue<pair<double, int> > queue;
 
@@ -200,7 +205,8 @@ inline double Matcher::cal_score(Node parent_node, Node child_node){
 
         double match_score = inherited_param;
         if (num_parent_param > num_child_param) {
-            match_score = inherited_param/num_parent_param/1.2; // lost information of the parent
+            // lost information of the parent, so we add 1.2 penalty here
+            match_score = inherited_param/num_parent_param/1.2; 
         } else {
             match_score = inherited_param/num_child_param; // padding too many ones
         }
@@ -247,7 +253,8 @@ void Matcher::align_child_parent(){
             vector<vector<node_pair> > temp_ans;
 
             // enumerate all branches
-            // TODO: optimal solution should apply bipartite algorithm to mix and match 
+            // NOTE: Optimal solution should apply bipartite algorithm to mix and match 
+            // But this can be pretty time-consuming. Instead, we use greedy match
             for (int k=0; k < child_node.parents.size(); ++k){
                 vector<node_pair> temp;
                 cprev = child_node.parents[k]; // j
@@ -273,7 +280,7 @@ void Matcher::align_child_parent(){
             merge_score = merge_branch_mapping(temp_ans, parent_list, child_list);
 
             // treat multi branches as a single chain 
-            scores[i+1][j+1] = merge_score;///child_node.parents.size();//max(parent_node.parents.size(), child_node.parents.size());
+            scores[i+1][j+1] = merge_score;
 
             if (dump_mapping){
                 backParentIdx.insert({encode_hash(i+1, j+1), parent_list});
@@ -281,10 +288,6 @@ void Matcher::align_child_parent(){
             }
         }
     }
-
-    // for (int i = 0; i < child_nodes.size(); ++i)
-    //     cout << scores[parent_nodes.size()][i] << " ";
-    // cout << endl;
 }
 
 extern "C"{

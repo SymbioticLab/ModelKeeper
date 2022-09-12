@@ -1,16 +1,19 @@
 from __future__ import print_function
+
 import argparse
+import sys
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torchvision import datasets, transforms
 from torch.autograd import Variable
-import sys
+from torchvision import datasets, transforms
+
 sys.path.append('../')
-from net2net import *
 import copy
 
+from net2net import *
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')

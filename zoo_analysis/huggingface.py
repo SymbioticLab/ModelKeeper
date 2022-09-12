@@ -1,13 +1,14 @@
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoModelForMaskedLM
-
-from datasets import load_dataset
-from transformers import Trainer
-import numpy as np
-from datasets import load_metric
-import pickle
-import torch, os
-from fnmatch import fnmatch
 import inspect
+import os
+import pickle
+from fnmatch import fnmatch
+
+import numpy as np
+import torch
+from datasets import load_dataset, load_metric
+from transformers import (AutoModelForMaskedLM,
+                          AutoModelForSequenceClassification, AutoTokenizer,
+                          Trainer)
 
 path = '/users/fanlai/experiment/nwp_zoo'
 padding_length = 256

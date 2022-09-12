@@ -7,17 +7,15 @@
     Distance computation and comparison between different aproximated graph edit distance techniques with the same costs.
 """
 
-#from VanillaAED import VanillaAED
-#from VanillaHED import VanillaHED
-from aproximated_ged import VanillaAED
-from aproximated_ged import VanillaHED
-
-import os
 import glob
 import itertools
+import os
+import time
 
 import networkx as nx
-import time
+#from VanillaAED import VanillaAED
+#from VanillaHED import VanillaHED
+from aproximated_ged import VanillaAED, VanillaHED
 
 __author__ = "Pau Riba, Anjan Dutta"
 __email__ = "priba@cvc.uab.cat, adutta@cvc.uab.cat"

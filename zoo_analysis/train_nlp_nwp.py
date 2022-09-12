@@ -1,11 +1,14 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForMaskedLM,  AutoConfig
-from transformers import DataCollatorForLanguageModeling
-from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader
-import torch
 import logging
 import os
-import pickle, torchtext
+import pickle
+
+import torch
+import torchtext
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import DataLoader
+from transformers import (AutoConfig, AutoModelForCausalLM,
+                          AutoModelForMaskedLM, AutoTokenizer,
+                          DataCollatorForLanguageModeling)
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 

@@ -1,9 +1,10 @@
+import math
+
+import networkx as nx
 import torch
 import torch.nn
-import networkx as nx
-
 from thirdparty.multilinear import MultiLinear
-import math
+
 
 class CustomRNNCell(torch.nn.Module):
 

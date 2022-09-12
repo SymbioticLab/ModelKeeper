@@ -1,11 +1,14 @@
-import onnx
-from onnx import numpy_helper
-import numpy
-from nettransformer import widen, widen_child, deepen
+import collections
 import logging
 import os
-import collections
 import time
+
+import numpy
+import onnx
+from onnx import numpy_helper
+
+from modelkeeper.nettransformer import deepen, widen, widen_child
+
 
 def load_model_data(file):
     onnx_model = onnx.load(file)
@@ -17,11 +20,13 @@ def load_model_data(file):
 
     return layer_weights
 
+
 def validate_score(dim1, dim2):
     for d1, d2 in zip(dim1, dim2):
-        if 0.3 <= float(d1)/d2 <= 3:
+        if 0.3 <= float(d1) / d2 <= 3:
             return True
     return False
+
 
 class MappingOperator(object):
     """Map parent weights to child weights given the mapping index"""
@@ -41,7 +46,7 @@ class MappingOperator(object):
         self.reset_layers = set()
         self.num_of_matched = 0
         self.reset_layers_name = set()
-        self.is_breakdown=breakdown
+        self.is_breakdown = breakdown
 
     def get_child_layers(self, graph, node_id):
         """Get the trainable next layers"""
@@ -56,10 +61,11 @@ class MappingOperator(object):
 
             # we overwrite BN and its child layers
             if len(graph.nodes[node]['attr']['dims']) < 1:
-                [dfs(edge[1]) for edge in graph.out_edges(node) if edge[1] not in visited]
+                [dfs(edge[1]) for edge in graph.out_edges(
+                    node) if edge[1] not in visited]
 
         [dfs(edge[1]) for edge in graph.out_edges(node_id)]
-        return ret#[1:] # skip node == node_id
+        return ret  # [1:] # skip node == node_id
 
     def get_weights(self, graph, initializer, node):
         # Bias sometimes can be an independent tensor (e.g., in bert)
@@ -68,8 +74,10 @@ class MappingOperator(object):
             return None, None
 
         layer_name = graph.nodes[node]['attr']['layer_name']
-        weight = initializer[layer_name+'.weight'] if layer_name+'.weight' in initializer else None
-        bias = initializer[layer_name+'.bias'] if layer_name+'.bias' in initializer else None
+        weight = initializer[layer_name + '.weight'] if layer_name + \
+            '.weight' in initializer else None
+        bias = initializer[layer_name + '.bias'] if layer_name + \
+            '.bias' in initializer else None
 
         return weight, bias
 
@@ -86,61 +94,83 @@ class MappingOperator(object):
 
         for (parent_layer, child_layer) in mappings:
             try:
-            # Get trainable weights
+                # Get trainable weights
                 #logging.info(f"map parent layer: {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}")
                 if self.parent.nodes[parent_layer]['attr']['op_type'] != self.child.nodes[child_layer]['attr']['op_type'] or \
-                    not validate_score(self.parent.nodes[parent_layer]['attr']['dims'], self.child.nodes[child_layer]['attr']['dims']):
+                        not validate_score(self.parent.nodes[parent_layer]['attr']['dims'], self.child.nodes[child_layer]['attr']['dims']):
                     continue
-                parent_w, parent_b = self.get_weights(self.parent, self.parent_weights, parent_layer)
-                child_w, child_b = self.get_weights(self.child, self.child_weights, child_layer)
+                parent_w, parent_b = self.get_weights(
+                    self.parent, self.parent_weights, parent_layer)
+                child_w, child_b = self.get_weights(
+                    self.child, self.child_weights, child_layer)
 
                 parent_layer_name = self.parent.nodes[parent_layer]['attr']['layer_name']
                 child_layer_name = self.child.nodes[child_layer]['attr']['layer_name']
-                #print('#', self.parent.nodes[parent_layer]['attr'], self.child.nodes[child_layer]['attr'])
+                # print('#', self.parent.nodes[parent_layer]['attr'],
+                # self.child.nodes[child_layer]['attr'])
 
-                if (parent_w is None or child_w is None) and (parent_b is None or child_b is None):
-                    logging.debug('Skip mapping {} to {}'.format(self.parent.nodes[parent_layer]['attr']['op_type'],
-                                                        self.child.nodes[child_layer]['attr']['op_type']))
+                if (parent_w is None or child_w is None) and (
+                        parent_b is None or child_b is None):
+                    logging.debug(
+                        'Skip mapping {} to {}'.format(
+                            self.parent.nodes[parent_layer]['attr']['op_type'],
+                            self.child.nodes[child_layer]['attr']['op_type']))
                 else:
                     # for breakdown
-                    if self.is_breakdown and self.parent.nodes[parent_layer]['attr']['dims'] != self.child.nodes[child_layer]['attr']['dims']:
+                    if self.is_breakdown and self.parent.nodes[parent_layer]['attr'][
+                            'dims'] != self.child.nodes[child_layer]['attr']['dims']:
                         continue
-                    n_weight, n_bias, mapping_index, new_width = widen(parent_w, parent_b, child_w, child_b, noise_factor=5e-2)
+                    n_weight, n_bias, mapping_index, new_width = widen(
+                        parent_w, parent_b, child_w, child_b, noise_factor=5e-2)
 
                     #assert(n_weight.shape == child_w.shape and n_bias.shape == child_b.shape)
                     if n_weight is not None:
-                        self.child_weights[child_layer_name+'.weight'] = n_weight
-                        self.reset_layers_name.add(child_layer_name+'.weight')
+                        self.child_weights[child_layer_name +
+                                           '.weight'] = n_weight
+                        self.reset_layers_name.add(
+                            child_layer_name + '.weight')
                     if n_bias is not None:
-                        self.child_weights[child_layer_name+'.bias'] = n_bias
-                        self.reset_layers_name.add(child_layer_name+'.bias')
+                        self.child_weights[child_layer_name + '.bias'] = n_bias
+                        self.reset_layers_name.add(child_layer_name + '.bias')
 
-                    # get its child layers, and override child weights if it is transferred
-                    if self.is_breakdown == False:
-                        following_layers = self.get_child_layers(self.child, child_layer)
+                    # get its child layers, and override child weights if it is
+                    # transferred
+                    if not self.is_breakdown:
+                        following_layers = self.get_child_layers(
+                            self.child, child_layer)
                         for layer in following_layers:
-                            if layer in self.reset_layers and layer+'.weight' in self.child_weights and layer not in widen_children:
-                                layer_w = self.child_weights[layer+'.weight']
-                                layer_b = self.child_weights.get(layer +'bias', None)
-                                nl_weight, nl_bias = widen_child(layer_w, layer_b, mapping_index, new_width=new_width)
+                            if layer in self.reset_layers and layer + \
+                                    '.weight' in self.child_weights and layer not in widen_children:
+                                layer_w = self.child_weights[layer + '.weight']
+                                layer_b = self.child_weights.get(
+                                    layer + 'bias', None)
+                                nl_weight, nl_bias = widen_child(
+                                    layer_w, layer_b, mapping_index, new_width=new_width)
 
                                 #assert(layer_w.shape == nl_weight.shape)
-                                self.child_weights[layer+'.weight'] = nl_weight
-                                if (layer+'bias') in self.child_weights:
-                                    self.child_weights[layer+'.bias'] = nl_bias
+                                self.child_weights[layer +
+                                                   '.weight'] = nl_weight
+                                if (layer + 'bias') in self.child_weights:
+                                    self.child_weights[layer +
+                                                       '.bias'] = nl_bias
 
                                 widen_children.add(layer)
 
                     self.num_of_matched += 1
                     self.reset_layers.add(child_layer_name)
-                    logging.info('Successfully map {} ({}) to {} ({})'.format(parent_layer_name, self.parent.nodes[parent_layer]['attr']['dims'],
-                                                                child_layer_name, self.child.nodes[child_layer]['attr']['dims']))
+                    logging.info(
+                        'Successfully map {} ({}) to {} ({})'.format(
+                            parent_layer_name,
+                            self.parent.nodes[parent_layer]['attr']['dims'],
+                            child_layer_name,
+                            self.child.nodes[child_layer]['attr']['dims']))
             except Exception as e:
                 pass
                 #logging.error(f"Failed to map {self.parent.nodes[parent_layer]['attr']} to {self.child.nodes[child_layer]['attr']}, as {e}")
 
-        logging.debug("\n\nCascading mapping takes {:.2f} sec".format(time.time() - start_time))
-
+        logging.debug(
+            "\n\nCascading mapping takes {:.2f} sec".format(
+                time.time() - start_time))
 
     def get_mapping_weights(self):
         return self.child_weights, self.num_of_matched, self.reset_layers_name
@@ -149,8 +179,9 @@ class MappingOperator(object):
         """
             Handle unmapped layers by padding identity layers or random initialization
         """
-        # reverse the graph, and then run DFS to record the gap between warmed layers and next closest one
-        if self.is_breakdown == True:
+        # reverse the graph, and then run DFS to record the gap between warmed
+        # layers and next closest one
+        if self.is_breakdown:
             return
         start_time = time.time()
         reversed_graph = self.child.reverse(copy=True)
@@ -161,13 +192,14 @@ class MappingOperator(object):
         def dfs(graph, node, depth, layer_gaps):
             visited.add(node)
             cur_depth = depth
-            layer_name, layer_dims = self.child.nodes[node]['attr']['layer_name'], len(self.child.nodes[node]['attr']['dims'])
+            layer_name, layer_dims = self.child.nodes[node]['attr']['layer_name'], len(
+                self.child.nodes[node]['attr']['dims'])
 
             # trainable layers
             if layer_dims >= 1:
                 cur_depth += 1
                 if layer_name in self.reset_layers:
-                    cur_depth = 0 # reset the closest warmed layers
+                    cur_depth = 0  # reset the closest warmed layers
                 layer_gaps[layer_name] = max(cur_depth, layer_gaps[layer_name])
                 #print(self.child.nodes[node]['attr'], layer_gaps[layer_name])
 
@@ -179,30 +211,40 @@ class MappingOperator(object):
         backward_layer_gaps = collections.defaultdict(int)
 
         try:
-            [dfs(self.child, node, depth=0, layer_gaps=forward_layer_gaps) for node in self.child.nodes() if self.child.in_degree(node)==0]
+            [dfs(self.child, node, depth=0, layer_gaps=forward_layer_gaps)
+             for node in self.child.nodes() if self.child.in_degree(node) == 0]
             visited = set()
-            [dfs(reversed_graph, node, depth=0, layer_gaps=backward_layer_gaps) for node in reversed_graph.nodes() if reversed_graph.in_degree(node)==0]
+            [dfs(reversed_graph, node, depth=0, layer_gaps=backward_layer_gaps)
+             for node in reversed_graph.nodes() if reversed_graph.in_degree(node) == 0]
         except Exception as e:
             logging.error(f"Error in dfs traverse: {e}")
 
         for trainable_layer in forward_layer_gaps:
             #print(self.child.nodes[trainable_layer]['attr'], forward_layer_gaps[trainable_layer], backward_layer_gaps[trainable_layer])
 
-            if forward_layer_gaps[trainable_layer] + backward_layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
+            if forward_layer_gaps[trainable_layer] + \
+                    backward_layer_gaps[trainable_layer] < threshold and trainable_layer not in self.reset_layers:
                 try:
-                    weight_layer = trainable_layer+'.weight'
+                    weight_layer = trainable_layer + '.weight'
                     if weight_layer in self.child_weights:
-                        n_weight, n_bias = deepen(self.child_weights[weight_layer], noise_factor=5e-2)
-                        assert(n_weight.shape == self.child_weights[weight_layer].shape)
+                        n_weight, n_bias = deepen(
+                            self.child_weights[weight_layer], noise_factor=5e-2)
+                        assert(
+                            n_weight.shape == self.child_weights[weight_layer].shape)
                         self.child_weights[weight_layer] = n_weight
 
-                        bias_layer = trainable_layer+'.bias'
+                        bias_layer = trainable_layer + '.bias'
                         if bias_layer in self.child_weights:
                             self.child_weights[bias_layer] = n_bias
 
                         num_of_padding += 1
                         #logging.info("Pad layer {} with gap {}".format(trainable_layer, forward_layer_gaps[trainable_layer] + backward_layer_gaps[trainable_layer]))
                 except Exception as e:
-                    logging.error('Error: fail to pad identity layer ({}), as "{}"'.format(trainable_layer, e))
+                    logging.error(
+                        'Error: fail to pad identity layer ({}), as "{}"'.format(
+                            trainable_layer, e))
 
-        logging.info("\nPad {} identity layers, takes {:.2f} sec".format(num_of_padding, time.time() - start_time))
+        logging.info(
+            "\nPad {} identity layers, takes {:.2f} sec".format(
+                num_of_padding,
+                time.time() - start_time))

@@ -1,6 +1,7 @@
+import os
+
 import torch
 from vgg import *
-import os
 
 conf_list = vgg_zoo()
 dummy_input = torch.rand(8, 3, 32, 32) #  batch:32; 3 channels; 32 x 32 size

@@ -9,17 +9,14 @@
 
 from __future__ import division
 
-from aproximated_ged import VanillaAED
-from aproximated_ged import VanillaHED
-
+import argparse
 import glob
 import time
 
-from sklearn.metrics import average_precision_score
 import networkx as nx
 import numpy as np
-
-import argparse
+from aproximated_ged import VanillaAED, VanillaHED
+from sklearn.metrics import average_precision_score
 
 __author__ = "Pau Riba, Anjan Dutta"
 __email__ = "priba@cvc.uab.cat, adutta@cvc.uab.cat"

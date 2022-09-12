@@ -1,9 +1,11 @@
+import os
+import pickle
+from random import Random
+
 import torch
+from models import get_cell_based_tiny_net
 from torch.autograd import Variable
 
-import os, pickle
-from models import get_cell_based_tiny_net
-from random import Random
 
 def GenerateConfig(n, path):
     """

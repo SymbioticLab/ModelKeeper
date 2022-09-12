@@ -1,10 +1,15 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2019 #
 ##################################################
-import os, sys, hashlib, torch
+import hashlib
+import os
+import sys
+
 import numpy as np
-from PIL import Image
+import torch
 import torch.utils.data as data
+from PIL import Image
+
 if sys.version_info[0] == 2:
   import cPickle as pickle
 else:

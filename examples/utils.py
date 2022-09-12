@@ -1,7 +1,9 @@
 import os
-import torch as th
-import numpy as np
+
 import matplotlib
+import numpy as np
+import torch as th
+
 matplotlib.use('Agg')
 import matplotlib.pylab as plt
 

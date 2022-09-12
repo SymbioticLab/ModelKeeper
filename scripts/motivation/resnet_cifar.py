@@ -15,9 +15,10 @@ __all__ = ['CIFARResNet', 'resnet14_cifar10',
            'resnet101_cifar10', 'resnet32_cifar10']
 
 import os
+
 import torch.nn as nn
 import torch.nn.init as init
-from common import conv3x3_block, conv1x1_block, conv7x7_block
+from common import conv1x1_block, conv3x3_block, conv7x7_block
 
 
 class ResBlock(nn.Module):

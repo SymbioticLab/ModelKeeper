@@ -1,21 +1,20 @@
+import json
+import multiprocessing
 import os
+import pickle
+from argparse import Namespace
+
 import numpy as np
 import pandas as pd
-import json
 import torch
 import torch.nn
+import torch.nn.functional as F
 import torch.optim
 import torch.utils.data
-import torch.nn.functional as F
-import numpy as np
-import os
-from thirdparty.utils import batchify
-from thirdparty.model import AWDRNNModel
 from thirdparty import data
-from argparse import Namespace
-import multiprocessing
+from thirdparty.model import AWDRNNModel
+from thirdparty.utils import batchify
 
-import pickle
 np.random.seed(1)
 
 class RecepieGenerator:
@@ -321,7 +320,7 @@ def generate_nlpbench():
     pool.join()
 
 def generate_bert():
-    from transformers import BertTokenizer, BertModel
+    from transformers import BertModel, BertTokenizer
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     custom_model = BertModel.from_pretrained("bert-base-uncased")
     text = "Replace me by any text you'd like."

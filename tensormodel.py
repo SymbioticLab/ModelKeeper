@@ -1,15 +1,18 @@
 
+import logging
+
+#from tensorboardX import SummaryWriter
+import numpy as np
+import onnx
 import torch
 import torch.nn as nn
-#from tensorboardX import SummaryWriter
-import numpy as np 
-import torchvision.models as models
 import torch.nn.functional as F
-import logging
-import onnx
+import torchvision.models as models
 from onnx import numpy_helper
+
 # from model_arc import make_dot
 # from graphviz import Source
+
 
 class Net(nn.Module):
     def __init__(self, num_of_class=10):
@@ -36,7 +39,7 @@ class Net(nn.Module):
                 m.bias.data.fill_(0.0)
 
     def forward(self, x):
-        #try:
+        # try:
         x = self.conv1(x)
         x = self.bn1(x)
         x = F.relu(x)
@@ -71,7 +74,7 @@ class Net(nn.Module):
                                    nn.ReLU(),
                                    nn.Conv2d(32, 32, kernel_size=3, padding=1))
         self.bn3 = nn.BatchNorm2d(32)
-        self.fc1 = nn.Linear(32*3*3, self.num_of_class)
+        self.fc1 = nn.Linear(32 * 3 * 3, self.num_of_class)
         logging.info(self)
 
     def manual_deeper(self):
@@ -89,7 +92,6 @@ class Net(nn.Module):
                                    nn.Conv2d(32, 32, kernel_size=3, padding=1))
         logging.info(self)
 
-
     def define_wider(self):
         self.conv1 = nn.Conv2d(3, 12, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(12)
@@ -97,7 +99,7 @@ class Net(nn.Module):
         self.bn2 = nn.BatchNorm2d(24)
         self.conv3 = nn.Conv2d(24, 48, kernel_size=3, padding=1)
         self.bn3 = nn.BatchNorm2d(48)
-        self.fc1 = nn.Linear(48*3*3, self.num_of_class)
+        self.fc1 = nn.Linear(48 * 3 * 3, self.num_of_class)
 
     def define_wider_deeper(self):
         self.conv1 = nn.Sequential(nn.Conv2d(3, 12, kernel_size=3, padding=1),
@@ -115,7 +117,7 @@ class Net(nn.Module):
                                    nn.ReLU(),
                                    nn.Conv2d(48, 48, kernel_size=3, padding=1))
         self.bn3 = nn.BatchNorm2d(48)
-        self.fc1 = nn.Linear(48*3*3, self.num_of_class)
+        self.fc1 = nn.Linear(48 * 3 * 3, self.num_of_class)
         logging.info(self)
 
 
@@ -132,13 +134,16 @@ def net2net_deeper_recursive(model):
             model._modules[name] = module
     return model
 
-def print_graph(g, level=0):
-    if g == None: return
-    print('*'*level*4, g)
-    for subg in g.next_functions:
-        print_graph(subg[0], level+1)
 
-num_of_class=10
+def print_graph(g, level=0):
+    if g is None:
+        return
+    print('*' * level * 4, g)
+    for subg in g.next_functions:
+        print_graph(subg[0], level + 1)
+
+
+num_of_class = 10
 if __name__ == "__main__":
     dummy_input = torch.rand(16, 3, 32, 32)
     model = Net(num_of_class)
@@ -156,16 +161,16 @@ if __name__ == "__main__":
 
     for name, p in model.named_parameters():
         p.data = (torch.from_numpy(initalizers[name])).data
-    
+
     print(model(dummy_input))
     #make_dot(y, params=dict(model.named_parameters())).render("model", format="pdf")
 
-    # model_types = ['resnet50']#, 'densenet161', 'shufflenet_v2_x1_0', 'mobilenet_v2']
+    # model_types = ['resnet50']#, 'densenet161', 'shufflenet_v2_x1_0',
+    # 'mobilenet_v2']
 
     # for m in model_types:
     #     model = models.__dict__[m](num_classes=10)
     #     y = model(dummy_input)
     #     print(make_dot(y.mean(), params=dict(model.named_parameters())))
-        # with SummaryWriter(comment=m) as w:
-        #     w.add_graph(model, (dummy_input, ))
-
+    # with SummaryWriter(comment=m) as w:
+    #     w.add_graph(model, (dummy_input, ))

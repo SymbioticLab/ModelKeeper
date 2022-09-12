@@ -1,4 +1,9 @@
-import torch, os, pickle, math
+import math
+import os
+import pickle
+
+import torch
+
 
 def load_model(file):
     with open(file, 'rb') as fin:

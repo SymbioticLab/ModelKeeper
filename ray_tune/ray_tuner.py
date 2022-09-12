@@ -1,61 +1,63 @@
-import os
-import time
-import random
-import pickle
 import argparse
-import logging
-import numpy as np
 import collections
-import pandas
+import logging
+import os
+import pickle
+import random
+import socket
 import string
+import sys
+import time
+from collections import defaultdict, deque
+from random import Random
 
+import numpy as np
+import pandas
+import ray
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
-
-import ray
+from onlinescheduler import OnlineScheduler
 from ray import tune
 from ray.tune import run_experiments
 from ray.tune.schedulers import AsyncHyperBandScheduler, FIFOScheduler
-from onlinescheduler import OnlineScheduler
 from ray.tune.stopper import CombinedStopper, MaximumIterationStopper
 #import torchvision.models as models
 from torch.autograd import Variable
-from torchvision import datasets, transforms
-
-import socket
-from random import Random
-from collections import defaultdict, deque
 from torch.onnx import TrainingMode
-
-import sys
-from utils.ImageNet import ImageNet16
+from torchvision import datasets, transforms
 from utils.Flowers102 import Flowers102
+from utils.ImageNet import ImageNet16
+
 sys.path.append(f'{os.environ["HOME"]}/experiment/ModelKeeper/ray_tune/modelkeeper')
 
-# ModelKeeper dependency
-from modelkeeper.config import modelkeeper_config
-from modelkeeper.clientservice import ModelKeeperClient
-from modelkeeper.matchingopt import ModelKeeper
+# nlp zoo
+import inspect
+import threading
 
-# sys.path.insert(0, '../ray_tune/')
-# Imgclsmob zoo
-from models.torchcv.model_provider import get_model as ptcv_get_model
+import torchtext
+from datasets import load_dataset, load_metric
 # Cifar zoo
 from models.cifarmodels.model_provider import get_cv_model
 from models.nasbench import get_cell_based_tiny_net
-import threading
-# nlp zoo
-import inspect
-import torchtext
-from datasets import load_dataset, load_metric
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoConfig, AutoModelForCausalLM
-from transformers import Trainer, TrainingArguments, get_linear_schedule_with_warmup, DataCollatorForLanguageModeling
-from utils.nlp_cls_utils import train_nlp_cls, eval_nlp_cls, load_cls_model
-from utils.nlp_nwp_utils import train_nlp_nwp, eval_nlp_nwp, load_nwp_model, tokenize_datset, load_nwp_tokenizer
+# sys.path.insert(0, '../ray_tune/')
+# Imgclsmob zoo
+from models.torchcv.model_provider import get_model as ptcv_get_model
+from transformers import (AutoConfig, AutoModelForCausalLM,
+                          AutoModelForSequenceClassification, AutoTokenizer,
+                          DataCollatorForLanguageModeling, Trainer,
+                          TrainingArguments, get_linear_schedule_with_warmup)
+from utils.nlp_cls_utils import eval_nlp_cls, load_cls_model, train_nlp_cls
+from utils.nlp_nwp_utils import (eval_nlp_nwp, load_nwp_model,
+                                 load_nwp_tokenizer, tokenize_datset,
+                                 train_nlp_nwp)
 from vgg import VGG, make_layers, vgg_zoo
+
+from modelkeeper.clientservice import ModelKeeperClient
+# ModelKeeper dependency
+from modelkeeper.config import modelkeeper_config
+from modelkeeper.matcher import ModelKeeper
 
 ray.tune.ray_trial_executor.DEFAULT_GET_TIMEOUT = 600
 os.environ['TUNE_PLACEMENT_GROUP_RECON_INTERVAL'] = '60'
@@ -352,6 +354,8 @@ def get_interest_args(model):
     return [x for x in inspect.getargspec(model.forward).args if x != 'self']
 
 from ray.tune.stopper import Stopper
+
+
 class TrialPlateauStopper(Stopper):
     def __init__(self,
                  metric: str,

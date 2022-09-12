@@ -2,24 +2,25 @@
     Offline register of model keeper client service
 '''
 
-from modelkeeper.config import modelkeeper_config
-from modelkeeper.clientservice import ModelKeeperClient
-
 import argparse
 import logging
-import pickle
-import torch
-import time
 import os
+import pickle
+import time
+
+import torch
+
+from modelkeeper.clientservice import ModelKeeperClient
+from modelkeeper.config import modelkeeper_config
 
 log_path = './modelkeeper_log'
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)s %(message)s',
-                datefmt='%H:%M:%S',
-                level=logging.INFO,
-                handlers=[
-                    logging.FileHandler(log_path, mode='a'),
-                    logging.StreamHandler()
-                ])
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO,
+                    handlers=[
+                        logging.FileHandler(log_path, mode='a'),
+                        logging.StreamHandler()
+                    ])
 
 parser = argparse.ArgumentParser(description="ModelKeeper offline client APIs")
 parser.add_argument('--task', type=str, default='cv')
@@ -27,12 +28,13 @@ parser.add_argument('--model_file', type=str, default=None)
 parser.add_argument('--export_path', type=str, default=None)
 parser.add_argument('--accuracy', type=float, default=-1)
 
+
 def register_model(model_file, export_path, accuracy):
     # with open(model_file, 'rb') as fin:
     #     model = pickle.load(fin)
     #     dummpy_input = pickle.load(fin)
 
-    #os.remove(model_file)
+    # os.remove(model_file)
     # torch.onnx.export(model, dummpy_input, export_path, export_params=True, verbose=0, training=1)
 
     # register model to the zoo

@@ -1,11 +1,12 @@
-import torchtext
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, AutoModelForMaskedLM
-from torch.utils.data import DataLoader
-import torch
 import logging
 import os
 import pickle
-import logging
+
+import torch
+import torchtext
+from torch.utils.data import DataLoader
+from transformers import (AutoConfig, AutoModelForCausalLM,
+                          AutoModelForMaskedLM, AutoTokenizer)
 
 #os.environ["TOKENIZERS_PARALLELISM"] = "false"
 BLOCK_SIZE = 128

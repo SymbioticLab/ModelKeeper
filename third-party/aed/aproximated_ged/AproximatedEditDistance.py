@@ -8,10 +8,10 @@
     Image and Vision computing 27.7 (2009): 950-959.
 """
 
-from .GraphEditDistance import GraphEditDistance
-
-from scipy.optimize import linear_sum_assignment
 import numpy as np
+from scipy.optimize import linear_sum_assignment
+
+from .GraphEditDistance import GraphEditDistance
 
 __author__ = "Pau Riba, Anjan Dutta"
 __email__ = "priba@cvc.uab.cat, adutta@cvc.uab.cat"
