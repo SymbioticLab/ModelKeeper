@@ -5,7 +5,6 @@ plot/
 *$py.class
 *.swp
 # C extensions
-*.so
 *.png
 data/
 /build/
