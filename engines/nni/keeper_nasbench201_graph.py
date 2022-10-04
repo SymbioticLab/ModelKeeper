@@ -485,7 +485,8 @@ class NasBench201TrainingModule(PL.LightningModule):
 @click.option('--num_gpu_per_nodes', default=1, help='Number of GPU per nodes')
 @click.option('--max_trial_number_per_gpu', default=1, help='Number of GPU per nodes')
 @click.option('--max_trial_number', default=1000, help='Maximum number of trials to run')
-def _multi_trial_test(epochs, batch_size, port, benchmark, data, use_keeper, register_runtime, num_nodes, num_gpu_per_nodes, max_trial_number_per_gpu, max_trial_number):
+@click.option('--user', default="", help='SSH user.')
+def _multi_trial_test(epochs, batch_size, port, benchmark, data, use_keeper, register_runtime, num_nodes, num_gpu_per_nodes, max_trial_number_per_gpu, max_trial_number, user):
     # initalize dataset. Note that 50k+10k is used. It's a little different from paper
     transf = [
         transforms.RandomCrop(32, padding=2),
@@ -546,7 +547,7 @@ def _multi_trial_test(epochs, batch_size, port, benchmark, data, use_keeper, reg
     for i in range(1,num_nodes+1):
         rm_conf = RemoteMachineConfig()
         rm_conf.host = '10.0.0.{}'.format(i)
-        rm_conf.user = 'Yinwei' ## Change to your username
+        rm_conf.user = user ## Change to your username
         # rm_conf.password = ''
         rm_conf.ssh_key_file = f"{os.environ['HOME']}/.ssh/id_rsa"
         rm_conf.python_path = f"{os.environ['HOME']}/anaconda3/envs/nni-mk/bin"
