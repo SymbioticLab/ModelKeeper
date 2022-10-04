@@ -115,3 +115,4 @@ venv.bak/
 *.o
 _generated_model/
 lightning_logs/
+.DS_Store

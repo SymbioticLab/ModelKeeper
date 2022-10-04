@@ -429,7 +429,7 @@ class NasBench201TrainingModule(PL.LightningModule):
                 current_std = np.std(self.round_result)
             except Exception:
                 current_std = float("inf")
-            if current_std < self.std or self.round > 2:
+            if current_std < self.std:
                 shutdown = True
             print(val_acc)
         nni.report_intermediate_result(val_acc)
@@ -481,7 +481,11 @@ class NasBench201TrainingModule(PL.LightningModule):
 @click.option('--data', default=f"{os.environ['HOME']}/data", help='Training length.')
 @click.option('--use_keeper', is_flag=True, default=False)
 @click.option('--register_runtime', default=1e10, help='When to register model to keeper')
-def _multi_trial_test(epochs, batch_size, port, benchmark, data, use_keeper, register_runtime):
+@click.option('--num_nodes', default=1, help='Number of nodes')
+@click.option('--num_gpu_per_nodes', default=1, help='Number of GPU per nodes')
+@click.option('--max_trial_number_per_gpu', default=1, help='Number of GPU per nodes')
+@click.option('--max_trial_number', default=1000, help='Maximum number of trials to run')
+def _multi_trial_test(epochs, batch_size, port, benchmark, data, use_keeper, register_runtime, num_nodes, num_gpu_per_nodes, max_trial_number_per_gpu, max_trial_number):
     # initalize dataset. Note that 50k+10k is used. It's a little different from paper
     transf = [
         transforms.RandomCrop(32, padding=2),
@@ -529,37 +533,37 @@ def _multi_trial_test(epochs, batch_size, port, benchmark, data, use_keeper, reg
 
     exp = RetiariiExperiment(model, lightning, [], strategy)
 
-    # exp_config = RetiariiExeConfig('remote')
-    # exp_config.experiment_name = 'nni-nasbench-baseline'
-    # exp_config.trial_concurrency = 2
-    # exp_config.max_trial_number = 1000
-    # exp_config.trial_gpu_number = 1
-    # exp_config.training_service.use_active_gpu = True
-    # exp_config.training_service.reuse_mode = False
-    # exp_config.experiment_working_directory = f"{os.environ['HOME']}/experiment/"
-
-    # confs = []
-    # for i in range(1,2):
-    #     rm_conf = RemoteMachineConfig()
-    #     rm_conf.host = '10.0.0.{}'.format(i)
-    #     rm_conf.user = 'Yinwei' ## Change to your username
-    #     # rm_conf.password = ''
-    #     rm_conf.ssh_key_file = f"{os.environ['HOME']}/.ssh/id_rsa"
-    #     rm_conf.python_path = f"{os.environ['HOME']}/experiment/anaconda3/envs/nni-mk/bin"
-    #     rm_conf.use_active_gpu = True
-    #     rm_conf.max_trial_number_per_gpu = 2
-    #     confs.append(rm_conf)
-    # exp_config.training_service.machine_list = confs
-    # exp_config.execution_engine = 'base'
-
-
-    exp_config = RetiariiExeConfig('local')
-    exp_config.trial_concurrency = 1
-    exp_config.max_trial_number = 10
+    exp_config = RetiariiExeConfig('remote')
+    exp_config.experiment_name = 'nni-nasbench-baseline'
+    exp_config.trial_concurrency = num_nodes * num_gpu_per_nodes * max_trial_number_per_gpu
+    exp_config.max_trial_number = max_trial_number
     exp_config.trial_gpu_number = 1
     exp_config.training_service.use_active_gpu = True
-    exp_config.training_service.max_trial_number_per_gpu = 2
+    exp_config.training_service.reuse_mode = False
+    exp_config.experiment_working_directory = f"{os.environ['HOME']}/experiment/"
+
+    confs = []
+    for i in range(1,num_nodes+1):
+        rm_conf = RemoteMachineConfig()
+        rm_conf.host = '10.0.0.{}'.format(i)
+        rm_conf.user = 'Yinwei' ## Change to your username
+        # rm_conf.password = ''
+        rm_conf.ssh_key_file = f"{os.environ['HOME']}/.ssh/id_rsa"
+        rm_conf.python_path = f"{os.environ['HOME']}/anaconda3/envs/nni-mk/bin"
+        rm_conf.use_active_gpu = True
+        rm_conf.max_trial_number_per_gpu = max_trial_number_per_gpu
+        confs.append(rm_conf)
+    exp_config.training_service.machine_list = confs
     exp_config.execution_engine = 'base'
+
+
+    # exp_config = RetiariiExeConfig('local')
+    # exp_config.trial_concurrency = 1
+    # exp_config.max_trial_number = 10
+    # exp_config.trial_gpu_number = 1
+    # exp_config.training_service.use_active_gpu = True
+    # exp_config.training_service.max_trial_number_per_gpu = 2
+    # exp_config.execution_engine = 'base'
     # if benchmark:
     #     exp_config.benchmark = 'nasbench201-cifar100'
         # exp_config.execution_engine = 'benchmark'
@@ -568,5 +572,3 @@ def _multi_trial_test(epochs, batch_size, port, benchmark, data, use_keeper, reg
 
 if __name__ == '__main__':
     _multi_trial_test()
-
-
