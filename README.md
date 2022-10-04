@@ -36,7 +36,7 @@ Repo Root
 |---- modelkeeper   # Core implementation (e.g., Matcher).
 |---- engines       # MK support for different training backends
     |---- ray_tune      # Ray experiments
-    |---- NNI           # Retiarii experiments
+    |---- nni           # Retiarii experiments
 |---- examples      # Toy experiments of model transformation
 ```
 
