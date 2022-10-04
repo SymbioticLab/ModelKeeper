@@ -7,7 +7,5 @@ setup(
     url="https://github.com/SymbioticLab/ModelKeeper",
     author="Fan Lai, Yinwei Dai",
     author_email="fedscale@googlegroups.com",
-    package_dir={
-        '': 'modelkeeper'},
-    packages=find_packages('modelkeeper'),
+    packages=find_packages(),
 )

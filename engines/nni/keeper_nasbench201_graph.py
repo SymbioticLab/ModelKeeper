@@ -33,7 +33,7 @@ import nni.retiarii.nn.pytorch as nn
 # ModelKeeper dependency
 from modelkeeper.config import modelkeeper_config
 from modelkeeper.clientservice import ModelKeeperClient
-from modelkeeper.matchingopt import ModelKeeper
+from modelkeeper.matcher import ModelKeeper
 
 import json
 seed = 2021
@@ -429,7 +429,7 @@ class NasBench201TrainingModule(PL.LightningModule):
                 current_std = np.std(self.round_result)
             except Exception:
                 current_std = float("inf")
-            if current_std < self.std:
+            if current_std < self.std or self.round > 2:
                 shutdown = True
             print(val_acc)
         nni.report_intermediate_result(val_acc)
@@ -529,37 +529,37 @@ def _multi_trial_test(epochs, batch_size, port, benchmark, data, use_keeper, reg
 
     exp = RetiariiExperiment(model, lightning, [], strategy)
 
-    exp_config = RetiariiExeConfig('remote')
-    exp_config.experiment_name = 'nni-nasbench-baseline'
-    exp_config.trial_concurrency = 24
-    exp_config.max_trial_number = 1000
-    exp_config.trial_gpu_number = 1
-    exp_config.training_service.use_active_gpu = True
-    exp_config.training_service.reuse_mode = False
-    exp_config.experiment_working_directory = f"{os.environ['HOME']}/experiment/"
-
-    confs = []
-    for i in range(1,3):
-        rm_conf = RemoteMachineConfig()
-        rm_conf.host = '10.0.0.{}'.format(i)
-        rm_conf.user = 'fanlai'
-        # rm_conf.password = ''
-        rm_conf.ssh_key_file = f"{os.environ['HOME']}/.ssh/id_rsa"
-        rm_conf.python_path = f"{os.environ['HOME']}/experiment/anaconda3/envs/net2net/bin"
-        rm_conf.use_active_gpu = True
-        rm_conf.max_trial_number_per_gpu = 3
-        confs.append(rm_conf)
-    exp_config.training_service.machine_list = confs
-    exp_config.execution_engine = 'base'
-
-
-    # exp_config = RetiariiExeConfig('local')
+    # exp_config = RetiariiExeConfig('remote')
+    # exp_config.experiment_name = 'nni-nasbench-baseline'
     # exp_config.trial_concurrency = 2
-    # exp_config.max_trial_number = 10
+    # exp_config.max_trial_number = 1000
     # exp_config.trial_gpu_number = 1
     # exp_config.training_service.use_active_gpu = True
-    # exp_config.training_service.max_trial_number_per_gpu = 2
+    # exp_config.training_service.reuse_mode = False
+    # exp_config.experiment_working_directory = f"{os.environ['HOME']}/experiment/"
+
+    # confs = []
+    # for i in range(1,2):
+    #     rm_conf = RemoteMachineConfig()
+    #     rm_conf.host = '10.0.0.{}'.format(i)
+    #     rm_conf.user = 'Yinwei' ## Change to your username
+    #     # rm_conf.password = ''
+    #     rm_conf.ssh_key_file = f"{os.environ['HOME']}/.ssh/id_rsa"
+    #     rm_conf.python_path = f"{os.environ['HOME']}/experiment/anaconda3/envs/nni-mk/bin"
+    #     rm_conf.use_active_gpu = True
+    #     rm_conf.max_trial_number_per_gpu = 2
+    #     confs.append(rm_conf)
+    # exp_config.training_service.machine_list = confs
     # exp_config.execution_engine = 'base'
+
+
+    exp_config = RetiariiExeConfig('local')
+    exp_config.trial_concurrency = 1
+    exp_config.max_trial_number = 10
+    exp_config.trial_gpu_number = 1
+    exp_config.training_service.use_active_gpu = True
+    exp_config.training_service.max_trial_number_per_gpu = 2
+    exp_config.execution_engine = 'base'
     # if benchmark:
     #     exp_config.benchmark = 'nasbench201-cifar100'
         # exp_config.execution_engine = 'benchmark'
