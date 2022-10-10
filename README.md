@@ -34,7 +34,7 @@ pip install -e .
 ```
 Repo Root
 |---- modelkeeper   # Core implementation (e.g., Matcher).
-|---- engines       # MK support for different training backends
+|---- evals         # MK support for different training backends
     |---- ray_tune      # Ray experiments
     |---- nni           # Retiarii experiments
 |---- examples      # Toy experiments of model transformation
