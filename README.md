@@ -1,6 +1,6 @@
 # ModelKeeper
 
-This repository contains the evvaluation artifacts of our NSDI '23 paper "[ModelKeeper: Accelerating DNN Training via Automated Training Warmup](https://symbioticlab.org/publications/files/modelkeeper:nsdi23/modelkeeper-nsdi23.pdf)".
+This repository contains the evaluation artifacts of our NSDI '23 paper "[ModelKeeper: Accelerating DNN Training via Automated Training Warmup](https://symbioticlab.org/publications/files/modelkeeper:nsdi23/modelkeeper-nsdi23.pdf)".
 
 **ModelKeeper is being merged as part of [FedScale](https://github.com/SymbioticLab/FedScale) and is actively maintained there. Please try it!**
 
